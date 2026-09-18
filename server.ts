@@ -123,6 +123,17 @@ async function startServer() {
   // Middleware for parsing JSON (allow larger payloads for GPX XML data)
   app.use(express.json({ limit: '25mb' }));
 
+  // URL normalization: if client script has APP_URL="https://.../?key=1234"
+  // then requests to f"{APP_URL}/api/routes" become "/?key=1234/api/routes".
+  // This middleware cleanly extracts the /api/routes path so it never returns 404.
+  app.use((req, res, next) => {
+    if (req.url.includes('/api/routes')) {
+      const idx = req.url.indexOf('/api/routes');
+      req.url = req.url.slice(idx);
+    }
+    next();
+  });
+
   // Initialize Firestore database on server
   let db: any = null;
   try {

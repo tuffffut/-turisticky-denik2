@@ -134,7 +134,9 @@ export function parseDateParam(val: string | null): string {
  * Fully parses URL query parameters for Telegram and Garmin integrations.
  */
 export function parseUrlSearch(search: string): ParsedUrlParams {
-  const params = new URLSearchParams(search);
+  // Normalize search string: replace any duplicate '?' with '&' (e.g. ?key=1234?edit=XYZ -> ?key=1234&edit=XYZ)
+  const normalizedSearch = (search || '').replace(/\?/g, (match, offset) => (offset === 0 ? '?' : '&'));
+  const params = new URLSearchParams(normalizedSearch);
 
   const key = params.get('key')?.trim() || null;
 
