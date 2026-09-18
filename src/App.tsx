@@ -57,6 +57,7 @@ export default function App() {
   const [initialGpxContent, setInitialGpxContent] = useState<{ filename?: string; content: string } | null>(null);
   const [initialHikeData, setInitialHikeData] = useState<Partial<MountainHike> | null>(null);
   const pendingRouteIdRef = useRef<string | null>(null);
+  const isEditModeRef = useRef<boolean>(false);
   const hasProcessedNewRouteRef = useRef<boolean>(false);
   const hasProcessedRouteIdRef = useRef<boolean>(false);
   const hasProcessedGpxUrlRef = useRef<boolean>(false);
@@ -120,26 +121,35 @@ export default function App() {
       }
     }
 
-    // 2. Direct route opening: ?routeId=XYZ
-    if (urlInfo.routeId && !hasProcessedRouteIdRef.current) {
-      pendingRouteIdRef.current = urlInfo.routeId;
-      const targetQuery = urlInfo.routeId.trim().toLowerCase();
+    // 2. Direct route opening: ?edit=XYZ (opens Edit/AI story modal) or ?routeId=XYZ (opens Detail)
+    const targetRouteParam = urlInfo.editRouteId || urlInfo.routeId;
+    if (targetRouteParam && !hasProcessedRouteIdRef.current) {
+      isEditModeRef.current = Boolean(urlInfo.editRouteId);
+      pendingRouteIdRef.current = targetRouteParam;
+      const targetQuery = targetRouteParam.trim().toLowerCase();
+
+      // Helper to open hike in edit or detail mode
+      const openTargetHike = (hike: MountainHike) => {
+        setSelectedHike(hike);
+        if (isEditModeRef.current) {
+          setHikeToEdit(hike);
+          setIsFormModalOpen(true);
+        }
+        hasProcessedRouteIdRef.current = true;
+        pendingRouteIdRef.current = null;
+      };
 
       // Check against current local/cached hikes
       const match = hikes.find(
         (h) => h.id.toLowerCase() === targetQuery || h.title.toLowerCase() === targetQuery
       );
       if (match) {
-        setSelectedHike(match);
-        hasProcessedRouteIdRef.current = true;
-        pendingRouteIdRef.current = null;
+        openTargetHike(match);
       } else {
         // Direct fallback: Fetch document straight from Firestore by ID
-        getHikeFromFirestore(urlInfo.routeId.trim()).then((docHike) => {
+        getHikeFromFirestore(targetRouteParam.trim()).then((docHike) => {
           if (docHike && !hasProcessedRouteIdRef.current) {
-            setSelectedHike(docHike);
-            hasProcessedRouteIdRef.current = true;
-            pendingRouteIdRef.current = null;
+            openTargetHike(docHike);
             setHikes((prev) => (prev.some((h) => h.id === docHike.id) ? prev : [docHike, ...prev]));
           }
         });
@@ -192,6 +202,10 @@ export default function App() {
       );
       if (match) {
         setSelectedHike(match);
+        if (isEditModeRef.current) {
+          setHikeToEdit(match);
+          setIsFormModalOpen(true);
+        }
         hasProcessedRouteIdRef.current = true;
         pendingRouteIdRef.current = null;
       }

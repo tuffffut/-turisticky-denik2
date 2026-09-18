@@ -3,6 +3,7 @@ import { MountainHike, HikeDifficulty } from '../types';
 export interface ParsedUrlParams {
   key: string | null;
   routeId: string | null;
+  editRouteId: string | null;
   isNewRoute: boolean;
   hikeData: Partial<MountainHike>;
   gpxUrl: string | null;
@@ -137,8 +138,16 @@ export function parseUrlSearch(search: string): ParsedUrlParams {
 
   const key = params.get('key')?.trim() || null;
 
-  // Route ID parameter (support routeId, hikeId, hike, id, route)
+  // Edit route ID parameter (from Garmin Telegram prompt: ?edit=XYZ)
+  const editRouteId =
+    params.get('edit')?.trim() ||
+    params.get('editRoute')?.trim() ||
+    params.get('editHike')?.trim() ||
+    null;
+
+  // Route ID parameter (support routeId, hikeId, hike, id, route, or edit)
   const routeId =
+    editRouteId ||
     params.get('routeId')?.trim() ||
     params.get('hikeId')?.trim() ||
     params.get('hike')?.trim() ||
@@ -246,6 +255,7 @@ export function parseUrlSearch(search: string): ParsedUrlParams {
   return {
     key,
     routeId,
+    editRouteId,
     isNewRoute,
     hikeData,
     gpxUrl,

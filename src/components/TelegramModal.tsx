@@ -339,6 +339,32 @@ export const TelegramModal: React.FC<TelegramModalProps> = ({
                   <span>Kopírovat</span>
                 </button>
               </div>
+
+              {/* Garmin Edit & AI Story Link */}
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold text-stone-300">
+                    3. Garmin Python skript – okamžitá editace a AI příběh (?edit=...)
+                  </div>
+                  <div className="text-[11px] font-mono text-emerald-400 truncate">
+                    {`${currentHost}/?key=1234&edit=hike-1`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyToClipboard(`${currentHost}/?key=1234&edit=hike-1`, 'garmin-edit-example')
+                  }
+                  className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium shrink-0 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {copiedItem === 'garmin-edit-example' ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                  <span>Kopírovat</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
