@@ -1,0 +1,6 @@
+{
+  "name": "Horský Deník",
+  "description": "Evidence horských výprav a túr s GPX trasami, interaktivní mapou, výškovými profily a zabezpečením dvojitým PINem.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
