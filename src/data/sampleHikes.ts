@@ -339,26 +339,32 @@ export const SAMPLE_HIKES: MountainHike[] = [
 ];
 
 const LOCAL_STORAGE_HIKES_KEY = 'horsky_denik_hikes_v1';
+const LOCAL_STORAGE_INITIALIZED_KEY = 'horsky_denik_initialized_v1';
 
 export function getStoredHikes(): MountainHike[] {
   try {
+    const isInitialized = localStorage.getItem(LOCAL_STORAGE_INITIALIZED_KEY);
     const raw = localStorage.getItem(LOCAL_STORAGE_HIKES_KEY);
-    if (!raw) {
-      localStorage.setItem(LOCAL_STORAGE_HIKES_KEY, JSON.stringify(SAMPLE_HIKES));
-      return SAMPLE_HIKES;
+
+    // If user has already initialized or deliberately cleared the diary
+    if (isInitialized) {
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
     }
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
-    }
+
+    // First time visitor only: provide sample hikes once
+    localStorage.setItem(LOCAL_STORAGE_INITIALIZED_KEY, 'true');
+    localStorage.setItem(LOCAL_STORAGE_HIKES_KEY, JSON.stringify(SAMPLE_HIKES));
     return SAMPLE_HIKES;
   } catch {
-    return SAMPLE_HIKES;
+    return [];
   }
 }
 
 export function saveHikesToStorage(hikes: MountainHike[]): void {
   try {
+    localStorage.setItem(LOCAL_STORAGE_INITIALIZED_KEY, 'true');
     localStorage.setItem(LOCAL_STORAGE_HIKES_KEY, JSON.stringify(hikes));
   } catch (err) {
     console.error('Failed to save hikes to localStorage', err);
@@ -366,6 +372,7 @@ export function saveHikesToStorage(hikes: MountainHike[]): void {
 }
 
 export function resetHikesToDefault(): MountainHike[] {
+  localStorage.setItem(LOCAL_STORAGE_INITIALIZED_KEY, 'true');
   localStorage.setItem(LOCAL_STORAGE_HIKES_KEY, JSON.stringify(SAMPLE_HIKES));
   return SAMPLE_HIKES;
 }

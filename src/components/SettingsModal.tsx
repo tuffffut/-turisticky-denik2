@@ -26,6 +26,7 @@ interface SettingsModalProps {
   currentRole: UserRole;
   onPinsUpdated: (newConfig: PinConfig) => void;
   onResetData: () => void;
+  onClearAllHikes?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -35,6 +36,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   currentRole,
   onPinsUpdated,
   onResetData,
+  onClearAllHikes,
 }) => {
   const [adminPin, setAdminPin] = useState(pinConfig.adminPin);
   const [readerPin, setReaderPin] = useState(pinConfig.readerPin);
@@ -346,29 +348,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* Data Reset Section */}
+          {/* Data Reset & Clear Section */}
           {isAdmin && (
-            <div className="pt-4 border-t border-stone-800 flex items-center justify-between">
-              <div>
-                <h4 className="text-xs font-semibold text-stone-300">
-                  Obnovit ukázková data túr
-                </h4>
-                <p className="text-[11px] text-stone-500">
-                  Vrátí předvyplněné výpravy (Sněžka, Rysy, Praděd) do výchozího stavu.
-                </p>
+            <div className="pt-4 border-t border-stone-800 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-stone-950/60 border border-stone-800">
+                <div>
+                  <h4 className="text-xs font-semibold text-rose-300">
+                    Vymazat všechny túry (čistý deník)
+                  </h4>
+                  <p className="text-[11px] text-stone-500">
+                    Odstraní všechny výpravy. Deník zůstane 100% čistý pro nahrávání vašich tras z Garminu.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm('Opravdu chcete vymazat všechny túry a mít deník zcela prázdný?')) {
+                      if (onClearAllHikes) onClearAllHikes();
+                      onClose();
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-medium border border-rose-800/60 transition-colors cursor-pointer shrink-0"
+                >
+                  Vyčistit celý deník
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm('Chcete obnovit ukázkové túry? Vaše vlastní túry budou nahrazeny.')) {
-                    onResetData();
-                    onClose();
-                  }
-                }}
-                className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-medium border border-stone-700 transition-colors cursor-pointer"
-              >
-                Resetovat data túr
-              </button>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-stone-950/60 border border-stone-800">
+                <div>
+                  <h4 className="text-xs font-semibold text-stone-300">
+                    Obnovit ukázková data túr
+                  </h4>
+                  <p className="text-[11px] text-stone-500">
+                    Vrátí 4 ukázkové výpravy (Sněžka, Rysy, Praděd, Martinské hole).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm('Chcete načíst ukázkové túry?')) {
+                      onResetData();
+                      onClose();
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-medium border border-stone-700 transition-colors cursor-pointer shrink-0"
+                >
+                  Nahrát ukázková data
+                </button>
+              </div>
             </div>
           )}
         </div>

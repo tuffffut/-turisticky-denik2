@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mountain, Lock, KeyRound, Eye, EyeOff, ShieldCheck, AlertCircle, Sparkles, ArrowRight } from 'lucide-react';
+import { Mountain, KeyRound, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { UserRole, PinConfig } from '../types';
 import { authenticatePin } from '../utils/auth';
 
@@ -18,7 +18,6 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(initialError || null);
   const [isShaking, setIsShaking] = useState(false);
-  const [showDefaultHint, setShowDefaultHint] = useState(true);
 
   // Sync initial error
   useEffect(() => {
@@ -193,75 +192,6 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             <span>Odemknout aplikaci</span>
           </button>
         </form>
-
-        {/* Roles & Quick Test Helper Box */}
-        <div className="mt-6 pt-5 border-t border-stone-800/80">
-          <div className="flex items-center justify-between text-xs text-stone-400 mb-2.5">
-            <span className="flex items-center gap-1.5 font-medium text-stone-300">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              Rychlý přístup pro testování:
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowDefaultHint(!showDefaultHint)}
-              className="text-stone-400 hover:text-stone-200 underline cursor-pointer"
-            >
-              {showDefaultHint ? 'Skrýt' : 'Zobrazit'}
-            </button>
-          </div>
-
-          {showDefaultHint && (
-            <div className="space-y-2 text-xs">
-              <button
-                type="button"
-                id="quick-unlock-admin-btn"
-                onClick={() => handleAttemptUnlock(pinConfig.adminPin)}
-                className="w-full flex items-center justify-between p-2.5 rounded-lg bg-stone-950/60 hover:bg-emerald-950/40 border border-stone-800 hover:border-emerald-700/50 text-stone-300 transition-colors text-left cursor-pointer group"
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded bg-emerald-900/50 text-emerald-400 flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <span className="font-semibold text-stone-100">Správce (Admin)</span>
-                    <span className="text-stone-400 ml-1.5 font-mono">PIN: {pinConfig.adminPin}</span>
-                    <p className="text-[11px] text-stone-400">Plný přístup k úpravám a nahrávání tras</p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-stone-500 group-hover:text-emerald-400 transition-colors" />
-              </button>
-
-              <button
-                type="button"
-                id="quick-unlock-reader-btn"
-                onClick={() => handleAttemptUnlock(pinConfig.readerPin)}
-                className="w-full flex items-center justify-between p-2.5 rounded-lg bg-stone-950/60 hover:bg-cyan-950/40 border border-stone-800 hover:border-cyan-700/50 text-stone-300 transition-colors text-left cursor-pointer group"
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded bg-cyan-900/50 text-cyan-400 flex items-center justify-center shrink-0">
-                    <Eye className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <span className="font-semibold text-stone-100">Čtenář (Host)</span>
-                    <span className="text-stone-400 ml-1.5 font-mono">PIN: {pinConfig.readerPin}</span>
-                    <p className="text-[11px] text-stone-400">Pouze pro čtení tras, map a fotek</p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-stone-500 group-hover:text-cyan-400 transition-colors" />
-              </button>
-
-              <div className="p-2 bg-stone-950/40 rounded border border-stone-800/60 text-[11px] text-stone-400 flex items-start gap-1.5">
-                <span className="text-stone-300 font-medium shrink-0">Tip k URL:</span>
-                <span>
-                  Odkazy s parametrem např.{' '}
-                  <code className="text-emerald-400 font-mono">?key={pinConfig.adminPin}</code> nebo{' '}
-                  <code className="text-cyan-400 font-mono">?key={pinConfig.readerPin}</code> odemknou deník okamžitě
-                  bez zadávání kódu.
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

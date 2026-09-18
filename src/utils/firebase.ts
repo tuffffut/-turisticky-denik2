@@ -97,6 +97,23 @@ export async function deleteHikeFromFirestore(hikeId: string): Promise<void> {
 }
 
 /**
+ * Deletes all hikes from Firestore to leave the diary completely empty.
+ */
+export async function deleteAllHikesFromFirestore(): Promise<void> {
+  try {
+    const colRef = collection(db, HIKES_COLLECTION);
+    const snap = await getDocs(colRef);
+    if (!snap.empty) {
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+  } catch (err) {
+    console.warn('Chyba při mazání všech tras z Firestore:', err);
+  }
+}
+
+/**
  * Fetches a single hike from Firestore by its ID.
  */
 export async function getHikeFromFirestore(hikeId: string): Promise<MountainHike | null> {

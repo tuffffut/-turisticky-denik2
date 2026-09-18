@@ -15,6 +15,7 @@ import {
   subscribeToHikes,
   saveHikeToFirestore,
   deleteHikeFromFirestore,
+  deleteAllHikesFromFirestore,
   seedHikesIfEmpty,
   subscribeToPins,
   savePinsToFirestore,
@@ -71,24 +72,16 @@ export default function App() {
     return () => unsubPins();
   }, []);
 
-  // Firestore real-time subscription & initial seeding
+  // Firestore real-time subscription
   useEffect(() => {
-    // 1. Seed initial sample hikes into Firestore if collection is empty
-    const initialLocalHikes = getStoredHikes();
-    seedHikesIfEmpty(initialLocalHikes).catch((err) =>
-      console.warn('Initial Firestore seed check failed:', err)
-    );
-
-    // 2. Subscribe to real-time changes
+    // Subscribe to real-time changes
     const unsubscribe = subscribeToHikes(
       (remoteHikes) => {
-        if (remoteHikes && remoteHikes.length > 0) {
-          const sorted = [...remoteHikes].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-          );
-          setHikes(sorted);
-          saveHikesToStorage(sorted);
-        }
+        const sorted = [...(remoteHikes || [])].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+        setHikes(sorted);
+        saveHikesToStorage(sorted);
         setIsFirestoreConnected(true);
       },
       (err) => {
@@ -285,6 +278,17 @@ export default function App() {
     }
   };
 
+  const handleClearAllHikes = () => {
+    setHikes([]);
+    saveHikesToStorage([]);
+    deleteAllHikesFromFirestore().catch((err) =>
+      console.warn('Nepodařilo se vymazat trasy z Firestore:', err)
+    );
+    if (selectedHike) {
+      setSelectedHike(null);
+    }
+  };
+
   // Add hike from Telegram message simulation
   const handleTelegramAddHike = (command: string) => {
     const cleaned = command.replace(/^\/tura\s*/i, '');
@@ -427,6 +431,7 @@ export default function App() {
         currentRole={currentRole}
         onPinsUpdated={setPinConfig}
         onResetData={handleResetData}
+        onClearAllHikes={handleClearAllHikes}
       />
 
       {/* Share Modal */}
