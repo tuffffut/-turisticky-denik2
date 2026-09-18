@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Settings,
   KeyRound,
   ShieldCheck,
   Eye,
+  EyeOff,
   Copy,
   Check,
   RotateCcw,
@@ -12,9 +13,11 @@ import {
   Share2,
   ExternalLink,
   Info,
+  Cloud,
 } from 'lucide-react';
 import { PinConfig, UserRole } from '../types';
 import { savePins, resetPinsToDefault, getShareUrl } from '../utils/auth';
+import { savePinsToFirestore } from '../utils/firebase';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -35,47 +38,82 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [adminPin, setAdminPin] = useState(pinConfig.adminPin);
   const [readerPin, setReaderPin] = useState(pinConfig.readerPin);
+  const [showAdminPin, setShowAdminPin] = useState(false);
+  const [showReaderPin, setShowReaderPin] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<'admin' | 'reader' | null>(null);
+
+  // Sync inputs with current pinConfig whenever modal opens or props change
+  useEffect(() => {
+    if (isOpen) {
+      setAdminPin(pinConfig.adminPin);
+      setReaderPin(pinConfig.readerPin);
+      setErrorMessage(null);
+      setSaveMessage(null);
+    }
+  }, [isOpen, pinConfig]);
 
   if (!isOpen) return null;
 
   const isAdmin = currentRole === 'admin';
 
-  const handleSavePins = (e: React.FormEvent) => {
+  const handleSavePins = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) {
-      setErrorMessage('Pouze správce (Admin) může měnit PINy.');
+      setErrorMessage('Pouze správce (Admin) může měnit hesla/PINy.');
       return;
     }
 
-    if (adminPin.trim().length < 3 || readerPin.trim().length < 3) {
-      setErrorMessage('Každý PIN musí mít alespoň 3 znaky/číslice.');
+    const cleanAdmin = adminPin.trim();
+    const cleanReader = readerPin.trim();
+
+    if (cleanAdmin.length < 3 || cleanReader.length < 3) {
+      setErrorMessage('Každé heslo/PIN musí mít alespoň 3 znaky.');
       return;
     }
 
-    if (adminPin.trim() === readerPin.trim()) {
-      setErrorMessage('Admin PIN a Čtenářský PIN musí být odlišné.');
+    if (cleanAdmin === cleanReader) {
+      setErrorMessage('Admin heslo a Čtenářské heslo musí být odlišné.');
       return;
     }
 
-    const success = savePins(adminPin, readerPin);
-    if (success) {
-      onPinsUpdated({ adminPin: adminPin.trim(), readerPin: readerPin.trim() });
-      setSaveMessage('PINy byly úspěšně uloženy do paměti prohlížeče.');
-      setErrorMessage(null);
-      setTimeout(() => setSaveMessage(null), 3000);
+    setIsSaving(true);
+    setErrorMessage(null);
+
+    const newConfig: PinConfig = {
+      adminPin: cleanAdmin,
+      readerPin: cleanReader,
+    };
+
+    // 1. Save to local browser storage
+    savePins(cleanAdmin, cleanReader);
+    onPinsUpdated(newConfig);
+
+    // 2. Save and sync to Firebase Firestore for all devices & Telegram
+    try {
+      await savePinsToFirestore(newConfig);
+      setSaveMessage('Hesla byla úspěšně uložena a synchronizována do cloudu pro všechna vaše zařízení i Telegram.');
+    } catch (err: any) {
+      console.warn('Uložení do Firestore selhalo, uloženo lokálně:', err);
+      setSaveMessage('Hesla byla uložena do paměti prohlížeče.');
+    } finally {
+      setIsSaving(false);
+      setTimeout(() => setSaveMessage(null), 4000);
     }
   };
 
-  const handleResetPins = () => {
-    if (confirm('Opravdu chcete obnovit výchozí PINy (Admin: 1234, Čtenář: 0000)?')) {
+  const handleResetPins = async () => {
+    if (confirm('Opravdu chcete obnovit výchozí hesla (Admin: 1234, Čtenář: 0000)?')) {
       const def = resetPinsToDefault();
       setAdminPin(def.adminPin);
       setReaderPin(def.readerPin);
       onPinsUpdated(def);
-      setSaveMessage('PINy byly resetovány na výchozí hodnoty.');
+      try {
+        await savePinsToFirestore(def);
+      } catch {}
+      setSaveMessage('Hesla byla resetována na výchozí hodnoty (1234 a 0000).');
       setTimeout(() => setSaveMessage(null), 3000);
     }
   };
@@ -231,36 +269,58 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-3.5 rounded-xl bg-stone-950/60 border border-stone-800">
-                  <label className="block text-xs font-medium text-stone-300 mb-1 flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Admin PIN (Správa)</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-stone-300 flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Admin heslo / PIN (Správa)</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminPin((v) => !v)}
+                      className="text-stone-400 hover:text-stone-200 transition-colors p-1"
+                      title={showAdminPin ? 'Skrýt heslo' : 'Zobrazit heslo'}
+                    >
+                      {showAdminPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                   <input
-                    type="text"
-                    maxLength={10}
+                    type={showAdminPin ? 'text' : 'password'}
+                    maxLength={32}
                     value={adminPin}
                     onChange={(e) => setAdminPin(e.target.value)}
+                    placeholder="Např. 1234 nebo text"
                     className="w-full px-3 py-2 bg-stone-900 border border-stone-700 rounded-lg text-stone-100 font-mono text-center text-lg tracking-widest focus:outline-none focus:border-emerald-500"
                   />
                   <p className="text-[11px] text-stone-500 mt-1.5">
-                    Plný přístup k vytváření, úpravám a mazání tras.
+                    Plný přístup k vytváření, úpravám a mazání tras. Lze použít číslice i text.
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-stone-950/60 border border-stone-800">
-                  <label className="block text-xs font-medium text-stone-300 mb-1 flex items-center gap-1.5">
-                    <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Čtenářský PIN (Pouze čtení)</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-stone-300 flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Čtenářské heslo / PIN</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowReaderPin((v) => !v)}
+                      className="text-stone-400 hover:text-stone-200 transition-colors p-1"
+                      title={showReaderPin ? 'Skrýt heslo' : 'Zobrazit heslo'}
+                    >
+                      {showReaderPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                   <input
-                    type="text"
-                    maxLength={10}
+                    type={showReaderPin ? 'text' : 'password'}
+                    maxLength={32}
                     value={readerPin}
                     onChange={(e) => setReaderPin(e.target.value)}
+                    placeholder="Např. 0000 nebo text"
                     className="w-full px-3 py-2 bg-stone-900 border border-stone-700 rounded-lg text-stone-100 font-mono text-center text-lg tracking-widest focus:outline-none focus:border-emerald-500"
                   />
                   <p className="text-[11px] text-stone-500 mt-1.5">
-                    Prohlížení tras, map a fotek bez editačních tlačítek.
+                    Prohlížení tras, map a fotek bez editačních tlačítek. Lze použít číslice i text.
                   </p>
                 </div>
               </div>
@@ -268,9 +328,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex justify-end pt-2">
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                  disabled={isSaving}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
                 >
-                  Uložit nové PINy
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span>{isSaving ? 'Ukládám do cloudu...' : 'Uložit nové heslo / PIN'}</span>
                 </button>
               </div>
             </form>

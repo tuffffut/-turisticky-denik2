@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ShieldCheck, KeyRound, AlertCircle } from 'lucide-react';
+import { X, ShieldCheck, KeyRound, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { PinConfig } from '../types';
 
 interface SwitchToAdminModalProps {
@@ -16,19 +16,20 @@ export const SwitchToAdminModal: React.FC<SwitchToAdminModalProps> = ({
   onSuccess,
 }) => {
   const [pin, setPin] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pin.trim() === pinConfig.adminPin) {
+    if (pin.trim() === pinConfig.adminPin.trim()) {
       onSuccess();
       onClose();
       setPin('');
       setError(null);
     } else {
-      setError('Nesprávný Admin PIN.');
+      setError('Nesprávné Admin heslo / PIN.');
       setPin('');
     }
   };
@@ -62,22 +63,33 @@ export const SwitchToAdminModal: React.FC<SwitchToAdminModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-stone-300 mb-1.5">
-              Správcovský PIN
-            </label>
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={8}
-              autoFocus
-              value={pin}
-              onChange={(e) => {
-                setPin(e.target.value);
-                if (error) setError(null);
-              }}
-              placeholder="••••"
-              className="w-full text-center text-2xl tracking-widest py-2.5 px-4 bg-stone-950 border border-stone-700 rounded-xl text-stone-100 font-mono focus:outline-none focus:border-emerald-500"
-            />
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-medium text-stone-300">
+                Správcovské heslo / PIN
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="text-stone-400 hover:text-stone-200 p-0.5 rounded transition-colors"
+                title={showPassword ? 'Skrýt heslo' : 'Zobrazit heslo'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                maxLength={32}
+                autoFocus
+                value={pin}
+                onChange={(e) => {
+                  setPin(e.target.value);
+                  if (error) setError(null);
+                }}
+                placeholder={showPassword ? 'Zadejte heslo nebo PIN' : '••••'}
+                className="w-full text-center text-xl tracking-widest py-2.5 px-4 bg-stone-950 border border-stone-700 rounded-xl text-stone-100 font-mono focus:outline-none focus:border-emerald-500"
+              />
+            </div>
             {error && (
               <div className="flex items-center gap-1.5 text-rose-400 text-xs mt-2 bg-rose-950/40 p-2 rounded-lg border border-rose-900/50">
                 <AlertCircle className="w-4 h-4 shrink-0" />

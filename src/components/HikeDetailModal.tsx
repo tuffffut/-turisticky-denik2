@@ -24,6 +24,10 @@ import {
   Loader2,
   Quote,
   Smile,
+  Share2,
+  Send,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { MountainHike, UserRole, GPXTrackPoint, HikeAISummary } from '../types';
 import { HikeMap } from './HikeMap';
@@ -32,10 +36,12 @@ import { downloadGPXFile, buildGPXXml } from '../utils/gpxParser';
 import { PhotoLightbox } from './PhotoLightbox';
 import { VideoPlayer } from './VideoPlayer';
 import { generateHikeAITips } from '../utils/aiAssistant';
+import { getHikeShareUrl, getTelegramShareUrl } from '../utils/auth';
 
 interface HikeDetailModalProps {
   hike: MountainHike | null;
   currentRole: UserRole;
+  readerPin?: string;
   onClose: () => void;
   onEdit: (hike: MountainHike) => void;
   onDelete: (hikeId: string) => void;
@@ -45,6 +51,7 @@ interface HikeDetailModalProps {
 export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
   hike,
   currentRole,
+  readerPin = '0000',
   onClose,
   onEdit,
   onDelete,
@@ -54,6 +61,8 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
+  const [showShareDropdown, setShowShareDropdown] = useState(false);
   const [localAiSummary, setLocalAiSummary] = useState<HikeAISummary | undefined>(
     hike?.aiSummary
   );
@@ -187,6 +196,57 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {/* Share Hike on Telegram / via Link */}
+              <div className="relative">
+                <button
+                  id="detail-share-hike-btn"
+                  type="button"
+                  onClick={() => setShowShareDropdown(!showShareDropdown)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium border border-stone-700 transition-colors cursor-pointer"
+                  title="Sdílet tuto túru na Telegram nebo odkazem"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="hidden sm:inline">Sdílet</span>
+                </button>
+
+                {showShareDropdown && (
+                  <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-stone-900 border border-stone-700 rounded-xl shadow-2xl z-30 space-y-2">
+                    <div className="text-[11px] text-stone-400 font-medium pb-1 border-b border-stone-800">
+                      Sdílet výpravu s nahranou GPX:
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const directUrl = getHikeShareUrl(readerPin, hike.id);
+                        const text = `🏔️ Podívej se na mou horskou výpravu ${hike.title} (${hike.distanceKm} km, převýšení +${hike.elevationGainM} m):`;
+                        window.open(getTelegramShareUrl(directUrl, text), '_blank');
+                        setShowShareDropdown(false);
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium transition-colors cursor-pointer"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Odeslat na Telegram</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const directUrl = getHikeShareUrl(readerPin, hike.id);
+                        navigator.clipboard.writeText(directUrl);
+                        setCopiedShare(true);
+                        setTimeout(() => {
+                          setCopiedShare(false);
+                          setShowShareDropdown(false);
+                        }, 2000);
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium transition-colors cursor-pointer border border-stone-700"
+                    >
+                      {copiedShare ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedShare ? 'Odkaz zkopírován!' : 'Kopírovat přímý odkaz'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Download GPX */}
               <button
                 id="detail-download-gpx-btn"

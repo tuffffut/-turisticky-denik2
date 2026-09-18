@@ -31,6 +31,8 @@ import { generateHikeAITips } from '../utils/aiAssistant';
 interface HikeFormModalProps {
   isOpen: boolean;
   hikeToEdit: MountainHike | null;
+  initialGpxContent?: { filename?: string; content: string } | null;
+  initialHikeData?: Partial<MountainHike> | null;
   onClose: () => void;
   onSave: (hike: MountainHike) => void;
 }
@@ -38,6 +40,8 @@ interface HikeFormModalProps {
 export const HikeFormModal: React.FC<HikeFormModalProps> = ({
   isOpen,
   hikeToEdit,
+  initialGpxContent,
+  initialHikeData,
   onClose,
   onSave,
 }) => {
@@ -72,6 +76,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
   const [peakLat, setPeakLat] = useState<number | ''>('');
   const [peakLng, setPeakLng] = useState<number | ''>('');
   const [peakName, setPeakName] = useState('');
+  const [importedNotice, setImportedNotice] = useState<string | null>(null);
 
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -99,20 +104,23 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setPeakName(hikeToEdit.peakCoords?.name ?? '');
       setGpxFileName(hikeToEdit.trackPoints ? 'Trasa je uložena' : null);
       setRewrittenPreview(null);
+      setImportedNotice(null);
     } else {
       // Reset defaults
-      setTitle('');
-      setMountainRange('Krkonoše');
+      const defaultTitle = initialHikeData?.title || '';
+      const defaultRange = initialHikeData?.mountainRange || 'Krkonoše';
+      setTitle(defaultTitle);
+      setMountainRange(defaultRange);
       setDate(new Date().toISOString().split('T')[0]);
-      setDistanceKm('');
-      setElevationGainM('');
-      setElevationLossM('');
-      setDuration('4h 30m');
-      setDifficulty('moderate');
+      setDistanceKm(initialHikeData?.distanceKm ?? '');
+      setElevationGainM(initialHikeData?.elevationGainM ?? '');
+      setElevationLossM(initialHikeData?.elevationLossM ?? '');
+      setDuration(initialHikeData?.duration || '4h 30m');
+      setDifficulty(initialHikeData?.difficulty || 'moderate');
       setRating(5);
-      setDescription('');
-      setHighestPointM('');
-      setWeather('');
+      setDescription(initialHikeData?.description || '');
+      setHighestPointM(initialHikeData?.highestPointM ?? '');
+      setWeather(initialHikeData?.weather ?? '');
       setPhotos([
         'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80',
       ]);
@@ -126,9 +134,44 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setPeakLng('');
       setPeakName('');
       setRewrittenPreview(null);
+      setImportedNotice(null);
+
+      // If initial GPX content was provided via URL/Telegram
+      if (initialGpxContent?.content) {
+        try {
+          const result = parseGPX(initialGpxContent.content);
+          setTrackPoints(result.trackPoints);
+          setGpxRawXml(initialGpxContent.content);
+          setGpxFileName(initialGpxContent.filename || 'GPX trasa z odkazu / Telegramu');
+          setDistanceKm(result.distanceKm);
+          setElevationGainM(result.elevationGainM);
+          setElevationLossM(result.elevationLossM);
+          if (result.maxElevationM) setHighestPointM(result.maxElevationM);
+          if (!defaultTitle && result.name) setTitle(result.name);
+          else if (!defaultTitle && initialGpxContent.filename) {
+            setTitle(initialGpxContent.filename.replace(/\.gpx$/i, ''));
+          }
+          if (result.detectedRange) setMountainRange(result.detectedRange);
+
+          if (result.trackPoints.length > 0) {
+            let highestPt = result.trackPoints[0];
+            result.trackPoints.forEach((p) => {
+              if ((p.ele ?? 0) > (highestPt.ele ?? 0)) {
+                highestPt = p;
+              }
+            });
+            setPeakLat(highestPt.lat);
+            setPeakLng(highestPt.lng);
+            setPeakName(result.name || 'Nejvyšší bod trasy');
+          }
+          setImportedNotice('GPX trasa byla úspěšně načtena z Telegramu / odkazu! Všechny parametry jsou předvyplněné.');
+        } catch (err: any) {
+          console.warn('Chyba při načítání GPX:', err);
+        }
+      }
     }
     setFormError(null);
-  }, [hikeToEdit, isOpen]);
+  }, [hikeToEdit, initialGpxContent, initialHikeData, isOpen]);
 
   if (!isOpen) return null;
 
@@ -368,6 +411,13 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {importedNotice && (
+          <div className="mx-5 sm:mx-6 mt-4 p-3 bg-emerald-950/70 border border-emerald-600/40 rounded-xl text-emerald-300 text-xs flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{importedNotice}</span>
+          </div>
+        )}
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6">

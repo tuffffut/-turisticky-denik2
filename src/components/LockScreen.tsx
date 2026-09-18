@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mountain, Lock, KeyRound, Eye, ShieldCheck, AlertCircle, Sparkles, ArrowRight } from 'lucide-react';
+import { Mountain, Lock, KeyRound, Eye, EyeOff, ShieldCheck, AlertCircle, Sparkles, ArrowRight } from 'lucide-react';
 import { UserRole, PinConfig } from '../types';
 import { authenticatePin } from '../utils/auth';
 
@@ -15,9 +15,15 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   initialError,
 }) => {
   const [pin, setPin] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(initialError || null);
   const [isShaking, setIsShaking] = useState(false);
   const [showDefaultHint, setShowDefaultHint] = useState(true);
+
+  // Sync initial error
+  useEffect(() => {
+    if (initialError) setError(initialError);
+  }, [initialError]);
 
   // Clear error when PIN changes
   useEffect(() => {
@@ -29,7 +35,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     if (role) {
       onUnlock(role);
     } else {
-      setError('Nesprávný PIN. Zkuste to prosím znovu.');
+      setError('Nesprávné heslo nebo PIN. Zkuste to prosím znovu.');
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 500);
       setPin('');
@@ -37,16 +43,12 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   };
 
   const handleKeypadPress = (val: string) => {
-    if (pin.length < 8) {
+    if (pin.length < 32) {
       const next = pin + val;
       setPin(next);
-      // Auto submit on 4 chars if it matches admin or reader
-      if (next.length === 4) {
-        const role = authenticatePin(next, pinConfig);
-        if (role) {
-          onUnlock(role);
-          return;
-        }
+      // Auto submit if typed code matches admin or reader password exactly
+      if (next === pinConfig.adminPin || next === pinConfig.readerPin) {
+        handleAttemptUnlock(next);
       }
     }
   };
@@ -97,7 +99,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             Horský Deník
           </h1>
           <p className="text-stone-400 text-sm mt-1 max-w-xs">
-            Aplikace je uzamčena. Zadejte přístupový PIN pro otevření vašich horských výprav.
+            Aplikace je uzamčena. Zadejte přístupové heslo nebo PIN pro otevření vašich horských výprav.
           </p>
         </div>
 
@@ -107,19 +109,22 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             <div className="relative flex items-center justify-center">
               <input
                 id="pin-input-field"
-                type="password"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={8}
+                type={showPassword ? 'text' : 'password'}
+                maxLength={32}
                 value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                placeholder="• • • •"
-                className="w-full text-center text-3xl tracking-[0.6em] py-3.5 px-4 bg-stone-950/80 border border-stone-700/80 rounded-xl text-stone-100 font-mono placeholder:text-stone-600 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                onChange={(e) => setPin(e.target.value)}
+                placeholder={showPassword ? 'Zadejte heslo / PIN' : '• • • •'}
+                className="w-full text-center text-xl sm:text-2xl tracking-[0.2em] py-3.5 pl-4 pr-11 bg-stone-950/80 border border-stone-700/80 rounded-xl text-stone-100 font-mono placeholder:text-stone-600 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 autoFocus
               />
-              <div className="absolute right-3 text-stone-500 pointer-events-none">
-                <Lock className="w-5 h-5" />
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 text-stone-400 hover:text-stone-200 p-1 rounded-lg transition-colors cursor-pointer"
+                title={showPassword ? 'Skrýt heslo' : 'Zobrazit heslo'}
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
             </div>
 
             {/* Error Message */}

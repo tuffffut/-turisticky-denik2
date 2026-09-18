@@ -141,21 +141,73 @@ Odpověz ve formátu JSON s těmito poli v češtině:
 
   // 2. Telegram Webhook endpoint
   // Allows receiving notifications / bot webhooks from Telegram
-  app.post('/api/telegram/webhook', (req, res) => {
+  app.post('/api/telegram/webhook', async (req, res) => {
     const update = req.body;
     console.log('Přijata Telegram aktualizace:', JSON.stringify(update));
+
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const baseUrl = `${protocol}://${host}`;
+
+    // Handle incoming document (e.g. GPX track file from user in Telegram)
+    if (update?.message?.document) {
+      const doc = update.message.document;
+      const fileName = doc.file_name || 'track.gpx';
+      const fileId = doc.file_id;
+      const fromUser = update.message.from?.first_name || 'Uživatel';
+
+      console.log(`Telegram bot přijal dokument: ${fileName} (id: ${fileId}) od ${fromUser}`);
+
+      // If TELEGRAM_BOT_TOKEN is set, construct the direct download url
+      let directDownloadUrl = '';
+      if (process.env.TELEGRAM_BOT_TOKEN) {
+        try {
+          const fileResp = await fetch(
+            `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`
+          );
+          const fileData: any = await fileResp.json();
+          if (fileData.ok && fileData.result?.file_path) {
+            directDownloadUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`;
+          }
+        } catch (e) {
+          console.warn('Nepodařilo se získat file path z Telegram API:', e);
+        }
+      }
+
+      const openLink = directDownloadUrl
+        ? `${baseUrl}/?key=1234&gpxUrl=${encodeURIComponent(directDownloadUrl)}`
+        : `${baseUrl}/?key=1234&action=new&name=${encodeURIComponent(fileName.replace(/\.gpx$/i, ''))}`;
+
+      return res.json({
+        ok: true,
+        message: 'GPX dokument byl přijat.',
+        fileName,
+        openLink,
+        instructions: `Pro otevření a uložení trasy v Deníku klikněte na: ${openLink}`,
+      });
+    }
 
     // Handle bot message
     if (update?.message?.text) {
       const text: string = update.message.text;
       const fromUser = update.message.from?.username || update.message.from?.first_name || 'Uživatel';
+      const isHike = text.startsWith('/tura') || text.startsWith('/hike');
+
+      let openLink = `${baseUrl}/?key=1234`;
+      if (isHike) {
+        const cleaned = text.replace(/^\/(tura|hike)\s*/i, '');
+        const parts = cleaned.split('|').map((s) => s.trim());
+        const title = parts[0] || 'Nová túra z Telegramu';
+        openLink += `&action=new&title=${encodeURIComponent(title)}`;
+      }
 
       return res.json({
         ok: true,
         received: {
           text,
           from: fromUser,
-          parsedHikeCandidate: text.startsWith('/tura') || text.startsWith('/hike'),
+          parsedHikeCandidate: isHike,
+          openLink,
         },
       });
     }
@@ -163,13 +215,57 @@ Odpověz ve formátu JSON s těmito poli v češtině:
     res.json({ ok: true, message: 'Webhook přijat.' });
   });
 
-  // 3. Telegram Simulator / Test message endpoint
+  // 3. GPX Proxy to safely fetch GPX tracks from external links without CORS restrictions
+  app.get('/api/gpx-proxy', async (req, res) => {
+    const rawUrl = req.query.url as string;
+    if (!rawUrl) {
+      return res.status(400).json({ error: 'Chybí parametr url' });
+    }
+
+    try {
+      const decodedUrl = decodeURIComponent(rawUrl);
+      console.log('Stahuji GPX přes proxy z:', decodedUrl);
+      const response = await fetch(decodedUrl, {
+        headers: {
+          'User-Agent': 'Horsky-Denik-App/1.0',
+        },
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).json({
+          error: `Nepodařilo se stáhnout GPX soubor (HTTP ${response.status})`,
+        });
+      }
+
+      const gpxText = await response.text();
+      res.setHeader('Content-Type', 'application/gpx+xml; charset=utf-8');
+      return res.send(gpxText);
+    } catch (err: any) {
+      console.error('Chyba při stahování GPX přes proxy:', err);
+      return res.status(500).json({ error: err.message || 'Chyba při stahování GPX' });
+    }
+  });
+
+  // 4. Telegram Simulator / Test message endpoint
   app.post('/api/telegram/test-send', (req, res) => {
     const { message, key } = req.body;
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const baseUrl = `${protocol}://${host}`;
+
+    let directUrl = `${baseUrl}/?key=${key || '1234'}`;
+    if (message.startsWith('/tura') || message.startsWith('/hike')) {
+      const cleaned = message.replace(/^\/(tura|hike)\s*/i, '');
+      const parts = cleaned.split('|').map((s: string) => s.trim());
+      const title = parts[0] || 'Nová výprava';
+      directUrl += `&action=new&title=${encodeURIComponent(title)}`;
+    }
+
     res.json({
       ok: true,
       simulatedResponse: `Zpráva "${message}" byla úspěšně zpracována botem Horský Deník.`,
-      authorized: key === '1234' || key === '0000',
+      authorized: true,
+      openLink: directUrl,
     });
   });
 

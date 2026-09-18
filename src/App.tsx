@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserRole, MountainHike, PinConfig } from './types';
 import {
   getStoredPins,
   checkUrlKeyForRole,
   resetPinsToDefault,
+  savePins,
 } from './utils/auth';
 import {
   getStoredHikes,
@@ -15,6 +16,8 @@ import {
   saveHikeToFirestore,
   deleteHikeFromFirestore,
   seedHikesIfEmpty,
+  subscribeToPins,
+  savePinsToFirestore,
 } from './utils/firebase';
 import { LockScreen } from './components/LockScreen';
 import { Navbar } from './components/Navbar';
@@ -48,6 +51,20 @@ export default function App() {
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isTelegramOpen, setIsTelegramOpen] = useState(false);
 
+  // 4. Deep linking & imported GPX state
+  const [initialGpxContent, setInitialGpxContent] = useState<{ filename?: string; content: string } | null>(null);
+  const [initialHikeData, setInitialHikeData] = useState<Partial<MountainHike> | null>(null);
+  const processedUrlRef = useRef<boolean>(false);
+
+  // Synchronize PINs from Firestore in real-time
+  useEffect(() => {
+    const unsubPins = subscribeToPins((remotePins) => {
+      setPinConfig(remotePins);
+      savePins(remotePins.adminPin, remotePins.readerPin);
+    });
+    return () => unsubPins();
+  }, []);
+
   // Firestore real-time subscription & initial seeding
   useEffect(() => {
     // 1. Seed initial sample hikes into Firestore if collection is empty
@@ -77,17 +94,83 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Check URL parameter (?key=...) on load
+  // Check URL parameters (?key=..., ?hike=..., ?gpxUrl=...) on load and whenever PINs or hikes update
   useEffect(() => {
-    const { role, attemptedKey } = checkUrlKeyForRole(pinConfig);
-    if (role) {
-      setCurrentRole(role);
-      setIsLocked(false);
-    } else if (attemptedKey) {
-      setUrlLockError(`Odkaz obsahuje neplatný klíč: "${attemptedKey}". Zadejte platný PIN.`);
-      setIsLocked(true);
+    const params = new URLSearchParams(window.location.search);
+    const keyParam = params.get('key')?.trim();
+
+    // 1. Authenticate with key parameter
+    let authenticatedRole: UserRole | null = null;
+    if (keyParam) {
+      if (keyParam === pinConfig.adminPin.trim()) {
+        authenticatedRole = 'admin';
+        setCurrentRole('admin');
+        setIsLocked(false);
+        setUrlLockError(null);
+      } else if (keyParam === pinConfig.readerPin.trim()) {
+        authenticatedRole = 'reader';
+        setCurrentRole('reader');
+        setIsLocked(false);
+        setUrlLockError(null);
+      } else {
+        setUrlLockError(`Odkaz obsahuje neplatný klíč: "${keyParam}". Zadejte platné heslo.`);
+        setIsLocked(true);
+      }
     }
-  }, [pinConfig]);
+
+    // 2. Direct hike opening: ?hike=... or ?hikeId=...
+    const hikeParam = params.get('hike') || params.get('hikeId') || params.get('id');
+    if (hikeParam && hikes.length > 0) {
+      const decodedHikeParam = decodeURIComponent(hikeParam).trim();
+      const targetHike = hikes.find(
+        (h) => h.id === decodedHikeParam || h.title.toLowerCase() === decodedHikeParam.toLowerCase()
+      );
+      if (targetHike) {
+        setSelectedHike(targetHike);
+      }
+    }
+
+    // 3. Direct GPX opening: ?gpxUrl=...
+    const gpxUrlParam = params.get('gpxUrl') || params.get('gpx');
+    if (gpxUrlParam && !processedUrlRef.current) {
+      processedUrlRef.current = true;
+      const decodedUrl = decodeURIComponent(gpxUrlParam);
+      const fetchUrl = decodedUrl.startsWith('http')
+        ? `/api/gpx-proxy?url=${encodeURIComponent(decodedUrl)}`
+        : decodedUrl;
+
+      fetch(fetchUrl)
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.text();
+        })
+        .then((xmlText) => {
+          if (xmlText && (xmlText.includes('<gpx') || xmlText.includes('<trk'))) {
+            const fileName = decodedUrl.split('/').pop()?.split('?')[0] || 'trasa.gpx';
+            setInitialGpxContent({
+              filename: fileName,
+              content: xmlText,
+            });
+            setIsFormModalOpen(true);
+          }
+        })
+        .catch((err) => {
+          console.warn('Nepodařilo se stáhnout GPX z odkazu:', err);
+        });
+    }
+
+    // 4. Action: ?action=new
+    const actionParam = params.get('action') || (params.get('newHike') ? 'new' : null);
+    if (actionParam === 'new') {
+      const titleParam = params.get('title') || params.get('name');
+      if (titleParam) {
+        setInitialHikeData({ title: decodeURIComponent(titleParam) });
+      }
+      if (authenticatedRole === 'admin' || currentRole === 'admin') {
+        setIsFormModalOpen(true);
+      }
+    }
+  }, [pinConfig, hikes]);
 
   // Handle manual unlock from LockScreen
   const handleUnlock = (role: UserRole) => {
@@ -258,9 +341,11 @@ export default function App() {
       {selectedHike && (
         <HikeDetailModal
           hike={selectedHike}
-          currentRole={currentRole}
+          currentRole={currentRole || 'reader'}
+          readerPin={pinConfig.readerPin}
           onClose={() => setSelectedHike(null)}
           onEdit={(hike) => {
+            setSelectedHike(null);
             setHikeToEdit(hike);
             setIsFormModalOpen(true);
           }}
@@ -274,9 +359,13 @@ export default function App() {
         <HikeFormModal
           isOpen={isFormModalOpen}
           hikeToEdit={hikeToEdit}
+          initialGpxContent={initialGpxContent}
+          initialHikeData={initialHikeData}
           onClose={() => {
             setIsFormModalOpen(false);
             setHikeToEdit(null);
+            setInitialGpxContent(null);
+            setInitialHikeData(null);
           }}
           onSave={handleSaveHike}
         />

@@ -73,8 +73,31 @@ export function getShareUrl(pin: string): string {
   try {
     const url = new URL(window.location.href);
     url.searchParams.set('key', pin);
+    url.searchParams.delete('hike');
+    url.searchParams.delete('gpxUrl');
     return url.toString();
   } catch {
     return `${window.location.origin}${window.location.pathname}?key=${pin}`;
   }
+}
+
+/**
+ * Generates a direct share link to a specific hike with embedded unlock key.
+ */
+export function getHikeShareUrl(pin: string, hikeId: string): string {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('key', pin);
+    url.searchParams.set('hike', hikeId);
+    return url.toString();
+  } catch {
+    return `${window.location.origin}${window.location.pathname}?key=${pin}&hike=${hikeId}`;
+  }
+}
+
+/**
+ * Generates a Telegram web share URL.
+ */
+export function getTelegramShareUrl(url: string, text: string): string {
+  return `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
 }
