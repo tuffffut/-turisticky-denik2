@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { MountainHike, PinConfig } from '../types';
+import { parseGPX } from './gpxParser';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
@@ -22,6 +23,28 @@ export const db = firebaseConfig.firestoreDatabaseId
 const HIKES_COLLECTION = 'hikes';
 const CONFIG_COLLECTION = 'app_config';
 const SECURITY_DOC_ID = 'security';
+
+function hydrateHikeWithGPX(hike: MountainHike): MountainHike {
+  if ((!hike.trackPoints || hike.trackPoints.length === 0) && hike.gpxRawXml) {
+    try {
+      const parsed = parseGPX(hike.gpxRawXml);
+      hike.trackPoints = parsed.trackPoints;
+      if (!hike.peakCoords?.lat && parsed.trackPoints.length > 0) {
+        let highest = parsed.trackPoints[0];
+        parsed.trackPoints.forEach((p) => {
+          if ((p.ele ?? 0) > (highest.ele ?? 0)) highest = p;
+        });
+        hike.peakCoords = { lat: highest.lat, lng: highest.lng, name: hike.title };
+      }
+      if (!hike.highestPointM && parsed.maxElevationM) {
+        hike.highestPointM = parsed.maxElevationM;
+      }
+    } catch (e) {
+      console.warn('Nelze naparsovat gpxRawXml pro trasu:', hike.id, e);
+    }
+  }
+  return hike;
+}
 
 /**
  * Subscribes to real-time updates from Firestore hikes collection.
@@ -37,7 +60,8 @@ export function subscribeToHikes(
       (snapshot) => {
         const hikes: MountainHike[] = [];
         snapshot.forEach((docSnap) => {
-          hikes.push(docSnap.data() as MountainHike);
+          const raw = docSnap.data() as MountainHike;
+          hikes.push(hydrateHikeWithGPX(raw));
         });
         onUpdate(hikes);
       },
@@ -80,7 +104,7 @@ export async function getHikeFromFirestore(hikeId: string): Promise<MountainHike
     const docRef = doc(db, HIKES_COLLECTION, hikeId);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      return snap.data() as MountainHike;
+      return hydrateHikeWithGPX(snap.data() as MountainHike);
     }
   } catch (err) {
     console.warn(`Chyba při načítání trasy ${hikeId} z Firestore:`, err);
