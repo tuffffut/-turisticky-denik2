@@ -88,10 +88,13 @@ export function getHikeShareUrl(pin: string, hikeId: string): string {
   try {
     const url = new URL(window.location.href);
     url.searchParams.set('key', pin);
-    url.searchParams.set('hike', hikeId);
+    url.searchParams.set('routeId', hikeId);
+    url.searchParams.delete('hike');
+    url.searchParams.delete('gpxUrl');
+    url.searchParams.delete('newRoute');
     return url.toString();
   } catch {
-    return `${window.location.origin}${window.location.pathname}?key=${pin}&hike=${hikeId}`;
+    return `${window.location.origin}${window.location.pathname}?key=${pin}&routeId=${hikeId}`;
   }
 }
 

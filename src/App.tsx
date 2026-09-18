@@ -18,7 +18,9 @@ import {
   seedHikesIfEmpty,
   subscribeToPins,
   savePinsToFirestore,
+  getHikeFromFirestore,
 } from './utils/firebase';
+import { parseUrlSearch } from './utils/garmin';
 import { LockScreen } from './components/LockScreen';
 import { Navbar } from './components/Navbar';
 import { HikeList } from './components/HikeList';
@@ -54,7 +56,10 @@ export default function App() {
   // 4. Deep linking & imported GPX state
   const [initialGpxContent, setInitialGpxContent] = useState<{ filename?: string; content: string } | null>(null);
   const [initialHikeData, setInitialHikeData] = useState<Partial<MountainHike> | null>(null);
-  const processedUrlRef = useRef<boolean>(false);
+  const pendingRouteIdRef = useRef<string | null>(null);
+  const hasProcessedNewRouteRef = useRef<boolean>(false);
+  const hasProcessedRouteIdRef = useRef<boolean>(false);
+  const hasProcessedGpxUrlRef = useRef<boolean>(false);
 
   // Synchronize PINs from Firestore in real-time
   useEffect(() => {
@@ -94,50 +99,68 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Check URL parameters (?key=..., ?hike=..., ?gpxUrl=...) on load and whenever PINs or hikes update
+  // Check URL parameters (?key=..., ?routeId=..., ?newRoute=..., ?gpxUrl=...) on load & pin updates
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const keyParam = params.get('key')?.trim();
+    const urlInfo = parseUrlSearch(window.location.search);
 
-    // 1. Authenticate with key parameter
-    let authenticatedRole: UserRole | null = null;
-    if (keyParam) {
-      if (keyParam === pinConfig.adminPin.trim()) {
-        authenticatedRole = 'admin';
+    // 1. Authenticate with ?key=... (supports 1234 or configured Admin PIN, 0000 or Reader PIN)
+    if (urlInfo.key) {
+      const cleanKey = urlInfo.key.trim();
+      if (cleanKey === '1234' || cleanKey === pinConfig.adminPin.trim()) {
         setCurrentRole('admin');
         setIsLocked(false);
         setUrlLockError(null);
-      } else if (keyParam === pinConfig.readerPin.trim()) {
-        authenticatedRole = 'reader';
+      } else if (cleanKey === '0000' || cleanKey === pinConfig.readerPin.trim()) {
         setCurrentRole('reader');
         setIsLocked(false);
         setUrlLockError(null);
       } else {
-        setUrlLockError(`Odkaz obsahuje neplatný klíč: "${keyParam}". Zadejte platné heslo.`);
+        setUrlLockError(`Odkaz obsahuje neplatný klíč: "${cleanKey}". Zadejte platné heslo.`);
         setIsLocked(true);
       }
     }
 
-    // 2. Direct hike opening: ?hike=... or ?hikeId=...
-    const hikeParam = params.get('hike') || params.get('hikeId') || params.get('id');
-    if (hikeParam && hikes.length > 0) {
-      const decodedHikeParam = decodeURIComponent(hikeParam).trim();
-      const targetHike = hikes.find(
-        (h) => h.id === decodedHikeParam || h.title.toLowerCase() === decodedHikeParam.toLowerCase()
+    // 2. Direct route opening: ?routeId=XYZ
+    if (urlInfo.routeId && !hasProcessedRouteIdRef.current) {
+      pendingRouteIdRef.current = urlInfo.routeId;
+      const targetQuery = urlInfo.routeId.trim().toLowerCase();
+
+      // Check against current local/cached hikes
+      const match = hikes.find(
+        (h) => h.id.toLowerCase() === targetQuery || h.title.toLowerCase() === targetQuery
       );
-      if (targetHike) {
-        setSelectedHike(targetHike);
+      if (match) {
+        setSelectedHike(match);
+        hasProcessedRouteIdRef.current = true;
+        pendingRouteIdRef.current = null;
+      } else {
+        // Direct fallback: Fetch document straight from Firestore by ID
+        getHikeFromFirestore(urlInfo.routeId.trim()).then((docHike) => {
+          if (docHike && !hasProcessedRouteIdRef.current) {
+            setSelectedHike(docHike);
+            hasProcessedRouteIdRef.current = true;
+            pendingRouteIdRef.current = null;
+            setHikes((prev) => (prev.some((h) => h.id === docHike.id) ? prev : [docHike, ...prev]));
+          }
+        });
       }
     }
 
-    // 3. Direct GPX opening: ?gpxUrl=...
-    const gpxUrlParam = params.get('gpxUrl') || params.get('gpx');
-    if (gpxUrlParam && !processedUrlRef.current) {
-      processedUrlRef.current = true;
-      const decodedUrl = decodeURIComponent(gpxUrlParam);
-      const fetchUrl = decodedUrl.startsWith('http')
-        ? `/api/gpx-proxy?url=${encodeURIComponent(decodedUrl)}`
-        : decodedUrl;
+    // 3. Direct new route opening: ?newRoute=true with Garmin prefilled metrics
+    if (urlInfo.isNewRoute && !hasProcessedNewRouteRef.current) {
+      hasProcessedNewRouteRef.current = true;
+      setHikeToEdit(null);
+      setInitialHikeData(urlInfo.hikeData);
+      setIsFormModalOpen(true);
+    }
+
+    // 4. Direct GPX opening: ?gpxUrl=... (from Garmin script or Telegram)
+    if (urlInfo.gpxUrl && !hasProcessedGpxUrlRef.current) {
+      hasProcessedGpxUrlRef.current = true;
+      const targetGpx = urlInfo.gpxUrl;
+      const fetchUrl = targetGpx.startsWith('http')
+        ? `/api/gpx-proxy?url=${encodeURIComponent(targetGpx)}`
+        : targetGpx;
 
       fetch(fetchUrl)
         .then((res) => {
@@ -145,8 +168,8 @@ export default function App() {
           return res.text();
         })
         .then((xmlText) => {
-          if (xmlText && (xmlText.includes('<gpx') || xmlText.includes('<trk'))) {
-            const fileName = decodedUrl.split('/').pop()?.split('?')[0] || 'trasa.gpx';
+          if (xmlText && (xmlText.includes('<gpx') || xmlText.includes('<trk') || xmlText.includes('<rte'))) {
+            const fileName = targetGpx.split('/').pop()?.split('?')[0] || 'garmin_trasa.gpx';
             setInitialGpxContent({
               filename: fileName,
               content: xmlText,
@@ -158,19 +181,22 @@ export default function App() {
           console.warn('Nepodařilo se stáhnout GPX z odkazu:', err);
         });
     }
+  }, [pinConfig]);
 
-    // 4. Action: ?action=new
-    const actionParam = params.get('action') || (params.get('newHike') ? 'new' : null);
-    if (actionParam === 'new') {
-      const titleParam = params.get('title') || params.get('name');
-      if (titleParam) {
-        setInitialHikeData({ title: decodeURIComponent(titleParam) });
-      }
-      if (authenticatedRole === 'admin' || currentRole === 'admin') {
-        setIsFormModalOpen(true);
+  // When hikes update from Firestore, check if a route requested in URL is waiting to be opened
+  useEffect(() => {
+    if (pendingRouteIdRef.current && hikes.length > 0 && !hasProcessedRouteIdRef.current) {
+      const targetQuery = pendingRouteIdRef.current.trim().toLowerCase();
+      const match = hikes.find(
+        (h) => h.id.toLowerCase() === targetQuery || h.title.toLowerCase() === targetQuery
+      );
+      if (match) {
+        setSelectedHike(match);
+        hasProcessedRouteIdRef.current = true;
+        pendingRouteIdRef.current = null;
       }
     }
-  }, [pinConfig, hikes]);
+  }, [hikes]);
 
   // Handle manual unlock from LockScreen
   const handleUnlock = (role: UserRole) => {

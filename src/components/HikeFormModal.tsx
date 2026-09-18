@@ -111,7 +111,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       const defaultRange = initialHikeData?.mountainRange || 'Krkonoše';
       setTitle(defaultTitle);
       setMountainRange(defaultRange);
-      setDate(new Date().toISOString().split('T')[0]);
+      setDate(initialHikeData?.date || new Date().toISOString().split('T')[0]);
       setDistanceKm(initialHikeData?.distanceKm ?? '');
       setElevationGainM(initialHikeData?.elevationGainM ?? '');
       setElevationLossM(initialHikeData?.elevationLossM ?? '');
@@ -134,7 +134,12 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setPeakLng('');
       setPeakName('');
       setRewrittenPreview(null);
-      setImportedNotice(null);
+      
+      if (initialHikeData?.title || initialHikeData?.distanceKm) {
+        setImportedNotice('Parametry výpravy byly automaticky předvyplněny z Garminu / Telegramu. Zkontrolujte je a uložte.');
+      } else {
+        setImportedNotice(null);
+      }
 
       // If initial GPX content was provided via URL/Telegram
       if (initialGpxContent?.content) {

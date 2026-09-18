@@ -3,6 +3,7 @@ import {
   getFirestore,
   collection,
   doc,
+  getDoc,
   setDoc,
   deleteDoc,
   onSnapshot,
@@ -69,6 +70,22 @@ export async function saveHikeToFirestore(hike: MountainHike): Promise<void> {
 export async function deleteHikeFromFirestore(hikeId: string): Promise<void> {
   const docRef = doc(db, HIKES_COLLECTION, hikeId);
   await deleteDoc(docRef);
+}
+
+/**
+ * Fetches a single hike from Firestore by its ID.
+ */
+export async function getHikeFromFirestore(hikeId: string): Promise<MountainHike | null> {
+  try {
+    const docRef = doc(db, HIKES_COLLECTION, hikeId);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return snap.data() as MountainHike;
+    }
+  } catch (err) {
+    console.warn(`Chyba při načítání trasy ${hikeId} z Firestore:`, err);
+  }
+  return null;
 }
 
 /**

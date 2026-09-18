@@ -275,6 +275,72 @@ export const TelegramModal: React.FC<TelegramModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Section 4: Garmin & Telegram Deep Linking Documentation */}
+          <div className="p-4 rounded-2xl bg-stone-950/70 border border-stone-800 space-y-3">
+            <div className="flex items-center gap-2 font-semibold text-stone-200">
+              <Smartphone className="w-4 h-4 text-emerald-400" />
+              <span>Parametry pro odkaz z Telegramu a Garmin skriptu</span>
+            </div>
+            <p className="text-xs text-stone-400 leading-relaxed">
+              Při kliknutí na odkaz se aplikace automaticky odemkne a rovnou otevře detail trasy nebo předvyplněný formulář:
+            </p>
+
+            <div className="space-y-2.5">
+              {/* Route Detail Link */}
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold text-stone-300">
+                    1. Otevření detailu konkrétní trasy (?routeId=...)
+                  </div>
+                  <div className="text-[11px] font-mono text-emerald-400 truncate">
+                    {`${currentHost}/?key=1234&routeId=hike-1`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(`${currentHost}/?key=1234&routeId=hike-1`, 'route-example')}
+                  className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium shrink-0 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {copiedItem === 'route-example' ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                  <span>Kopírovat</span>
+                </button>
+              </div>
+
+              {/* Garmin Add Route Link */}
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold text-stone-300">
+                    2. Garmin skript – automatické předvyplnění (?newRoute=true)
+                  </div>
+                  <div className="text-[11px] font-mono text-emerald-400 truncate">
+                    {`${currentHost}/?key=1234&newRoute=true&title=Snezka&distance=14.5&elevation=850&time=03:45:00`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyToClipboard(
+                      `${currentHost}/?key=1234&newRoute=true&title=Snezka&distance=14.5&elevation=850&time=03:45:00`,
+                      'garmin-example'
+                    )
+                  }
+                  className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium shrink-0 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {copiedItem === 'garmin-example' ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                  <span>Kopírovat</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="p-4 bg-stone-900 border-t border-stone-800 flex justify-end">
