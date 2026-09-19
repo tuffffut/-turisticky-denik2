@@ -86,14 +86,14 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
   const [title, setTitle] = useState('');
   const [mountainRange, setMountainRange] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [distanceKm, setDistanceKm] = useState<number | ''>('');
-  const [elevationGainM, setElevationGainM] = useState<number | ''>('');
-  const [elevationLossM, setElevationLossM] = useState<number | ''>('');
+  const [distanceKm, setDistanceKm] = useState<string | number>('');
+  const [elevationGainM, setElevationGainM] = useState<string | number>('');
+  const [elevationLossM, setElevationLossM] = useState<string | number>('');
   const [duration, setDuration] = useState('');
   const [difficulty, setDifficulty] = useState<HikeDifficulty>('moderate');
   const [rating, setRating] = useState(5);
   const [description, setDescription] = useState('');
-  const [highestPointM, setHighestPointM] = useState<number | ''>('');
+  const [highestPointM, setHighestPointM] = useState<string | number>('');
   const [weather, setWeather] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
@@ -386,6 +386,14 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
     }
   };
 
+  const parseNumberInput = (val: any): number => {
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    if (!val) return 0;
+    const cleaned = String(val).trim().replace(',', '.');
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? 0 : n;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -397,33 +405,54 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setFormError('Zadejte pohoří.');
       return;
     }
-    if (!distanceKm || Number(distanceKm) <= 0) {
-      setFormError('Zadejte platnou délku trasy v km.');
-      return;
-    }
-    if (!elevationGainM || Number(elevationGainM) < 0) {
-      setFormError('Zadejte nastoupané metry.');
+
+    const dist = parseNumberInput(distanceKm);
+    if (dist <= 0) {
+      setFormError('Zadejte platnou délku trasy v km (např. 14.5).');
       return;
     }
 
-    // Default peak coordinate if empty
-    const finalLat =
-      typeof peakLat === 'number'
-        ? peakLat
-        : trackPoints?.[0]?.lat ?? 50.736;
-    const finalLng =
-      typeof peakLng === 'number'
-        ? peakLng
-        : trackPoints?.[0]?.lng ?? 15.7396;
+    const gain = elevationGainM === '' ? 0 : parseNumberInput(elevationGainM);
+    if (gain < 0) {
+      setFormError('Zadejte platné převýšení (m).');
+      return;
+    }
+
+    const loss = elevationLossM !== '' ? parseNumberInput(elevationLossM) : gain;
+    const highest = highestPointM !== '' ? parseNumberInput(highestPointM) : undefined;
+
+    // Location coordinates for map overview
+    let finalPeakCoords: { lat: number; lng: number; name?: string };
+    if (typeof peakLat === 'number' && typeof peakLng === 'number') {
+      finalPeakCoords = {
+        lat: peakLat,
+        lng: peakLng,
+        name: peakName.trim() || title.trim(),
+      };
+    } else if (trackPoints && trackPoints.length > 0) {
+      finalPeakCoords = {
+        lat: trackPoints[0].lat,
+        lng: trackPoints[0].lng,
+        name: title.trim(),
+      };
+    } else if (hikeToEdit?.peakCoords) {
+      finalPeakCoords = hikeToEdit.peakCoords;
+    } else {
+      finalPeakCoords = {
+        lat: 50.736,
+        lng: 15.7396,
+        name: title.trim(),
+      };
+    }
 
     const savedHike: MountainHike = {
       id: hikeToEdit?.id || `hike-${Date.now()}`,
       title: title.trim(),
       mountainRange: mountainRange.trim(),
       date,
-      distanceKm: Number(distanceKm),
-      elevationGainM: Number(elevationGainM),
-      elevationLossM: elevationLossM !== '' ? Number(elevationLossM) : Number(elevationGainM),
+      distanceKm: Math.round(dist * 100) / 100,
+      elevationGainM: Math.round(gain),
+      elevationLossM: Math.round(loss),
       duration: duration.trim() || '4h 00m',
       difficulty,
       rating,
@@ -431,13 +460,9 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       photos: photos.length > 0 ? photos : ['https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80'],
       videos: videos.length > 0 ? videos : undefined,
       aiSummary,
-      highestPointM: highestPointM !== '' ? Number(highestPointM) : undefined,
+      highestPointM: highest ? Math.round(highest) : undefined,
       weather: weather.trim() || undefined,
-      peakCoords: {
-        lat: finalLat,
-        lng: finalLng,
-        name: peakName.trim() || title.trim(),
-      },
+      peakCoords: finalPeakCoords,
       trackPoints,
       gpxRawXml: gpxRawXml || (trackPoints ? buildGPXXml(title, trackPoints) : undefined),
     };
@@ -449,7 +474,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error('Chyba při ukládání výpravy:', err);
-      setFormError(err.message || 'Nepodařilo se uložit změny.');
+      setFormError(err?.message || 'Nepodařilo se uložit změny.');
     } finally {
       setIsSaving(false);
     }
@@ -491,7 +516,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
         )}
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6">
+        <form noValidate onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6">
           {formError && (
             <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-950/50 border border-rose-900/60 text-rose-300 text-xs">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -541,7 +566,6 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
               </label>
               <input
                 type="text"
-                required
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="např. Výstup na Sněžku přes Obří důl"
@@ -555,7 +579,6 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
               </label>
               <input
                 type="text"
-                required
                 value={mountainRange}
                 onChange={(e) => setMountainRange(e.target.value)}
                 placeholder="např. Krkonoše, Vysoké Tatry, Malá Fatra, Jeseníky"
@@ -565,7 +588,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
           </div>
 
           {/* Metrics row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
             <div>
               <label className="block text-xs font-medium text-stone-300 mb-1.5">
                 Datum túry
@@ -583,11 +606,10 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
                 Délka (km) *
               </label>
               <input
-                type="number"
-                step="0.1"
-                required
+                type="text"
+                inputMode="decimal"
                 value={distanceKm}
-                onChange={(e) => setDistanceKm(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                onChange={(e) => setDistanceKm(e.target.value)}
                 placeholder="14.5"
                 className="w-full px-3 py-2 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-xs font-mono focus:outline-none focus:border-emerald-500"
               />
@@ -598,10 +620,24 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
                 Převýšení + (m) *
               </label>
               <input
-                type="number"
-                required
+                type="text"
+                inputMode="numeric"
                 value={elevationGainM}
-                onChange={(e) => setElevationGainM(e.target.value === '' ? '' : parseInt(e.target.value))}
+                onChange={(e) => setElevationGainM(e.target.value)}
+                placeholder="950"
+                className="w-full px-3 py-2 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-xs font-mono focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-stone-300 mb-1.5">
+                Sestup - (m)
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={elevationLossM}
+                onChange={(e) => setElevationLossM(e.target.value)}
                 placeholder="950"
                 className="w-full px-3 py-2 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-xs font-mono focus:outline-none focus:border-emerald-500"
               />

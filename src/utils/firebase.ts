@@ -104,10 +104,18 @@ export function sanitizeHikeForStorage(hike: MountainHike): MountainHike {
   // because buildGPXXml dynamically reconstructs GPX for export/download anytime!
   if (clean.trackPoints && clean.trackPoints.length > 0 && clean.gpxRawXml && clean.gpxRawXml.length > 50000) {
     delete (clean as any).gpxRawXml;
+  } else if (clean.gpxRawXml && clean.gpxRawXml.length > 350000) {
+    delete (clean as any).gpxRawXml;
   }
 
-  // Strip undefined values
-  return JSON.parse(JSON.stringify(clean));
+  // Strip undefined and NaN values that could cause Firestore setDoc to fail
+  const jsonStr = JSON.stringify(clean, (_key, value) => {
+    if (typeof value === 'number' && isNaN(value)) {
+      return null;
+    }
+    return value;
+  });
+  return JSON.parse(jsonStr);
 }
 
 /**

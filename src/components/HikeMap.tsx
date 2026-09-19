@@ -121,28 +121,28 @@ export const HikeMap: React.FC<HikeMapProps> = ({
           .bindPopup(`<strong>Cíl trasy:</strong> ${hike.title}`)
           .addTo(map);
       }
-    }
-
-    // Peak Marker
-    if (hike.peakCoords) {
-      const peakIcon = L.divIcon({
+    } else if (hike.peakCoords) {
+      // If there is no GPS track, show a clean pin marking the hike location (not a fake peak marker)
+      const locationIcon = L.divIcon({
         className: 'custom-map-icon',
         html: `
           <div class="flex flex-col items-center transform -translate-x-1/2 -translate-y-full cursor-pointer">
-            <div class="bg-amber-500 text-stone-950 font-bold px-2 py-0.5 rounded-full text-[11px] shadow-lg border border-amber-300 whitespace-nowrap flex items-center gap-1">
-              <span>▲</span>
-              <span>${hike.highestPointM ? `${hike.highestPointM} m` : 'Vrchol'}</span>
+            <div class="bg-emerald-600 text-white font-bold px-2.5 py-1 rounded-full text-xs shadow-lg border border-emerald-400 whitespace-nowrap flex items-center gap-1">
+              <span>📍</span>
+              <span>${hike.title}</span>
             </div>
-            <div class="w-2.5 h-2.5 bg-amber-500 transform rotate-45 -mt-1 shadow-md"></div>
+            <div class="w-2.5 h-2.5 bg-emerald-600 transform rotate-45 -mt-1 shadow-md"></div>
           </div>
         `,
-        iconSize: [60, 40],
-        iconAnchor: [30, 40],
+        iconSize: [120, 36],
+        iconAnchor: [60, 36],
       });
 
-      L.marker([hike.peakCoords.lat, hike.peakCoords.lng], { icon: peakIcon })
-        .bindPopup(`<strong>${hike.peakCoords.name || hike.title}</strong><br/>Výška: ${hike.highestPointM || 'N/A'} m n. m.`)
+      L.marker([hike.peakCoords.lat, hike.peakCoords.lng], { icon: locationIcon })
+        .bindPopup(`<strong>${hike.title}</strong><br/>${hike.mountainRange}`)
         .addTo(map);
+
+      map.setView([hike.peakCoords.lat, hike.peakCoords.lng], 13);
     }
 
     mapInstanceRef.current = map;

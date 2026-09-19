@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Check } from 'lucide-react';
 import { UserRole, MountainHike, PinConfig } from './types';
 import {
   getStoredPins,
@@ -57,6 +58,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isTelegramOpen, setIsTelegramOpen] = useState(false);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
 
   // 4. Deep linking & imported GPX state
   const [initialGpxContent, setInitialGpxContent] = useState<{ filename?: string; content: string } | null>(null);
@@ -255,8 +257,13 @@ export default function App() {
       return updated;
     });
 
-    // If modal was open for this hike, update selectedHike immediately
-    setSelectedHike((prev) => (prev && prev.id === cleanHike.id ? cleanHike : prev));
+    // Keep selectedHike updated so user immediately sees their saved edits
+    setSelectedHike(cleanHike);
+
+    setSaveToast('Změny byly úspěšně uloženy.');
+    setTimeout(() => {
+      setSaveToast(null);
+    }, 3500);
 
     // Persist to Google Firebase Firestore
     try {
@@ -351,7 +358,15 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col selection:bg-emerald-600 selection:text-white">
+    <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col selection:bg-emerald-600 selection:text-white relative">
+      {/* Toast Notification */}
+      {saveToast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-2xl shadow-2xl text-xs font-semibold border border-emerald-400/40 animate-bounce">
+          <Check className="w-4 h-4 shrink-0" />
+          <span>{saveToast}</span>
+        </div>
+      )}
+
       {/* Top Navbar */}
       <Navbar
         currentRole={currentRole}

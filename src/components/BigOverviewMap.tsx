@@ -116,27 +116,34 @@ export const BigOverviewMap: React.FC<BigOverviewMapProps> = ({
         routeLayersRef.current.push(poly);
       }
 
-      // Peak Marker
-      if (hike.peakCoords) {
-        allCoords.push([hike.peakCoords.lat, hike.peakCoords.lng]);
+      // Hike Marker on Big Overview Map
+      const markerLat = (hike.trackPoints && hike.trackPoints.length > 0)
+        ? hike.trackPoints[0].lat
+        : hike.peakCoords?.lat;
+      const markerLng = (hike.trackPoints && hike.trackPoints.length > 0)
+        ? hike.trackPoints[0].lng
+        : hike.peakCoords?.lng;
 
-        const peakIcon = L.divIcon({
+      if (typeof markerLat === 'number' && typeof markerLng === 'number') {
+        allCoords.push([markerLat, markerLng]);
+
+        const hikePinIcon = L.divIcon({
           className: 'big-map-peak-icon',
           html: `
             <div class="flex flex-col items-center transform -translate-x-1/2 -translate-y-full cursor-pointer group">
-              <div class="bg-stone-900/95 text-stone-100 font-bold px-2.5 py-1 rounded-lg text-xs shadow-xl border-2 border-emerald-500/80 whitespace-nowrap flex items-center gap-1.5 hover:scale-105 transition-transform">
-                <span class="text-emerald-400">▲</span>
-                <span>${hike.highestPointM ? `${hike.highestPointM} m` : 'Vrchol'}</span>
-                <span class="text-[10px] text-stone-400 font-normal">(${hike.mountainRange})</span>
+              <div class="bg-stone-900/95 text-stone-100 font-bold px-2.5 py-1 rounded-lg text-xs shadow-xl border-2 border-emerald-500/80 whitespace-nowrap flex items-center gap-1.5 hover:scale-105 transition-transform max-w-[180px]">
+                <span class="text-emerald-400">⛰️</span>
+                <span class="truncate">${hike.title}</span>
+                <span class="text-[10px] text-emerald-300/80 font-normal shrink-0">${hike.distanceKm} km</span>
               </div>
               <div class="w-3 h-3 bg-stone-900 border-r-2 border-b-2 border-emerald-500/80 transform rotate-45 -mt-1.5 shadow-md"></div>
             </div>
           `,
-          iconSize: [120, 48],
-          iconAnchor: [60, 48],
+          iconSize: [160, 48],
+          iconAnchor: [80, 48],
         });
 
-        const marker = L.marker([hike.peakCoords.lat, hike.peakCoords.lng], { icon: peakIcon }).addTo(map);
+        const marker = L.marker([markerLat, markerLng], { icon: hikePinIcon }).addTo(map);
 
         // Custom rich HTML popup
         const photoUrl = hike.photos?.[0] || 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=400&q=80';
