@@ -31,11 +31,31 @@ export interface ParsedGPXResult {
   maxElevationM: number;
   detectedRange?: string;
   name?: string;
+  duration?: string; // Formatted e.g. "4h 15m" or "45m"
+  durationMinutes?: number;
+  movingDurationMinutes?: number;
+  date?: string; // YYYY-MM-DD
+  startTime?: string;
+  endTime?: string;
+}
+
+/**
+ * Formats duration in seconds into a friendly Czech string e.g. "4h 25m" or "50m"
+ */
+export function formatDurationFromSeconds(totalSecs: number): string {
+  if (!totalSecs || totalSecs <= 0) return '0m';
+  const hours = Math.floor(totalSecs / 3600);
+  const mins = Math.round((totalSecs % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${mins.toString().padStart(2, '0')}m`;
+  }
+  return `${mins}m`;
 }
 
 /**
  * Parses raw GPX XML string into structured trackpoints and statistics.
- * Computes elevation gain from every point in the track with moving-average noise smoothing.
+ * Computes accurate 3D distance with stationary jitter suppression and track segment handling.
+ * Automatically computes activity duration (moving time) and date from GPX timestamps.
  */
 export function parseGPX(xmlString: string): ParsedGPXResult {
   const parser = new DOMParser();
@@ -47,53 +67,125 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
     throw new Error('Neplatný formát GPX souboru.');
   }
 
-  let rawPoints: Element[] = Array.from(xmlDoc.getElementsByTagName('trkpt'));
-  if (rawPoints.length === 0) {
-    rawPoints = Array.from(xmlDoc.getElementsByTagName('rtept'));
-  }
-  if (rawPoints.length === 0) {
-    rawPoints = Array.from(xmlDoc.getElementsByTagName('wpt'));
+  // Find name from <name> tag
+  const nameTag = xmlDoc.getElementsByTagName('name')[0];
+  const name = nameTag ? nameTag.textContent?.trim() || undefined : undefined;
+
+  // Find date from <metadata><time> tag if present
+  let metadataDate: string | undefined = undefined;
+  const metadataTag = xmlDoc.getElementsByTagName('metadata')[0];
+  if (metadataTag) {
+    const metaTime = metadataTag.getElementsByTagName('time')[0]?.textContent?.trim();
+    if (metaTime) {
+      const parsedMetaDate = new Date(metaTime);
+      if (!isNaN(parsedMetaDate.getTime())) {
+        metadataDate = parsedMetaDate.toISOString().split('T')[0];
+      }
+    }
   }
 
-  if (rawPoints.length === 0) {
+  // Parse track segments to respect pause/breaks without phantom distance jumps
+  const segmentElements = Array.from(xmlDoc.getElementsByTagName('trkseg'));
+  const rawSegments: Element[][] = [];
+
+  if (segmentElements.length > 0) {
+    for (const seg of segmentElements) {
+      const pts = Array.from(seg.getElementsByTagName('trkpt'));
+      if (pts.length > 0) {
+        rawSegments.push(pts);
+      }
+    }
+  } else {
+    let pts = Array.from(xmlDoc.getElementsByTagName('trkpt'));
+    if (pts.length === 0) {
+      pts = Array.from(xmlDoc.getElementsByTagName('rtept'));
+    }
+    if (pts.length === 0) {
+      pts = Array.from(xmlDoc.getElementsByTagName('wpt'));
+    }
+    if (pts.length > 0) {
+      rawSegments.push(pts);
+    }
+  }
+
+  if (rawSegments.length === 0 || rawSegments.every((s) => s.length === 0)) {
     throw new Error('V GPX souboru nebyly nalezeny žádné body trasy (trkpt/rtept/wpt).');
   }
 
-  const nameTag = xmlDoc.getElementsByTagName('name')[0];
-  const name = nameTag ? nameTag.textContent || undefined : undefined;
-
-  // 1. Extract coordinates and raw elevations
-  const rawData: { lat: number; lng: number; ele?: number; time?: string }[] = [];
-  let minElevationM = Number.POSITIVE_INFINITY;
-  let maxElevationM = Number.NEGATIVE_INFINITY;
-
-  for (let i = 0; i < rawPoints.length; i++) {
-    const pt = rawPoints[i];
-    const lat = parseFloat(pt.getAttribute('lat') || '0');
-    const lng = parseFloat(pt.getAttribute('lon') || '0');
-
-    const eleNode = pt.getElementsByTagName('ele')[0];
-    const ele = eleNode ? parseFloat(eleNode.textContent || '0') : undefined;
-
-    const timeNode = pt.getElementsByTagName('time')[0];
-    const time = timeNode ? timeNode.textContent || undefined : undefined;
-
-    if (ele !== undefined && !isNaN(ele)) {
-      if (ele < minElevationM) minElevationM = ele;
-      if (ele > maxElevationM) maxElevationM = ele;
-    }
-
-    rawData.push({ lat, lng, ele, time });
+  interface InternalPt {
+    lat: number;
+    lng: number;
+    ele?: number;
+    time?: string;
+    timestampMs?: number;
+    segmentIndex: number;
   }
 
-  // 2. Smooth elevations slightly using a 3-point window to remove microscopic GPS sensor flutter
-  // but preserve EVERY genuine elevation gain from every point
-  const smoothedEle: (number | undefined)[] = rawData.map((pt, i, arr) => {
+  const allRawPoints: InternalPt[] = [];
+  let minElevationM = Number.POSITIVE_INFINITY;
+  let maxElevationM = Number.NEGATIVE_INFINITY;
+  let firstTimestamp: Date | null = null;
+  let lastTimestamp: Date | null = null;
+
+  for (let sIdx = 0; sIdx < rawSegments.length; sIdx++) {
+    const segPts = rawSegments[sIdx];
+    for (let i = 0; i < segPts.length; i++) {
+      const pt = segPts[i];
+      const lat = parseFloat(pt.getAttribute('lat') || '0');
+      const lng = parseFloat(pt.getAttribute('lon') || '0');
+
+      if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+        continue;
+      }
+
+      const eleNode = pt.getElementsByTagName('ele')[0];
+      const ele = eleNode ? parseFloat(eleNode.textContent || '0') : undefined;
+
+      const timeNode = pt.getElementsByTagName('time')[0];
+      const time = timeNode ? timeNode.textContent?.trim() || undefined : undefined;
+      let timestampMs: number | undefined = undefined;
+
+      if (time) {
+        const d = new Date(time);
+        if (!isNaN(d.getTime())) {
+          timestampMs = d.getTime();
+          if (!firstTimestamp) firstTimestamp = d;
+          lastTimestamp = d;
+        }
+      }
+
+      if (ele !== undefined && !isNaN(ele)) {
+        if (ele < minElevationM) minElevationM = ele;
+        if (ele > maxElevationM) maxElevationM = ele;
+      }
+
+      allRawPoints.push({
+        lat,
+        lng,
+        ele: ele !== undefined && !isNaN(ele) ? ele : undefined,
+        time,
+        timestampMs,
+        segmentIndex: sIdx,
+      });
+    }
+  }
+
+  if (allRawPoints.length === 0) {
+    throw new Error('GPX soubor neobsahuje platné zeměpisné souřadnice.');
+  }
+
+  // Smooth elevations using a 3-point moving window within each segment to remove sensor noise
+  const smoothedEle: (number | undefined)[] = allRawPoints.map((pt, i, arr) => {
     if (pt.ele === undefined) return undefined;
-    const prev = arr[i - 1]?.ele;
-    const next = arr[i + 1]?.ele;
-    if (prev !== undefined && next !== undefined) {
-      return (prev + pt.ele + next) / 3;
+    const prev = arr[i - 1];
+    const next = arr[i + 1];
+    if (
+      prev?.ele !== undefined &&
+      next?.ele !== undefined &&
+      prev.segmentIndex === pt.segmentIndex &&
+      next.segmentIndex === pt.segmentIndex
+    ) {
+      return (prev.ele + pt.ele + next.ele) / 3;
     }
     return pt.ele;
   });
@@ -102,23 +194,67 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
   let totalDistanceKm = 0;
   let elevationGainM = 0;
   let elevationLossM = 0;
+  let movingDurationSeconds = 0;
 
-  for (let i = 0; i < rawData.length; i++) {
-    const pt = rawData[i];
+  // Jitter-filtered distance accumulator
+  let anchorPt: InternalPt | null = null;
+
+  for (let i = 0; i < allRawPoints.length; i++) {
+    const pt = allRawPoints[i];
     const currentEle = smoothedEle[i] ?? pt.ele;
 
-    if (i > 0) {
-      const prevPt = rawData[i - 1];
-      const dist = calculateDistanceKm(prevPt.lat, prevPt.lng, pt.lat, pt.lng);
-      totalDistanceKm += dist;
-
+    if (i === 0 || allRawPoints[i - 1].segmentIndex !== pt.segmentIndex) {
+      // Starting a new track segment: reset anchor point
+      anchorPt = pt;
+    } else {
+      const prevPt = allRawPoints[i - 1];
       const prevEle = smoothedEle[i - 1] ?? prevPt.ele;
+
+      // 2D distance between consecutive points
+      const d2d = calculateDistanceKm(prevPt.lat, prevPt.lng, pt.lat, pt.lng);
+
+      // Time delta between consecutive points
+      let dtSecs: number | null = null;
+      if (prevPt.timestampMs && pt.timestampMs) {
+        dtSecs = (pt.timestampMs - prevPt.timestampMs) / 1000;
+      }
+
+      // Calculate speed in km/h
+      const speedKmh = dtSecs && dtSecs > 0 ? d2d / (dtSecs / 3600) : null;
+
+      // Filter GPS glitches: speed > 130 km/h is unrealistic for hiking (GPS teleport spike)
+      const isGlitch = speedKmh !== null && speedKmh > 130;
+
+      // Filter stationary GPS flutter: GPS drifting while user stands still or sits in a hut
+      const isStationaryFlutter =
+        (speedKmh !== null && speedKmh < 0.6 && d2d < 0.003) ||
+        (speedKmh === null && anchorPt && calculateDistanceKm(anchorPt.lat, anchorPt.lng, pt.lat, pt.lng) < 0.0025);
+
+      if (!isGlitch && !isStationaryFlutter && d2d > 0) {
+        // True 3D distance on mountain terrain
+        let d3d = d2d;
+        if (currentEle !== undefined && prevEle !== undefined) {
+          const eleDiffKm = Math.abs(currentEle - prevEle) / 1000;
+          d3d = Math.sqrt(d2d * d2d + eleDiffKm * eleDiffKm);
+        }
+
+        totalDistanceKm += d3d;
+        anchorPt = pt;
+      }
+
+      // Accumulate moving duration if user is actively walking (speed >= 0.5 km/h, gap < 10 mins)
+      if (dtSecs && dtSecs > 0 && dtSecs < 600) {
+        if (speedKmh === null || (speedKmh >= 0.5 && speedKmh <= 120)) {
+          movingDurationSeconds += dtSecs;
+        }
+      }
+
+      // Elevation Gain and Loss with 1m minimum threshold to avoid micro-sensor jitter
       if (currentEle !== undefined && prevEle !== undefined) {
         const diff = currentEle - prevEle;
-        // Compute gain and loss from every point
-        if (diff > 0) {
+        if (diff > 0.8) {
           elevationGainM += diff;
-        } else if (diff < 0) {
+        } else if (diff < -0.8) {
           elevationLossM += Math.abs(diff);
         }
       }
@@ -133,6 +269,33 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
     });
   }
 
+  // Calculate Duration:
+  let finalDurationSeconds = 0;
+  let totalElapsedSeconds = 0;
+
+  if (firstTimestamp && lastTimestamp) {
+    totalElapsedSeconds = Math.max(0, (lastTimestamp.getTime() - firstTimestamp.getTime()) / 1000);
+  }
+
+  if (movingDurationSeconds >= 60) {
+    // Prefer moving time (standard across Garmin / Strava / hiking computers)
+    finalDurationSeconds = movingDurationSeconds;
+  } else if (totalElapsedSeconds >= 60) {
+    finalDurationSeconds = totalElapsedSeconds;
+  } else {
+    // If GPX has no timestamps (e.g. exported planned route from Mapy.cz),
+    // estimate realistic hiking time via Naismith's Rule: 4 km/h horizontal + 600m/h vertical
+    const estimatedHours = totalDistanceKm / 4.0 + elevationGainM / 600.0;
+    finalDurationSeconds = Math.max(1800, Math.round(estimatedHours * 3600));
+  }
+
+  const durationStr = formatDurationFromSeconds(finalDurationSeconds);
+
+  // Extract activity date from first trackpoint timestamp or metadata
+  const activityDate = firstTimestamp
+    ? firstTimestamp.toISOString().split('T')[0]
+    : metadataDate;
+
   const detectedRange = detectMountainRange(trackPoints);
 
   return {
@@ -144,6 +307,12 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
     maxElevationM: maxElevationM !== Number.NEGATIVE_INFINITY ? Math.round(maxElevationM) : 0,
     detectedRange,
     name,
+    duration: durationStr,
+    durationMinutes: Math.round(finalDurationSeconds / 60),
+    movingDurationMinutes: Math.round(movingDurationSeconds / 60),
+    date: activityDate,
+    startTime: firstTimestamp ? firstTimestamp.toISOString() : undefined,
+    endTime: lastTimestamp ? lastTimestamp.toISOString() : undefined,
   };
 }
 

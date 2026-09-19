@@ -5,6 +5,9 @@ import {
   checkUrlKeyForRole,
   resetPinsToDefault,
   savePins,
+  getStoredSessionRole,
+  saveSessionRole,
+  clearSessionRole,
 } from './utils/auth';
 import {
   getStoredHikes,
@@ -20,6 +23,7 @@ import {
   subscribeToPins,
   savePinsToFirestore,
   getHikeFromFirestore,
+  sanitizeHikeForStorage,
 } from './utils/firebase';
 import { parseUrlSearch } from './utils/garmin';
 import { LockScreen } from './components/LockScreen';
@@ -34,9 +38,9 @@ import { ShareModal } from './components/ShareModal';
 import { TelegramModal } from './components/TelegramModal';
 
 export default function App() {
-  // 1. Double PIN security: Always start locked by default!
-  const [isLocked, setIsLocked] = useState<boolean>(true);
-  const [currentRole, setCurrentRole] = useState<UserRole | null>(null);
+  // 1. Session & PIN security: Remember login session on the same device
+  const [currentRole, setCurrentRole] = useState<UserRole | null>(() => getStoredSessionRole());
+  const [isLocked, setIsLocked] = useState<boolean>(() => !getStoredSessionRole());
   const [pinConfig, setPinConfig] = useState<PinConfig>(getStoredPins);
   const [urlLockError, setUrlLockError] = useState<string | null>(null);
 
@@ -104,10 +108,12 @@ export default function App() {
         setCurrentRole('admin');
         setIsLocked(false);
         setUrlLockError(null);
+        saveSessionRole('admin');
       } else if (cleanKey === '0000' || cleanKey === pinConfig.readerPin.trim()) {
         setCurrentRole('reader');
         setIsLocked(false);
         setUrlLockError(null);
+        saveSessionRole('reader');
       } else {
         setUrlLockError(`Odkaz obsahuje neplatný klíč: "${cleanKey}". Zadejte platné heslo.`);
         setIsLocked(true);
@@ -210,12 +216,14 @@ export default function App() {
     setCurrentRole(role);
     setIsLocked(false);
     setUrlLockError(null);
+    saveSessionRole(role);
   };
 
   // Immediate lock out
   const handleLock = () => {
     setIsLocked(true);
     setCurrentRole(null);
+    clearSessionRole();
     // Remove ?key=... parameter from URL so it stays locked
     try {
       const url = new URL(window.location.href);
@@ -227,29 +235,35 @@ export default function App() {
   // Switch role from Reader to Admin
   const handleSwitchToAdminSuccess = () => {
     setCurrentRole('admin');
+    saveSessionRole('admin');
   };
 
   // Hike CRUD handlers with Firestore persistence
-  const handleSaveHike = (savedHike: MountainHike) => {
-    const existingIndex = hikes.findIndex((h) => h.id === savedHike.id);
-    let updated: MountainHike[];
-    if (existingIndex >= 0) {
-      updated = [...hikes];
-      updated[existingIndex] = savedHike;
-    } else {
-      updated = [savedHike, ...hikes];
-    }
-    setHikes(updated);
-    saveHikesToStorage(updated);
+  const handleSaveHike = async (savedHike: MountainHike): Promise<void> => {
+    const cleanHike = sanitizeHikeForStorage(savedHike);
+
+    setHikes((prevHikes) => {
+      const existingIndex = prevHikes.findIndex((h) => h.id === cleanHike.id);
+      let updated: MountainHike[];
+      if (existingIndex >= 0) {
+        updated = [...prevHikes];
+        updated[existingIndex] = cleanHike;
+      } else {
+        updated = [cleanHike, ...prevHikes];
+      }
+      saveHikesToStorage(updated);
+      return updated;
+    });
+
+    // If modal was open for this hike, update selectedHike immediately
+    setSelectedHike((prev) => (prev && prev.id === cleanHike.id ? cleanHike : prev));
 
     // Persist to Google Firebase Firestore
-    saveHikeToFirestore(savedHike).catch((err) =>
-      console.warn('Nepodařilo se uložit výpravu do Firebase Firestore:', err)
-    );
-
-    // If modal was open for this hike, update selectedHike
-    if (selectedHike && selectedHike.id === savedHike.id) {
-      setSelectedHike(savedHike);
+    try {
+      await saveHikeToFirestore(cleanHike);
+      console.log('Výprava úspěšně uložena do Firestore:', cleanHike.id);
+    } catch (err) {
+      console.warn('Výprava byla uložena v prohlížeči, synchronizace s Firestore hlásí:', err);
     }
   };
 

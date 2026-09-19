@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Calendar,
@@ -66,6 +66,10 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
   const [localAiSummary, setLocalAiSummary] = useState<HikeAISummary | undefined>(
     hike?.aiSummary
   );
+
+  useEffect(() => {
+    setLocalAiSummary(hike?.aiSummary);
+  }, [hike?.aiSummary, hike?.id]);
 
   if (!hike) return null;
 

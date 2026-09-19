@@ -2,9 +2,38 @@ import { PinConfig, UserRole } from '../types';
 
 const ADMIN_PIN_KEY = 'horsky_denik_admin_pin';
 const READER_PIN_KEY = 'horsky_denik_reader_pin';
+const SESSION_ROLE_KEY = 'horsky_denik_authenticated_role_v1';
 
 export const DEFAULT_ADMIN_PIN = '1234';
 export const DEFAULT_READER_PIN = '0000';
+
+export function getStoredSessionRole(): UserRole | null {
+  try {
+    const role = localStorage.getItem(SESSION_ROLE_KEY);
+    if (role === 'admin' || role === 'reader') {
+      return role as UserRole;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveSessionRole(role: UserRole | null): void {
+  try {
+    if (role) {
+      localStorage.setItem(SESSION_ROLE_KEY, role);
+    } else {
+      localStorage.removeItem(SESSION_ROLE_KEY);
+    }
+  } catch {}
+}
+
+export function clearSessionRole(): void {
+  try {
+    localStorage.removeItem(SESSION_ROLE_KEY);
+  } catch {}
+}
 
 export function getStoredPins(): PinConfig {
   let adminPin = localStorage.getItem(ADMIN_PIN_KEY);

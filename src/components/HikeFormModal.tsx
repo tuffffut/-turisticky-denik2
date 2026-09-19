@@ -23,6 +23,7 @@ import {
   ArrowRight,
   RotateCw,
   Quote,
+  Undo2,
 } from 'lucide-react';
 import { MountainHike, HikeDifficulty, GPXTrackPoint, HikeVideo, HikeAISummary } from '../types';
 import { parseGPX, buildGPXXml } from '../utils/gpxParser';
@@ -34,7 +35,44 @@ interface HikeFormModalProps {
   initialGpxContent?: { filename?: string; content: string } | null;
   initialHikeData?: Partial<MountainHike> | null;
   onClose: () => void;
-  onSave: (hike: MountainHike) => void;
+  onSave: (hike: MountainHike) => Promise<void> | void;
+}
+
+function resizeImageFile(file: File, maxDim = 1200, quality = 0.75): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.onerror = () => resolve(e.target?.result as string);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
 }
 
 export const HikeFormModal: React.FC<HikeFormModalProps> = ({
@@ -69,6 +107,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
     story: string;
     oneLiner?: string;
   } | null>(null);
+  const [originalNotes, setOriginalNotes] = useState<string | null>(null);
 
   const [trackPoints, setTrackPoints] = useState<GPXTrackPoint[] | undefined>(undefined);
   const [gpxFileName, setGpxFileName] = useState<string | null>(null);
@@ -77,8 +116,8 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
   const [peakLng, setPeakLng] = useState<number | ''>('');
   const [peakName, setPeakName] = useState('');
   const [importedNotice, setImportedNotice] = useState<string | null>(null);
-
   const [formError, setFormError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (hikeToEdit) {
@@ -151,6 +190,8 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
           setDistanceKm(result.distanceKm);
           setElevationGainM(result.elevationGainM);
           setElevationLossM(result.elevationLossM);
+          if (result.duration) setDuration(result.duration);
+          if (result.date) setDate(result.date);
           if (result.maxElevationM) setHighestPointM(result.maxElevationM);
           if (!defaultTitle && result.name) setTitle(result.name);
           else if (!defaultTitle && initialGpxContent.filename) {
@@ -169,7 +210,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
             setPeakLng(highestPt.lng);
             setPeakName(result.name || 'Nejvyšší bod trasy');
           }
-          setImportedNotice('GPX trasa byla úspěšně načtena z Telegramu / odkazu! Všechny parametry jsou předvyplněné.');
+          setImportedNotice(`GPX trasa načtena: ${result.distanceKm} km, doba ${result.duration || 'aktivity'}, převýšení +${result.elevationGainM} m.`);
         } catch (err: any) {
           console.warn('Chyba při načítání GPX:', err);
         }
@@ -197,6 +238,8 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
         setDistanceKm(result.distanceKm);
         setElevationGainM(result.elevationGainM);
         setElevationLossM(result.elevationLossM);
+        if (result.duration) setDuration(result.duration);
+        if (result.date) setDate(result.date);
         if (result.maxElevationM) setHighestPointM(result.maxElevationM);
         if (!title && result.name) setTitle(result.name);
 
@@ -217,6 +260,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
           setPeakLng(highestPt.lng);
         }
 
+        setImportedNotice(`GPX úspěšně načteno: délka ${result.distanceKm} km, čas ${result.duration || 'zaznamenán'}, převýšení +${result.elevationGainM} m.`);
         setFormError(null);
       } catch (err: any) {
         setFormError(err.message || 'Chyba při čtení GPX souboru.');
@@ -225,21 +269,21 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
     reader.readAsText(file);
   };
 
-  // Handle local image file upload (converts to base64)
-  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle local image file upload (converts and compresses to light base64 JPEG)
+  const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
+    for (const file of Array.from(files)) {
+      try {
+        const base64 = await resizeImageFile(file, 1200, 0.75);
         if (base64) {
           setPhotos((prev) => [...prev, base64]);
         }
-      };
-      reader.readAsDataURL(file);
-    });
+      } catch (err) {
+        console.warn('Chyba při kompresi fotky:', err);
+      }
+    }
   };
 
   const handleAddPhotoUrl = () => {
@@ -309,6 +353,10 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setAiSummary(result);
 
       if (result.story) {
+        if (!originalNotes && description) {
+          setOriginalNotes(description);
+        }
+        setDescription(result.story);
         setRewrittenPreview({
           story: result.story,
           oneLiner: result.oneLiner,
@@ -321,6 +369,15 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
     }
   };
 
+  // Revert rewritten story back to original notes
+  const handleRevertNotes = () => {
+    if (originalNotes !== null) {
+      setDescription(originalNotes);
+      setOriginalNotes(null);
+      setRewrittenPreview(null);
+    }
+  };
+
   // Apply rewritten story directly to description field
   const handleApplyRewrittenStory = () => {
     if (rewrittenPreview?.story) {
@@ -329,7 +386,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!title.trim()) {
@@ -385,8 +442,17 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       gpxRawXml: gpxRawXml || (trackPoints ? buildGPXXml(title, trackPoints) : undefined),
     };
 
-    onSave(savedHike);
-    onClose();
+    setIsSaving(true);
+    setFormError(null);
+    try {
+      await onSave(savedHike);
+      onClose();
+    } catch (err: any) {
+      console.error('Chyba při ukládání výpravy:', err);
+      setFormError(err.message || 'Nepodařilo se uložit změny.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -692,6 +758,24 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
                   {description.length} znaků
                 </span>
               </div>
+
+              {originalNotes && (
+                <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-emerald-950/50 border border-emerald-800/60 rounded-xl text-emerald-300 text-xs">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    AI přepsala vaše poznámky do čtivého textu níže.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleRevertNotes}
+                    className="text-[11px] text-amber-300 hover:text-amber-200 underline cursor-pointer flex items-center gap-1 shrink-0 ml-2"
+                  >
+                    <Undo2 className="w-3 h-3" />
+                    <span>Vrátit původní poznámky</span>
+                  </button>
+                </div>
+              )}
+
               <textarea
                 rows={4}
                 value={description}
@@ -933,10 +1017,20 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition-colors cursor-pointer flex items-center gap-1.5"
+              disabled={isSaving}
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
             >
-              <Check className="w-4 h-4" />
-              <span>{hikeToEdit ? 'Uložit změny' : 'Vytvořit výpravu'}</span>
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Ukládám...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>{hikeToEdit ? 'Uložit změny' : 'Vytvořit výpravu'}</span>
+                </>
+              )}
             </button>
           </div>
         </form>

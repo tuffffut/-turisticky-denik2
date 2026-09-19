@@ -79,13 +79,44 @@ export function subscribeToHikes(
 }
 
 /**
+ * Sanitizes and optimizes a hike document so it never exceeds Firestore's 1MB limit
+ * and localStorage quotas.
+ */
+export function sanitizeHikeForStorage(hike: MountainHike): MountainHike {
+  const clean: MountainHike = { ...hike };
+
+  // Downsample trackPoints to max 600 points if track is excessively long
+  if (clean.trackPoints && clean.trackPoints.length > 600) {
+    const total = clean.trackPoints.length;
+    const step = Math.ceil(total / 600);
+    const downsampled = [];
+    for (let i = 0; i < total; i += step) {
+      downsampled.push(clean.trackPoints[i]);
+    }
+    const last = clean.trackPoints[total - 1];
+    if (downsampled[downsampled.length - 1] !== last) {
+      downsampled.push(last);
+    }
+    clean.trackPoints = downsampled;
+  }
+
+  // If trackPoints are present, avoid saving giant duplicate GPX XML string (> 50KB)
+  // because buildGPXXml dynamically reconstructs GPX for export/download anytime!
+  if (clean.trackPoints && clean.trackPoints.length > 0 && clean.gpxRawXml && clean.gpxRawXml.length > 50000) {
+    delete (clean as any).gpxRawXml;
+  }
+
+  // Strip undefined values
+  return JSON.parse(JSON.stringify(clean));
+}
+
+/**
  * Saves or updates a single hike document in Firestore.
  */
 export async function saveHikeToFirestore(hike: MountainHike): Promise<void> {
   const docRef = doc(db, HIKES_COLLECTION, hike.id);
-  // Clean undefined values to prevent Firestore error
-  const cleanData = JSON.parse(JSON.stringify(hike));
-  await setDoc(docRef, cleanData);
+  const cleanData = sanitizeHikeForStorage(hike);
+  await setDoc(docRef, cleanData, { merge: true });
 }
 
 /**

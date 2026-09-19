@@ -21,14 +21,16 @@ function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
   return R * c;
 }
 
-// Server-side GPX track parser (fast regex without browser DOM dependency)
+// Server-side GPX track parser (robust regex-based with jitter filtering, duration & date)
 function parseServerGpx(xmlString: string) {
   const points: { lat: number; lng: number; ele?: number; time?: string; distFromStartKm?: number }[] = [];
   const ptRegex = /<(?:trkpt|rtept|wpt)\s+[^>]*lat=["']([^"']+)["']\s+[^>]*lon=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:trkpt|rtept|wpt)>/gi;
   const ptRegex2 = /<(?:trkpt|rtept|wpt)\s+[^>]*lon=["']([^"']+)["']\s+[^>]*lat=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:trkpt|rtept|wpt)>/gi;
 
-  const raw: { lat: number; lng: number; ele?: number; time?: string }[] = [];
+  const raw: { lat: number; lng: number; ele?: number; time?: string; timestampMs?: number }[] = [];
   let match;
+  let firstTimestamp: Date | null = null;
+  let lastTimestamp: Date | null = null;
 
   while ((match = ptRegex.exec(xmlString)) !== null) {
     const lat = parseFloat(match[1]);
@@ -37,9 +39,18 @@ function parseServerGpx(xmlString: string) {
     const eleMatch = /<ele>([0-9.-]+)<\/ele>/i.exec(inner);
     const timeMatch = /<time>([^<]+)<\/time>/i.exec(inner);
     const ele = eleMatch ? parseFloat(eleMatch[1]) : undefined;
-    const time = timeMatch ? timeMatch[1] : undefined;
-    if (!isNaN(lat) && !isNaN(lng)) {
-      raw.push({ lat, lng, ele, time });
+    const time = timeMatch ? timeMatch[1].trim() : undefined;
+    let timestampMs: number | undefined = undefined;
+    if (time) {
+      const d = new Date(time);
+      if (!isNaN(d.getTime())) {
+        timestampMs = d.getTime();
+        if (!firstTimestamp) firstTimestamp = d;
+        lastTimestamp = d;
+      }
+    }
+    if (!isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0)) {
+      raw.push({ lat, lng, ele, time, timestampMs });
     }
   }
 
@@ -51,9 +62,18 @@ function parseServerGpx(xmlString: string) {
       const eleMatch = /<ele>([0-9.-]+)<\/ele>/i.exec(inner);
       const timeMatch = /<time>([^<]+)<\/time>/i.exec(inner);
       const ele = eleMatch ? parseFloat(eleMatch[1]) : undefined;
-      const time = timeMatch ? timeMatch[1] : undefined;
-      if (!isNaN(lat) && !isNaN(lng)) {
-        raw.push({ lat, lng, ele, time });
+      const time = timeMatch ? timeMatch[1].trim() : undefined;
+      let timestampMs: number | undefined = undefined;
+      if (time) {
+        const d = new Date(time);
+        if (!isNaN(d.getTime())) {
+          timestampMs = d.getTime();
+          if (!firstTimestamp) firstTimestamp = d;
+          lastTimestamp = d;
+        }
+      }
+      if (!isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0)) {
+        raw.push({ lat, lng, ele, time, timestampMs });
       }
     }
   }
@@ -63,15 +83,46 @@ function parseServerGpx(xmlString: string) {
   let maxEle = Number.NEGATIVE_INFINITY;
   let highestPoint = raw[0];
   let calculatedGain = 0;
+  let calculatedLoss = 0;
+  let movingDurationSecs = 0;
 
   for (let i = 0; i < raw.length; i++) {
     const pt = raw[i];
     if (i > 0) {
       const prev = raw[i - 1];
-      const d = haversineDistanceKm(prev.lat, prev.lng, pt.lat, pt.lng);
-      totalDistKm += d;
-      if (pt.ele !== undefined && prev.ele !== undefined && pt.ele > prev.ele) {
-        calculatedGain += pt.ele - prev.ele;
+      const d2d = haversineDistanceKm(prev.lat, prev.lng, pt.lat, pt.lng);
+
+      let dtSecs: number | null = null;
+      if (prev.timestampMs && pt.timestampMs) {
+        dtSecs = (pt.timestampMs - prev.timestampMs) / 1000;
+      }
+
+      const speedKmh = dtSecs && dtSecs > 0 ? d2d / (dtSecs / 3600) : null;
+      const isGlitch = speedKmh !== null && speedKmh > 130;
+      const isStationary = speedKmh !== null && speedKmh < 0.6 && d2d < 0.003;
+
+      if (!isGlitch && !isStationary && d2d > 0) {
+        let d3d = d2d;
+        if (pt.ele !== undefined && prev.ele !== undefined) {
+          const eleDiffKm = Math.abs(pt.ele - prev.ele) / 1000;
+          d3d = Math.sqrt(d2d * d2d + eleDiffKm * eleDiffKm);
+        }
+        totalDistKm += d3d;
+      }
+
+      if (dtSecs && dtSecs > 0 && dtSecs < 600) {
+        if (speedKmh === null || (speedKmh >= 0.5 && speedKmh <= 120)) {
+          movingDurationSecs += dtSecs;
+        }
+      }
+
+      if (pt.ele !== undefined && prev.ele !== undefined) {
+        const diff = pt.ele - prev.ele;
+        if (diff > 0.8) {
+          calculatedGain += diff;
+        } else if (diff < -0.8) {
+          calculatedLoss += Math.abs(diff);
+        }
       }
     }
     if (pt.ele !== undefined && !isNaN(pt.ele)) {
@@ -82,19 +133,50 @@ function parseServerGpx(xmlString: string) {
       }
     }
     points.push({
-      ...pt,
+      lat: pt.lat,
+      lng: pt.lng,
+      ele: pt.ele !== undefined ? Math.round(pt.ele) : undefined,
+      time: pt.time,
       distFromStartKm: Math.round(totalDistKm * 100) / 100,
     });
   }
 
+  // Calculate Duration
+  let durationSecs = 0;
+  if (movingDurationSecs >= 60) {
+    durationSecs = movingDurationSecs;
+  } else if (firstTimestamp && lastTimestamp) {
+    durationSecs = Math.max(0, (lastTimestamp.getTime() - firstTimestamp.getTime()) / 1000);
+  } else {
+    // Naismith's hiking rule
+    durationSecs = Math.max(1800, Math.round((totalDistKm / 4.0 + calculatedGain / 600.0) * 3600));
+  }
+
+  const hours = Math.floor(durationSecs / 3600);
+  const mins = Math.round((durationSecs % 3600) / 60);
+  const formattedDuration = hours > 0 ? `${hours}h ${mins.toString().padStart(2, '0')}m` : `${mins}m`;
+
   const nameMatch = /<name>([^<]+)<\/name>/i.exec(xmlString);
   const name = nameMatch ? nameMatch[1].trim() : undefined;
+
+  const metaTimeMatch = /<metadata>[\s\S]*?<time>([^<]+)<\/time>/i.exec(xmlString);
+  let activityDate = firstTimestamp ? firstTimestamp.toISOString().split('T')[0] : undefined;
+  if (!activityDate && metaTimeMatch) {
+    const md = new Date(metaTimeMatch[1].trim());
+    if (!isNaN(md.getTime())) {
+      activityDate = md.toISOString().split('T')[0];
+    }
+  }
 
   return {
     name,
     trackPoints: points,
     totalDistKm: Math.round(totalDistKm * 10) / 10,
     gainM: Math.round(calculatedGain),
+    lossM: Math.round(calculatedLoss),
+    duration: formattedDuration,
+    durationMinutes: Math.round(durationSecs / 60),
+    date: activityDate,
     minEle: minEle === Number.POSITIVE_INFINITY ? undefined : Math.round(minEle),
     maxEle: maxEle === Number.NEGATIVE_INFINITY ? undefined : Math.round(maxEle),
     highestPoint: highestPoint || { lat: 50.736, lng: 15.74 },
@@ -199,9 +281,12 @@ async function startServer() {
         });
       }
 
-      const prompt = `Jsi chytrý, vtipný a poutavý horský vypravěč.
-Uživatel si zapsal tyto poznámky z horské výpravy:
-"${rawNotes || 'stoupání dalo zabrat, nohy bolely, ale výhledy stály za to a na chatě bylo parádní pivo'}"
+      const userNotesClean = (rawNotes || '').trim();
+      const prompt = `Jsi chytrý, vtipný a autentický horský vypravěč.
+Uživatel si do deníku zapsal tyto své konkrétní poznámky a postřehy z horské výpravy:
+"""
+${userNotesClean || 'Žádné poznámky nezadány – vygeneruj svěží zážitek z túry.'}
+"""
 
 Kontext túry:
 - Vrchol / Trasa: ${mountainName || 'Horský vrchol'}
@@ -210,53 +295,67 @@ Kontext túry:
 - Délka trasy: ${distanceKm ? `${distanceKm} km` : 'neuvedeno'}
 - Převýšení: ${elevationGainM ? `+${elevationGainM} m` : 'neuvedeno'}
 - Počasí / podmínky: ${weather || 'horské proměnlivé'}
-- Požadovaný styl: ${tone === 'adventurous' ? 'dobrodružný a svižný' : 'stručný, úderný, čtivý a lehce vtipný'}
+- Požadovaný styl: ${tone === 'adventurous' ? 'dobrodružný a svižný' : tone === 'witty' ? 'odlehčený, vtipný a s horským nadhledem' : 'stručný, úderný, čtivý a autentický'}
 
-HLAVNÍ ÚKOL:
-Přepiš uživatelovy poznámky do KRÁTKÉHO, skvěle čitelného a trochu vtipného zápisku do deníku.
-KRITICKÉ PRAVIDLO: Text musí být OPRAVDU STRUČNÝ – pouze 2 až 4 krátké svižné věty (jeden kompaktní odstavec). Žádné zdlouhavé popisy ani mnohověté omáčky!
-1. Zachovej konkrétní věci, které uživatel zmínil (pivo, knedlík, počasí, unavené nohy, kamarádi).
-2. Dodej tomu lehký horský humor a nadhled.
-3. Přirozená, hovorová a přátelská čeština bez klišé.
+HLAVNÍ ÚKOLY A KRITICKÁ PRAVIDLA:
+1. VĚRNOST POZNÁMKÁM: Pokud uživatel zadal poznámky, příběh ("story") i shrnutí ("oneLiner") MUSÍ přímo a zřetelně zapracovat VŠECHNY jeho konkrétní postřehy, zmínky, lidi, jídla, únavu, chyby či zážitky! Nesmíš jeho poznámky ignorovat ani nahradit generickým klišé.
+2. STRUČNOST: Text "story" musí být úderný – přesně 2 až 4 svižné, čtivé věty (jeden ucelený odstavec). Žádné zdlouhavé slohy!
+3. JAZYK: Přirozená, hovorově přátelská moderní čeština, s lehkým horským humorem.
 
 Odpověz ve formátu JSON s těmito poli v češtině:
 {
-  "story": "Hotový přepsaný čtivý a vtipný deníkový text na základě poznámek...",
-  "oneLiner": "Krátká vtipná hláška / shrnutí výpravy v jedné větě.",
-  "safety": "Klíčová bezpečnostní doporučení a rizika terénu (např. suťoviště, blesky, jištění na ferratě, mlha).",
+  "story": "Hotový přepsaný čtivý text přímo z poznámek (2-4 věty)...",
+  "oneLiner": "Krátká trefná hláška nebo pointa vystihující tuto konkrétní túru a poznámky.",
+  "safety": "Klíčová bezpečnostní doporučení a rizika terénu pro tuto trasu.",
   "highlights": "Zajímavá místa na trase (chaty, plesa, vyhlídky).",
   "gear": ["položka 1", "položka 2", "položka 3", "položka 4"],
   "bestSeason": "Doporučené měsíce pro výstup.",
   "weatherTips": "Praktické rady k počasí a času vyražení."
 }`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              story: { type: Type.STRING },
-              oneLiner: { type: Type.STRING },
-              safety: { type: Type.STRING },
-              highlights: { type: Type.STRING },
-              gear: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-              bestSeason: { type: Type.STRING },
-              weatherTips: { type: Type.STRING },
-            },
-            required: ['story', 'oneLiner', 'safety', 'highlights', 'gear', 'bestSeason', 'weatherTips'],
-          },
-        },
-      });
+      // Try modern high-performing Gemini models in priority order
+      const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.8-flash'];
+      let responseText: string | null = null;
+      let lastErr: any = null;
 
-      const responseText = response.text;
+      for (const m of modelsToTry) {
+        try {
+          const response = await ai.models.generateContent({
+            model: m,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  story: { type: Type.STRING },
+                  oneLiner: { type: Type.STRING },
+                  safety: { type: Type.STRING },
+                  highlights: { type: Type.STRING },
+                  gear: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                  },
+                  bestSeason: { type: Type.STRING },
+                  weatherTips: { type: Type.STRING },
+                },
+                required: ['story', 'oneLiner', 'safety', 'highlights', 'gear', 'bestSeason', 'weatherTips'],
+              },
+            },
+          });
+          if (response.text) {
+            responseText = response.text;
+            console.log(`[Gemini API] Úspěšně vygenerováno pomocí modelu: ${m}`);
+            break;
+          }
+        } catch (mErr: any) {
+          console.warn(`[Gemini API] Model ${m} selhal:`, mErr?.message || mErr);
+          lastErr = mErr;
+        }
+      }
+
       if (!responseText) {
-        throw new Error('Prázdná odpověď od Gemini modelu');
+        throw new Error(lastErr?.message || 'Prázdná odpověď od Gemini modelů');
       }
 
       const parsedData = JSON.parse(responseText.trim());
@@ -444,10 +543,10 @@ Odpověz ve formátu JSON s těmito poli v češtině:
       const finalTitle = title || parsedGpx?.name || 'Horská túra z Garminu';
       const finalDistance = Number(distanceKm) || parsedGpx?.totalDistKm || 10;
       const finalGain = Number(elevationGainM) || parsedGpx?.gainM || 500;
-      const finalLoss = Number(elevationLossM) || finalGain;
+      const finalLoss = Number(elevationLossM) || parsedGpx?.lossM || finalGain;
 
       // Format duration
-      let formattedDuration = '3h 30m';
+      let formattedDuration = parsedGpx?.duration || '3h 30m';
       if (durationMinutes && !isNaN(Number(durationMinutes))) {
         const mins = Math.round(Number(durationMinutes));
         const hours = Math.floor(mins / 60);
@@ -464,7 +563,7 @@ Odpověz ve formátu JSON s těmito poli v češtině:
         id: routeId,
         title: finalTitle,
         mountainRange: detectedRange,
-        date: date ? String(date).slice(0, 10) : new Date().toISOString().split('T')[0],
+        date: date ? String(date).slice(0, 10) : (parsedGpx?.date || new Date().toISOString().split('T')[0]),
         distanceKm: Math.round(finalDistance * 10) / 10,
         elevationGainM: Math.round(finalGain),
         elevationLossM: Math.round(finalLoss),

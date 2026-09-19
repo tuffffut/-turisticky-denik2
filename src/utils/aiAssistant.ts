@@ -62,54 +62,56 @@ function generateClientFallbackTips(params: GenerateHikeAIParams): HikeAISummary
   let oneLiner = '';
 
   if (notes.length > 0) {
-    const lowerNotes = notes.toLowerCase();
-    const hasBeer = /piv[oa]|plzeň|radegast|půllitr|hospoda|výčep/i.test(lowerNotes);
-    const hasFood = /knedlík|klobás|polévk|borůvk|guláš|svačin|hlad|jídlo/i.test(lowerNotes);
-    const hasLegsPain = /nohy|stehn|kolen|sval|pálil|dech|plíce|mordor|krpál|stoupání|kopec|pot/i.test(lowerNotes);
-    const hasWeatherIssues = /mlh|mrak|déšť|pršel|vítr|fučel|vichr|zima|mokr|blát/i.test(lowerNotes);
-    const hasLost = /ztratil|zabloudil|kufr|bloud|hledal|cesta|značk/i.test(lowerNotes);
+    // Break user notes into distinct thoughts/lines
+    const rawSegments = notes
+      .split(/[\n,.;•\-\t]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 2);
 
-    if (tone === 'concise') {
-      // Truly concise (2-3 sentences max)
-      const part1 = hasLegsPain
-        ? `Výšlap na ${name} dal nohám a stehnům pořádně zabrat.`
-        : `Pohodový výstup na ${name} v pohoří ${range} nabídl skvělé horské výhledy.`;
-      
-      let part2 = '';
-      if (hasLost) {
-        part2 = ' Na chvíli jsme si sice zahráli na průzkumníky mimo značku, ale správný směr jsme našli.';
-      } else if (hasWeatherIssues) {
-        part2 = ' Horský vítr a mraky prověřily morálku, ale nahoře to stálo za to.';
-      } else if (hasBeer || hasFood) {
-        part2 = ` Odměna na chatě v podobě ${hasFood ? 'dobrého jídla' : ''}${hasFood && hasBeer ? ' a ' : ''}${hasBeer ? 'oroseného piva' : ''} vrátila sílu do žil.`;
-      }
+    // Capitalize first letter helper
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    const uncap = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
-      const part3 = ` Parádní den v horách, na který se bude hezky vzpomínat.`;
-      story = `${part1}${part2}${part3}`.replace(/\s{2,}/g, ' ');
-      oneLiner = hasBeer || hasFood
-        ? `Nohy bolely, ale orosené pivo a vrchol na ${name} to zachránily!`
-        : `Poctivý výšlap na ${name}, který stál za každou kapku potu!`;
+    const primaryThought = rawSegments[0] || notes;
+    const secondaryThought = rawSegments.length > 1 ? rawSegments[1] : null;
+    const thirdThought = rawSegments.length > 2 ? rawSegments[2] : null;
+
+    if (tone === 'witty') {
+      // Witty & humorous style with direct reference to their notes
+      const intro = `Výprava na ${name} (${range}) se rozhodně zapsala do paměti: ${uncap(primaryThought)}.`;
+      const middle = secondaryThought
+        ? ` Do toho navíc přišlo ${uncap(secondaryThought)}${thirdThought ? ` a ${uncap(thirdThought)}` : ''}, takže o horskou zábavu nebyla nouze.`
+        : ` Žádná horská idylka z katalogu, ale poctivý autentický zážitek, jak má být.`;
+      const outro = ` Ve výsledku jsme to ale zvládli se ctí a zaslouženým úsměvem na tváři.`;
+      story = `${intro}${middle}${outro}`;
+      oneLiner = `„${cap(primaryThought)}“ – zkrátka nezapomenutelný den na ${name}!`;
+    } else if (tone === 'adventurous') {
+      // Adventurous tone
+      const intro = `Výstup na ${name} prověřil naše síly i odhodlání: ${uncap(primaryThought)}.`;
+      const middle = secondaryThought
+        ? ` Terén a podmínky nám nic neodpustily (${secondaryThought}${thirdThought ? `, ${thirdThought}` : ''}), ale ten horský vzduch stál za každý krok.`
+        : ` Zdolání trasy v pohoří ${range} přineslo čistou horskou radost a skvělý pocit v nohách.`;
+      const outro = ` Parádní horské dobrodružství, které bychom si klidně zopakovali.`;
+      story = `${intro}${middle}${outro}`;
+      oneLiner = `${cap(primaryThought)} – poctivých ${distanceKm ? `${distanceKm} km` : 'kilometrů'} čistého horského zážitku!`;
     } else {
-      // Witty / Adventurous (3-4 sentences)
-      const part1 = `Na ${name} (${range}) jsme vyrazili s odhodláním a nohy brzy poznaly, že kopce tady nejsou zadarmo. `;
-      const part2 = hasWeatherIssues
-        ? 'Mlha a vítr sice zkoušely naši trpělivost, ale k horám trocha divočiny patří. '
-        : 'Výhledy do údolí spolehlivě vyhnaly z hlavy všechen městský shon. ';
-      const part3 = (hasBeer || hasFood)
-        ? 'Záchrana v podobě horské chaty a zaslouženého piva přišla přesně včas. '
-        : 'Závěrečný sestup byl za odměnu. ';
-      const part4 = `Poctivých ${distanceKm ? `${distanceKm} km` : 'pár kilometrů'}, které stály za to!`;
-      story = `${part1}${part2}${part3}${part4}`;
-      oneLiner = `Když nohy nemůžou, vidina chaty tě na ${name} vytáhne!`;
+      // Concise tone (2-3 clean, punchy sentences)
+      const intro = `Při výpravě na ${name} v pohoří ${range} šlo hlavně o to, že ${uncap(primaryThought)}.`;
+      const middle = secondaryThought
+        ? ` Nechybělo ani ${uncap(secondaryThought)}${thirdThought ? ` a ${uncap(thirdThought)}` : ''}.`
+        : ` Trasa nabídla skvělé momenty i zaslouženou únavu v nohách.`;
+      const outro = ` Celkově parádní den v horách se skvělými vzpomínkami.`;
+      story = `${intro}${middle}${outro}`;
+      oneLiner = `${cap(primaryThought)} na vrcholu ${name}!`;
     }
   } else {
-    // Default concise when notes are empty
+    // Fallback when no notes were provided at all
     if (difficulty === 'ferrata') {
-      story = `Zajištěná ferrata na ${name} (${range}) nabídla parádní porci železa ve skále a vzrušující vzdušné pasáže. Výhledy z vrcholu byly zaslouženou odměnou za překonanou gravitaci.`;
+      story = `Zajištěná ferrata na ${name} (${range}) nabídla parádní porci železa ve skále a vzdušné pasáže s výhledy. Převýšení dalo zabrat, ale vrcholová euforie byla stoprocentní.`;
       oneLiner = `Cvakání karabin, vzduch pod nohama a nahoře čistá radost na ${name}!`;
     } else {
       story = `Příjemná túra na ${name} v pohoří ${range} s čistou hlavou a horským větrem v zádech. Krásná trasa, která příjemně unaví tělo a dobije baterky na maximum.`;
-      oneLiner = `Horský vzduch na ${name} a nohy příjemně unavené – tak to má být!`;
+      oneLiner = `Horský vzduch na ${name} a nohy příjemně unavené – tak to má v horách vypadat!`;
     }
   }
 

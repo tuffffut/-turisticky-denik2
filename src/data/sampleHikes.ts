@@ -367,7 +367,18 @@ export function saveHikesToStorage(hikes: MountainHike[]): void {
     localStorage.setItem(LOCAL_STORAGE_INITIALIZED_KEY, 'true');
     localStorage.setItem(LOCAL_STORAGE_HIKES_KEY, JSON.stringify(hikes));
   } catch (err) {
-    console.error('Failed to save hikes to localStorage', err);
+    console.warn('Nepodařilo se uložit plné výpravy do localStorage (překročen limit), zkouším odlehčenou verzi:', err);
+    try {
+      // Lightweight cache: strip large duplicate GPX strings or heavy base64 items
+      const lightweight = hikes.map((h) => ({
+        ...h,
+        gpxRawXml: undefined,
+        trackPoints: h.trackPoints && h.trackPoints.length > 200 ? h.trackPoints.slice(0, 200) : h.trackPoints,
+      }));
+      localStorage.setItem(LOCAL_STORAGE_HIKES_KEY, JSON.stringify(lightweight));
+    } catch (e2) {
+      console.error('LocalStorage je zcela plné:', e2);
+    }
   }
 }
 

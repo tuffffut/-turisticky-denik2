@@ -97,8 +97,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-stone-100 flex items-center gap-2">
             Horský Deník
           </h1>
-          <p className="text-stone-400 text-sm mt-1 max-w-xs">
-            Aplikace je uzamčena. Zadejte přístupové heslo nebo PIN pro otevření vašich horských výprav.
+          <p className="text-stone-400 text-sm mt-1">
+            Osobní deník horských výprav
           </p>
         </div>
 
@@ -112,7 +112,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                 maxLength={32}
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
-                placeholder={showPassword ? 'Zadejte heslo / PIN' : '• • • •'}
+                placeholder="• • • •"
                 className="w-full text-center text-xl sm:text-2xl tracking-[0.2em] py-3.5 pl-4 pr-11 bg-stone-950/80 border border-stone-700/80 rounded-xl text-stone-100 font-mono placeholder:text-stone-600 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 autoFocus
               />
@@ -120,7 +120,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 text-stone-400 hover:text-stone-200 p-1 rounded-lg transition-colors cursor-pointer"
-                title={showPassword ? 'Skrýt heslo' : 'Zobrazit heslo'}
+                title={showPassword ? 'Skrýt' : 'Zobrazit'}
               >
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
