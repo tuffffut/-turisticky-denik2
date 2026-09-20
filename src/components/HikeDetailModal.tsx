@@ -22,6 +22,7 @@ import {
   Send,
   Copy,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import { MountainHike, UserRole, GPXTrackPoint } from '../types';
 import { HikeMap } from './HikeMap';
@@ -30,6 +31,7 @@ import { downloadGPXFile, buildGPXXml } from '../utils/gpxParser';
 import { PhotoLightbox } from './PhotoLightbox';
 import { VideoPlayer } from './VideoPlayer';
 import { getHikeShareUrl, getTelegramShareUrl } from '../utils/auth';
+import { formatDateDisplay } from '../utils/dateUtils';
 
 interface HikeDetailModalProps {
   hike: MountainHike | null;
@@ -116,7 +118,7 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
                   <span className="font-semibold text-emerald-400">{hike.mountainRange}</span>
                   <span>•</span>
                   <span>
-                    {new Date(hike.date).toLocaleDateString('cs-CZ', {
+                    {formatDateDisplay(hike.date, {
                       day: 'numeric',
                       month: 'long',
                       year: 'numeric',
@@ -343,6 +345,46 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
                 />
               )}
             </div>
+
+            {/* AI Summary Highlights & One-liner (if present) */}
+            {hike.aiSummary && (hike.aiSummary.oneLiner || hike.aiSummary.highlights || hike.aiSummary.safety) && (
+              <div className="bg-gradient-to-br from-emerald-950/30 via-stone-900 to-stone-950 p-4 sm:p-5 rounded-2xl border border-emerald-500/30 space-y-2.5">
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  <span>AI doporučení & souhrn trasy</span>
+                </div>
+                {hike.aiSummary.oneLiner && (
+                  <p className="text-xs sm:text-sm font-medium text-amber-300 italic">
+                    „{hike.aiSummary.oneLiner}“
+                  </p>
+                )}
+                {hike.aiSummary.highlights && (
+                  <div className="text-xs text-stone-300 pt-1">
+                    <span className="font-semibold text-stone-200">Zajímavosti na trase: </span>
+                    <span>{hike.aiSummary.highlights}</span>
+                  </div>
+                )}
+                {hike.aiSummary.safety && (
+                  <div className="text-xs text-stone-400">
+                    <span className="font-semibold text-stone-300">Bezpečnost: </span>
+                    <span>{hike.aiSummary.safety}</span>
+                  </div>
+                )}
+                {hike.aiSummary.gear && hike.aiSummary.gear.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                    <span className="text-[11px] text-stone-400">Doporučená výbava:</span>
+                    {hike.aiSummary.gear.map((g, i) => (
+                      <span
+                        key={i}
+                        className="px-2 py-0.5 rounded-full bg-stone-800 text-stone-300 text-[11px] border border-stone-700/60"
+                      >
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Description / Personal diary narrative */}
             {hike.description && (

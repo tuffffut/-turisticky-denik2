@@ -358,7 +358,7 @@ Odpověz ve formátu JSON s těmito poli v češtině:
 }`;
 
       // Try modern high-performing Gemini models in priority order
-      const modelsToTry = ['gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+      const modelsToTry = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
       let responseText: string | null = null;
       let lastErr: any = null;
 
@@ -662,7 +662,13 @@ Odpověz ve formátu JSON s těmito poli v češtině:
       }
       const snapshot = await getDocs(collection(db, 'hikes'));
       const routes: any[] = [];
-      snapshot.forEach((d) => routes.push(d.data()));
+      snapshot.forEach((d) => {
+        const data = d.data() as any;
+        routes.push({
+          ...data,
+          id: (data.id && String(data.id).trim()) || d.id,
+        });
+      });
       return res.json({ routes });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -680,7 +686,8 @@ Odpověz ve formátu JSON s těmito poli v češtině:
       if (!snap.exists()) {
         return res.status(404).json({ error: 'Trasa nenalezena' });
       }
-      return res.json({ route: snap.data() });
+      const data = snap.data() as any;
+      return res.json({ route: { ...data, id: data.id || snap.id } });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -690,8 +697,11 @@ Odpověz ve formátu JSON s těmito poli v češtině:
   app.delete('/api/routes/:id', async (req, res) => {
     try {
       const { id } = req.params;
+      if (!id || !id.trim() || id === 'undefined' || id === 'null') {
+        return res.status(400).json({ error: 'Neplatné ID trasy' });
+      }
       if (db) {
-        await deleteDoc(doc(db, 'hikes', id));
+        await deleteDoc(doc(db, 'hikes', id.trim()));
         console.log(`[API /api/routes] Trasa ${id} úspěšně smazána z Firestore serverem.`);
       }
       return res.json({ success: true, message: `Trasa ${id} byla smazána.` });

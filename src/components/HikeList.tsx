@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { MountainHike, UserRole, HikeDifficulty } from '../types';
 import { HikeCard } from './HikeCard';
+import { getDateTimestamp } from '../utils/dateUtils';
 
 interface HikeListProps {
   hikes: MountainHike[];
@@ -95,9 +96,9 @@ export const HikeList: React.FC<HikeListProps> = ({
     result.sort((a, b) => {
       switch (sortBy) {
         case 'date-desc':
-          return new Date(b.date).getTime() - new Date(a.date).getTime();
+          return getDateTimestamp(b.date) - getDateTimestamp(a.date);
         case 'date-asc':
-          return new Date(a.date).getTime() - new Date(b.date).getTime();
+          return getDateTimestamp(a.date) - getDateTimestamp(b.date);
         case 'dist-desc':
           return b.distanceKm - a.distanceKm;
         case 'ele-desc':

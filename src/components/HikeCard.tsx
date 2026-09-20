@@ -14,6 +14,7 @@ import {
   CloudSun,
 } from 'lucide-react';
 import { MountainHike, UserRole } from '../types';
+import { formatDateDisplay } from '../utils/dateUtils';
 
 interface HikeCardProps {
   hike: MountainHike;
@@ -139,7 +140,7 @@ export const HikeCard: React.FC<HikeCardProps> = ({
             <span className="flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-stone-500" />
               <span>
-                {new Date(hike.date).toLocaleDateString('cs-CZ', {
+                {formatDateDisplay(hike.date, {
                   day: 'numeric',
                   month: 'short',
                   year: 'numeric',

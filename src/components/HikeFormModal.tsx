@@ -18,9 +18,12 @@ import {
   Smile,
   ArrowRight,
   Loader2,
+  Sparkles,
+  Wand2,
 } from 'lucide-react';
 import { MountainHike, HikeDifficulty, GPXTrackPoint, HikeVideo, HikeAISummary } from '../types';
 import { parseGPX, buildGPXXml } from '../utils/gpxParser';
+import { generateHikeAITips } from '../utils/aiAssistant';
 
 interface HikeFormModalProps {
   isOpen: boolean;
@@ -103,6 +106,10 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
   const [importedNotice, setImportedNotice] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [aiTone, setAiTone] = useState<'concise' | 'witty' | 'adventurous'>('concise');
+  const [aiPreview, setAiPreview] = useState<HikeAISummary | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   useEffect(() => {
     if (hikeToEdit) {
@@ -311,6 +318,53 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       if (!trimmed) return tag;
       return `${trimmed}, ${tag}`;
     });
+  };
+
+  // Generate engaging narrative from user's raw notes using AI
+  const handleGenerateAIText = async () => {
+    setIsGeneratingAI(true);
+    setAiError(null);
+    try {
+      const dist = parseNumberInput(distanceKm);
+      const gain = parseNumberInput(elevationGainM);
+      const result = await generateHikeAITips({
+        mountainName: title.trim() || 'Aktivita',
+        mountainRange: mountainRange.trim() || 'Česká republika',
+        difficulty,
+        distanceKm: dist > 0 ? dist : undefined,
+        elevationGainM: gain > 0 ? gain : undefined,
+        weather: weather.trim() || undefined,
+        rawNotes: description.trim(),
+        tone: aiTone,
+        locationCoords:
+          typeof peakLat === 'number' && typeof peakLng === 'number'
+            ? { lat: peakLat, lng: peakLng }
+            : undefined,
+      });
+
+      setAiPreview(result);
+    } catch (err: any) {
+      console.error('Chyba při generování AI textu:', err);
+      setAiError(err?.message || 'Nepodařilo se vygenerovat text. Zkuste to prosím znovu.');
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  // Replace what the user typed with the AI-polished narrative
+  const handleApplyAITextReplace = () => {
+    if (!aiPreview?.story) return;
+    setDescription(aiPreview.story);
+    setAiSummary(aiPreview);
+    setAiPreview(null);
+  };
+
+  // Append AI text to current notes
+  const handleApplyAITextAppend = () => {
+    if (!aiPreview?.story) return;
+    setDescription((prev) => (prev.trim() ? `${prev.trim()}\n\n${aiPreview.story}` : aiPreview.story!));
+    setAiSummary(aiPreview);
+    setAiPreview(null);
   };
 
   const parseNumberInput = (val: any): number => {
@@ -656,21 +710,34 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
 
           {/* Authentic diary notes and description */}
           <div className="p-4 sm:p-5 rounded-2xl bg-stone-900/80 border border-stone-800 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <label className="text-xs font-semibold text-stone-200 flex items-center gap-2">
                 <Smile className="w-4 h-4 text-emerald-400" />
                 <span>Popis výpravy & osobní zážitky:</span>
               </label>
-              <span className="text-[11px] text-stone-500">
-                {description.length} znaků
-              </span>
+              <div className="flex items-center gap-3">
+                {description.trim().length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setDescription('')}
+                    className="text-[11px] text-rose-400 hover:text-rose-300 transition-colors flex items-center gap-1 cursor-pointer"
+                    title="Smazat pouze to, co jsem napsal do poznámek"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Smazat mé poznámky</span>
+                  </button>
+                )}
+                <span className="text-[11px] text-stone-500">
+                  {description.length} znaků
+                </span>
+              </div>
             </div>
 
             <textarea
               rows={4}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Zde můžete popsat trasu, atmosféru, zastávky na jídlo a pivo nebo jakékoliv své osobní zážitky..."
+              placeholder="Zde napište své poznámky, postřehy, zastávky, zážitky nebo cokoliv z cesty... AI z nich pak může vytvořit čtivý příběh."
               className="w-full px-3.5 py-2.5 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-xs sm:text-sm leading-relaxed focus:outline-none focus:border-emerald-500 transition-colors"
             />
 
@@ -679,11 +746,11 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
               <span className="text-[11px] text-stone-400">Rychlé postřehy:</span>
               {[
                 'výborná káva a zákusek',
-                'krásná architektura a atmosféra',
+                'krásná architektura a památky',
                 'spousta kilometrů v nohách',
                 'orosené pivo v cíli',
                 'neskutečný výhled za odměnu',
-                'pohodová trasa',
+                'pohodová procházka',
               ].map((chip) => (
                 <button
                   key={chip}
@@ -696,6 +763,126 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* AI Generator action bar */}
+            <div className="pt-2 border-t border-stone-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  id="btn-generate-ai-text"
+                  type="button"
+                  disabled={isGeneratingAI}
+                  onClick={handleGenerateAIText}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-md shadow-emerald-950/40 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                  title="Vygeneruje čtivý text z vašich zapsaných poznámek a parametrů trasy"
+                >
+                  {isGeneratingAI ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-200" />
+                      <span>AI píše text podle vašich poznámek...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Napsat text podle poznámek (AI)</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="flex items-center gap-1 text-[11px] text-stone-400">
+                  <span>Styl:</span>
+                  <select
+                    value={aiTone}
+                    onChange={(e) => setAiTone(e.target.value as any)}
+                    className="bg-stone-950 border border-stone-800 rounded-lg px-2 py-1 text-stone-300 text-xs focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value="concise">Stručný a trefný</option>
+                    <option value="witty">Vtipný s nadhledem</option>
+                    <option value="adventurous">Dobrodružný</option>
+                  </select>
+                </div>
+              </div>
+
+              {aiSummary && !aiPreview && (
+                <span className="text-[11px] text-emerald-400/90 flex items-center gap-1">
+                  <Check className="w-3 h-3 text-emerald-400" />
+                  <span>K aktivitě je připojen AI souhrn</span>
+                </span>
+              )}
+            </div>
+
+            {aiError && (
+              <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-900/50 text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{aiError}</span>
+              </div>
+            )}
+
+            {/* AI Generated text preview modal / card */}
+            {aiPreview && (
+              <div className="p-4 rounded-xl bg-stone-950 border border-emerald-500/40 space-y-3 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+                    <Sparkles className="w-4 h-4 text-emerald-400" />
+                    <span>Doporučený text od AI z vašich poznámek:</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAiPreview(null)}
+                    className="text-stone-500 hover:text-stone-300 text-xs p-1 cursor-pointer"
+                    title="Zavřít návrh"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {aiPreview.oneLiner && (
+                  <p className="text-xs font-medium text-amber-300/95 italic bg-amber-950/20 px-3 py-1.5 rounded-lg border border-amber-500/20">
+                    „{aiPreview.oneLiner}“
+                  </p>
+                )}
+
+                <p className="text-xs sm:text-sm text-stone-200 leading-relaxed whitespace-pre-line bg-stone-900/80 p-3 rounded-xl border border-stone-800">
+                  {aiPreview.story}
+                </p>
+
+                {aiPreview.highlights && (
+                  <div className="text-[11px] text-stone-400 flex items-start gap-1.5">
+                    <span className="font-semibold text-stone-300">Zajímavosti:</span>
+                    <span>{aiPreview.highlights}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleApplyAITextReplace}
+                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
+                    title="Nahradí vaše původní poznámky v popisu tímto upraveným textem"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Použít text (nahradí to, co jsem psal)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleApplyAITextAppend}
+                    className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Ponechá vaše poznámky a připojí k nim tento text"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Připojit k mým poznámkám</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAiPreview(null)}
+                    className="px-2.5 py-1.5 rounded-lg text-stone-400 hover:text-stone-200 text-xs transition-colors cursor-pointer"
+                  >
+                    Zahodit
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Photos Management */}

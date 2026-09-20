@@ -27,6 +27,7 @@ import {
   sanitizeHikeForStorage,
 } from './utils/firebase';
 import { parseUrlSearch } from './utils/garmin';
+import { getDateTimestamp } from './utils/dateUtils';
 import { LockScreen } from './components/LockScreen';
 import { Navbar } from './components/Navbar';
 import { HikeList } from './components/HikeList';
@@ -86,7 +87,7 @@ export default function App() {
     const unsubscribe = subscribeToHikes(
       (remoteHikes) => {
         const sorted = [...(remoteHikes || [])].sort(
-          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          (a, b) => getDateTimestamp(b.date) - getDateTimestamp(a.date)
         );
         setHikes(sorted);
         saveHikesToStorage(sorted);
@@ -277,16 +278,18 @@ export default function App() {
   };
 
   const handleDeleteHike = (hikeId: string) => {
-    const updated = hikes.filter((h) => h.id !== hikeId);
+    if (!hikeId) return;
+    const cleanId = String(hikeId).trim();
+    const updated = hikes.filter((h) => h.id !== cleanId);
     setHikes(updated);
     saveHikesToStorage(updated);
 
     // Delete from Google Firebase Firestore
-    deleteHikeFromFirestore(hikeId).catch((err) =>
+    deleteHikeFromFirestore(cleanId).catch((err) =>
       console.warn('Nepodařilo se smazat výpravu z Firebase Firestore:', err)
     );
 
-    if (selectedHike && selectedHike.id === hikeId) {
+    if (selectedHike && selectedHike.id === cleanId) {
       setSelectedHike(null);
     }
   };

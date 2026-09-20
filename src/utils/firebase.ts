@@ -13,6 +13,7 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import { MountainHike, PinConfig } from '../types';
 import { parseGPX } from './gpxParser';
+import { parseValidDate } from './dateUtils';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
@@ -60,8 +61,42 @@ export function subscribeToHikes(
       (snapshot) => {
         const hikes: MountainHike[] = [];
         snapshot.forEach((docSnap) => {
-          const raw = docSnap.data() as MountainHike;
-          hikes.push(hydrateHikeWithGPX(raw));
+          const raw = docSnap.data() as any;
+          const hikeId = (raw.id && String(raw.id).trim()) || docSnap.id;
+
+          // If document is marked as test or has no meaningful data, skip or sanitize
+          if (raw.test === true && !raw.title && !raw.distanceKm) {
+            // Self-healing: if an orphan test-doc exists, delete it
+            deleteDoc(docSnap.ref).catch(() => {});
+            return;
+          }
+
+          const cleanTitle = (raw.title && String(raw.title).trim()) || 'Aktivita v terénu';
+          const cleanHike: MountainHike = {
+            id: hikeId,
+            title: cleanTitle,
+            mountainRange: (raw.mountainRange && String(raw.mountainRange).trim()) || 'Aktivita v terénu',
+            date: parseValidDate(raw.date || raw.time || raw.createdAt),
+            distanceKm: typeof raw.distanceKm === 'number' && !isNaN(raw.distanceKm) ? raw.distanceKm : 0,
+            elevationGainM: typeof raw.elevationGainM === 'number' && !isNaN(raw.elevationGainM) ? raw.elevationGainM : 0,
+            elevationLossM: typeof raw.elevationLossM === 'number' && !isNaN(raw.elevationLossM) ? raw.elevationLossM : 0,
+            duration: (raw.duration && String(raw.duration).trim()) || '0m',
+            difficulty: raw.difficulty || 'easy',
+            rating: typeof raw.rating === 'number' && !isNaN(raw.rating) ? raw.rating : 5,
+            description: raw.description || '',
+            photos: Array.isArray(raw.photos) ? raw.photos : [],
+            videos: Array.isArray(raw.videos) ? raw.videos : [],
+            highestPointM: raw.highestPointM,
+            lowestPointM: raw.lowestPointM,
+            peakCoords: raw.peakCoords || { lat: 50.736, lng: 15.74, name: cleanTitle },
+            trackPoints: raw.trackPoints,
+            gpxRawXml: raw.gpxRawXml,
+            weather: raw.weather,
+            hutsAndWaypoints: Array.isArray(raw.hutsAndWaypoints) ? raw.hutsAndWaypoints : undefined,
+            aiSummary: raw.aiSummary,
+          };
+
+          hikes.push(hydrateHikeWithGPX(cleanHike));
         });
         onUpdate(hikes);
       },
@@ -131,18 +166,20 @@ export async function saveHikeToFirestore(hike: MountainHike): Promise<void> {
  * Deletes a hike document from Firestore.
  */
 export async function deleteHikeFromFirestore(hikeId: string): Promise<void> {
+  if (!hikeId || !hikeId.trim()) return;
+  const cleanId = hikeId.trim();
   let firestoreError: any = null;
   try {
-    const docRef = doc(db, HIKES_COLLECTION, hikeId);
+    const docRef = doc(db, HIKES_COLLECTION, cleanId);
     await deleteDoc(docRef);
   } catch (err) {
     firestoreError = err;
-    console.warn(`[Firestore client] Chyba při mazání trasy ${hikeId}:`, err);
+    console.warn(`[Firestore client] Chyba při mazání trasy ${cleanId}:`, err);
   }
 
   // Also call server-side deletion endpoint as guaranteed sync
   try {
-    const res = await fetch(`/api/routes/${encodeURIComponent(hikeId)}`, {
+    const res = await fetch(`/api/routes/${encodeURIComponent(cleanId)}`, {
       method: 'DELETE',
     });
     if (!res.ok && firestoreError) {
@@ -176,11 +213,18 @@ export async function deleteAllHikesFromFirestore(): Promise<void> {
  * Fetches a single hike from Firestore by its ID.
  */
 export async function getHikeFromFirestore(hikeId: string): Promise<MountainHike | null> {
+  if (!hikeId || !hikeId.trim()) return null;
   try {
-    const docRef = doc(db, HIKES_COLLECTION, hikeId);
+    const docRef = doc(db, HIKES_COLLECTION, hikeId.trim());
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      return hydrateHikeWithGPX(snap.data() as MountainHike);
+      const raw = snap.data() as any;
+      const cleanHike: MountainHike = {
+        ...raw,
+        id: raw.id || snap.id,
+        date: parseValidDate(raw.date || raw.time),
+      };
+      return hydrateHikeWithGPX(cleanHike);
     }
   } catch (err) {
     console.warn(`Chyba při načítání trasy ${hikeId} z Firestore:`, err);

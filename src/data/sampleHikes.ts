@@ -1,5 +1,6 @@
 import { MountainHike, GPXTrackPoint } from '../types';
 import { calculateDistanceKm, buildGPXXml } from '../utils/gpxParser';
+import { parseValidDate } from '../utils/dateUtils';
 
 // Helper to interpolate realistic waypoints along a mountain route
 function generateRoutePoints(
@@ -350,7 +351,16 @@ export function getStoredHikes(): MountainHike[] {
     if (isInitialized) {
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      // Clean corrupt/test items and ensure valid ids and dates
+      return parsed
+        .filter((h: any) => h && !h.test && (h.id || h.title))
+        .map((h: any) => ({
+          ...h,
+          id: (h.id && String(h.id).trim()) || `hike-${Math.random().toString(36).substring(2, 9)}`,
+          title: (h.title && String(h.title).trim()) || 'Aktivita v terénu',
+          date: parseValidDate(h.date || h.time),
+        }));
     }
 
     // First time visitor only: provide sample hikes once
