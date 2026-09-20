@@ -286,6 +286,7 @@ async function startServer() {
         difficulty,
         distanceKm,
         elevationGainM,
+        duration,
         weather,
         rawNotes,
         tone,
@@ -311,42 +312,49 @@ async function startServer() {
         ? `GPS souřadnice lokality: ${locationCoords.lat.toFixed(4)}° s.š., ${locationCoords.lng.toFixed(4)}° v.d.`
         : '';
 
-      const prompt = `Jsi inteligentní, bystrý, vtipný a autentický outdoorový vypravěč a průvodce.
-Máš perfektní geografický přehled o České republice, městech, památkách i horách.
+      const prompt = `Jsi inteligentní, přirozený a bystrý outdoorový parťák pro osobní turistický deník.
+Píšeš z pohledu účastníka výpravy v 1. osobě (já nebo my – např. „vyrazili jsme“, „cesta parádně utíkala“, „nohy už ke konci trochu bolely“, „zastavili jsme se na skvělé kafe a pivo“). Text musí znít jako autentický, neškrobený zápis ze zážitků.
 
-Uživatel si do deníku zapsal tyto své konkrétní poznámky a postřehy z výpravy:
+VSTUPNÍ ÚDAJE OD UŽIVATELE:
+- Hrubé poznámky a postřehy uživatele:
 """
-${userNotesClean || 'Uživatel nezadal podrobné poznámky – vygeneruj trefný, živý text na základě zadaného místa a parametrů trasy.'}
+${userNotesClean || '(Uživatel nezadal textové poznámky – popiš průběh a atmosféru podle lokality a parametrů trasy)'}
 """
-
-Kontext aktivity / trasy:
-- Místo / Trasa / Vrchol: ${mountainName || 'Výlet'}
-- Oblast / Pohoří / Region: ${mountainRange || 'Česká republika'}
+- Lokalita a kontext: ${mountainRange || 'Česká republika'}${mountainName ? ` (cíl/oblast: ${mountainName})` : ''}
 ${coordsInfo ? `- ${coordsInfo}` : ''}
-- Náročnost: ${difficulty || 'střední'} (možné: lehká, střední, těžká, ferrata)
-- Délka trasy: ${distanceKm ? `${distanceKm} km` : 'neuvedeno'}
-- Nastoupané metry: ${elevationGainM ? `+${elevationGainM} m` : 'neuvedeno'}
-- Počasí a podmínky: ${weather || 'příjemné outdoorové'}
+- Parametry trasy:
+  * Délka: ${distanceKm ? `${distanceKm} km` : 'neuvedeno'}
+  * Nastoupané metry: ${elevationGainM ? `+${elevationGainM} m` : 'neuvedeno'}
+  * Čas na trase / doba chůze: ${duration || 'neuvedeno'}
+  * Náročnost: ${difficulty || 'střední'} (možné: lehká, střední, těžká, ferrata)
+  * Počasí a podmínky: ${weather || 'příjemné outdoorové'}
 - Požadovaný styl vyprávění: ${tone === 'adventurous' ? 'svižný a dobrodružný' : tone === 'witty' ? 'odlehčený, vtipný s přirozeným nadhledem' : 'stručný, trefný, čtivý a autentický'}
 
-ZÁSADNÍ GEOGRAFICKÁ A LOGICKÁ PRAVIDLA (NEPORUŠITELNÉ!):
-1. PŘEMÝŠLEJ O REÁLNÉM MÍSTĚ:
-   - Pokud je místo město, památka, nížina, park nebo zámek (např. Litomyšl, Pardubice, Český ráj, Pálava, Lednice, Kutná Hora atd.), NIKDY v textu nevymýšlej "horskou stezku", "vysokohorský výstup", "lavinové nebezpečí", "horské chaty" ani "alpské vrcholy"!
-   - Například pro Litomyšl: je to historické východočeské město s renesančním zámkem (UNESCO), Klášterními zahradami, Smetanovým náměstím a malebnými uličkami. Text musí reflektovat městskou procházku, atmosféru památek, parků či okolní mírné pahorkatiny.
-   - Pouze pokud jde skutečně o hory (Krkonoše, Šumava, Jeseníky, Beskydy, Tatry, Alpy apod.), použij horskou terminologii (hřeben, vrchol, horská chata, sedlo).
-2. RESPEKTUJ PŘEVÝŠENÍ A NÁROČNOST:
-   - Malé převýšení (+50 až +250 m) znamená pohodovou procházku či lehčí výlet, nikoli těžký horský výstup.
-3. VĚRNOST POZNÁMKÁM UŽIVATELE:
-   - Pokud uživatel do poznámek napsal cokoliv konkrétního (co viděl, jídlo, kávu, zážitky, únavu, ztracenou cestu, společnost, vtipnou situaci), MUSÍŠ to přirozeně a vtipně zapracovat do "story" i do "oneLiner".
-4. STRUČNOST:
-   - "story": Přesně 2 až 4 svižné, čtivé věty (jeden souvislý odstavec). Žádné dlouhé generické slohy!
-   - "oneLiner": Krátká, trefná a vtipná hláška na jeden řádek.
-5. REALISTICKÁ DOPORUČENÍ:
-   - "highlights": Reálná zajímavá místa v dané lokalitě (např. pro Litomyšl: renesanční zámek s sgrafity, Klášterní zahrady, Smetanovo náměstí, Portmoneum).
-   - "gear": Reálná výbava podle typu akce (pro město/procházku: pohodlné boty, fotoaparát, platební karta na kávu; pro hory: pohorky, větrovka atd.).
+ZÁVAZNÁ PRAVIDLA PRO VYGENEROVANÝ TEXT (PŘÍSNĚ DODRŽ):
+1. ZÁKAZ MECHANICKÉHO OPAKOVÁNÍ NÁZVU VÝPRAVY:
+   - NIKDY nezačínej text názvem výpravy ani frázemi typu „Výprava do...“, „Výlet na...“, „Návštěva...“, „[Název] jsme prozkoumali...“, „Naše cesta do...“!
+   - Uživatel má název výpravy už v záhlaví své aktivity. Znovu ho uvádět na začátku popisu působí jako robotický, levný generátor.
+   - Začni přímo vtažením do děje, počasím, atmosférou nebo konkrétní první myšlenkou z poznámek (např. „Vyrazili jsme za slunečného dopoledne...“, „Trasa od prvních metrů příjemně ubíhala...“, „Procházka historickým centrem stála za to...“).
+2. DŮSLEDNÁ OPRAVA PŘEKLEPŮ, GRAMATIKY A DIAKRITIKY:
+   - Uživatelské poznámky bývají psané narychlo, s překlepy, bez diakritiky nebo s chybami (např. „byli sme v zamku, pak kafe na naměstí a vyborny pivo u klastera, pekna prochaska“).
+   - VŠECHNY tyto chyby inteligentně oprav do čisté, přirozené a čtivé češtiny (např. „byli jsme“, „zámek“, „výborné pivo u kláštera“, „náměstí“).
+   - Zachovej původní smysl a zážitky uživatele (co viděl, co pil, co jedl, jak se cítil), ale přeformuluj je do hladkého a přirozeného textu.
+3. CHYTRÁ SYNTÉZA PARAMETRŮ (DÉLKA, PŘEVÝŠENÍ, ČAS, POČASÍ):
+   - Chytře propoj poznámky s reálnými čísly:
+     * Malé převýšení a kratší čas (např. 8 km za 2h s +100 m) = lehká, pohodová procházka, nohy nebolely, čas na památky, kávu a klid.
+     * Velké převýšení a dlouhý čas (např. 20 km za 6h s +1100 m) = poctivý horský záhul, těžké nohy, zasloužená odměna v cíli.
+4. REÁLIE MÍSTA:
+   - Pro města, památky a roviny (např. Litomyšl, zámky, parky, Polabí, Pálava atd.) NIKDY nevymýšlej horské stezky, hřebeny ani alpské štíty. Piš o památkách, uličkách, architektuře, kavárnách a mírném okolí.
+   - Pro hory (Krkonoše, Jeseníky, Šumava, Tatry) použij horskou terminologii (hřeben, výhledy, horská chata, stoupání).
+5. STRUKTURA A DÉLKA:
+   - "story": Přesně 2 až 4 svižné, čtivé a propojené věty v jednom odstavci. Žádný dlouhý balast ani prázdná klišé.
+   - "oneLiner": Krátká, trefná a vtipná pointa na jeden řádek vystihující celou akci (opět bez otrockého opakování názvu).
+6. REALISTICKÁ DOPORUČENÍ:
+   - "highlights": Reálná zajímavá místa v dané lokalitě.
+   - "gear": Reálná výbava podle typu akce (pro město/procházku: pohodlné boty, fotoaparát, platební karta; pro hory: pohorky, větrovka atd.).
    - "safety": Reálná bezpečnostní doporučení vhodná pro daný terén.
 
-Odpověz ve formátu JSON s těmito poli v češtině:
+Odpověz výhradně ve formátu JSON s těmito poli v češtině:
 {
   "story": "Hotový přepsaný čtivý text věrný poznámkám a konkrétnímu místu (2-4 věty)...",
   "oneLiner": "Krátká trefná hláška nebo pointa vystihující tuto konkrétní aktivitu.",

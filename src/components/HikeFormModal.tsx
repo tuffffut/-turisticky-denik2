@@ -333,6 +333,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
         difficulty,
         distanceKm: dist > 0 ? dist : undefined,
         elevationGainM: gain > 0 ? gain : undefined,
+        duration: duration.trim() || undefined,
         weather: weather.trim() || undefined,
         rawNotes: description.trim(),
         tone: aiTone,
