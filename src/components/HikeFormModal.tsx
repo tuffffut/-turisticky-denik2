@@ -147,22 +147,20 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
     } else {
       // Reset defaults
       const defaultTitle = initialHikeData?.title || '';
-      const defaultRange = initialHikeData?.mountainRange || 'Krkonoše';
+      const defaultRange = initialHikeData?.mountainRange || '';
       setTitle(defaultTitle);
       setMountainRange(defaultRange);
       setDate(initialHikeData?.date || new Date().toISOString().split('T')[0]);
       setDistanceKm(initialHikeData?.distanceKm ?? '');
       setElevationGainM(initialHikeData?.elevationGainM ?? '');
       setElevationLossM(initialHikeData?.elevationLossM ?? '');
-      setDuration(initialHikeData?.duration || '4h 30m');
+      setDuration(initialHikeData?.duration || '2h 00m');
       setDifficulty(initialHikeData?.difficulty || 'moderate');
       setRating(5);
       setDescription(initialHikeData?.description || '');
       setHighestPointM(initialHikeData?.highestPointM ?? '');
       setWeather(initialHikeData?.weather ?? '');
-      setPhotos([
-        'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80',
-      ]);
+      setPhotos([]);
       setVideos([]);
       setAiSummary(undefined);
       setAiTone('concise');
@@ -339,15 +337,26 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
     setFormError(null);
 
     try {
+      let locCoords: { lat: number; lng: number } | undefined = undefined;
+      if (typeof peakLat === 'number' && typeof peakLng === 'number') {
+        locCoords = { lat: peakLat, lng: peakLng };
+      } else if (trackPoints && trackPoints.length > 0) {
+        locCoords = { lat: trackPoints[0].lat, lng: trackPoints[0].lng };
+      }
+
+      const distNum = distanceKm !== '' ? parseNumberInput(distanceKm) : undefined;
+      const gainNum = elevationGainM !== '' ? parseNumberInput(elevationGainM) : undefined;
+
       const result = await generateHikeAITips({
-        mountainName: title || 'Horská výprava',
-        mountainRange: mountainRange || 'Hory',
+        mountainName: title.trim() || 'Výlet / Procházka',
+        mountainRange: mountainRange.trim() || '',
         difficulty,
-        distanceKm: typeof distanceKm === 'number' ? distanceKm : undefined,
-        elevationGainM: typeof elevationGainM === 'number' ? elevationGainM : undefined,
-        weather,
+        distanceKm: distNum,
+        elevationGainM: gainNum,
+        weather: weather.trim() || undefined,
         rawNotes: description,
         tone: aiTone,
+        locationCoords: locCoords,
       });
 
       setAiSummary(result);
@@ -453,11 +462,11 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       distanceKm: Math.round(dist * 100) / 100,
       elevationGainM: Math.round(gain),
       elevationLossM: Math.round(loss),
-      duration: duration.trim() || '4h 00m',
+      duration: duration.trim() || '2h 00m',
       difficulty,
       rating,
-      description: description.trim() || 'Krásná túra v horách.',
-      photos: photos.length > 0 ? photos : ['https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80'],
+      description: description.trim() || 'Záznam výpravy.',
+      photos: photos,
       videos: videos.length > 0 ? videos : undefined,
       aiSummary,
       highestPointM: highest ? Math.round(highest) : undefined,
@@ -823,13 +832,13 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
 
             {/* Quick helper note chips */}
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] text-stone-400">Rychlé nápady k připsání:</span>
+              <span className="text-[11px] text-stone-400">Rychlé postřehy k připsání:</span>
               {[
-                'bolavé nohy a stehna v ohni',
-                'orosené pivo na chatě',
-                'nahoře mlha a vítr',
-                'obří borůvkový knedlík',
-                'ztratili jsme na chvíli značku',
+                'výborná káva a zákusek',
+                'krásná architektura a atmosféra',
+                'spousta kilometrů v nohách',
+                'ztratili jsme na chvíli trasu',
+                'orosené pivo jako odměna',
                 'neskutečný výhled za odměnu',
               ].map((chip) => (
                 <button

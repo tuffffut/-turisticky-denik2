@@ -64,11 +64,6 @@ export const HikeCard: React.FC<HikeCardProps> = ({
     }
   };
 
-  const coverPhoto =
-    hike.photos && hike.photos.length > 0
-      ? hike.photos[0]
-      : 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80';
-
   return (
     <div
       id={`hike-card-${hike.id}`}
@@ -76,16 +71,32 @@ export const HikeCard: React.FC<HikeCardProps> = ({
     >
       {/* Cover Image & Overlays */}
       <div
-        className="relative h-48 sm:h-52 w-full overflow-hidden bg-stone-950 cursor-pointer"
+        className="relative h-44 sm:h-48 w-full overflow-hidden bg-stone-950 cursor-pointer select-none"
         onClick={() => onSelect(hike)}
       >
-        <img
-          src={coverPhoto}
-          alt={hike.title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          loading="lazy"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/20 to-transparent" />
+        {hike.photos && hike.photos.length > 0 ? (
+          <>
+            <img
+              src={hike.photos[0]}
+              alt={hike.title}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/20 to-transparent" />
+          </>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900">
+            <div className="w-12 h-12 rounded-2xl bg-stone-850/90 border border-stone-700/60 flex items-center justify-center text-emerald-400 mb-2 shadow-inner group-hover:scale-105 transition-transform">
+              <Compass className="w-6 h-6 text-emerald-400" />
+            </div>
+            <span className="text-stone-300 font-semibold text-xs tracking-wide uppercase line-clamp-1 max-w-[220px] text-center">
+              {hike.mountainRange || 'Aktivita'}
+            </span>
+            <span className="text-stone-500 text-[11px] font-mono mt-0.5">
+              {hike.distanceKm} km {hike.duration ? `• ${hike.duration}` : ''}
+            </span>
+          </div>
+        )}
 
         {/* Mountain Range Tag */}
         <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-900/80 backdrop-blur-md text-stone-200 text-xs font-semibold border border-stone-700/60 shadow-md">

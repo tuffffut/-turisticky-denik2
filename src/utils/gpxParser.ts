@@ -119,6 +119,7 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
     time?: string;
     timestampMs?: number;
     segmentIndex: number;
+    embeddedDistMeters?: number;
   }
 
   const allRawPoints: InternalPt[] = [];
@@ -159,6 +160,21 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
         if (ele > maxElevationM) maxElevationM = ele;
       }
 
+      // Check for Garmin / Strava embedded odometer distance (in meters)
+      let embeddedDistMeters: number | undefined = undefined;
+      const distEls = pt.getElementsByTagName('distance');
+      if (distEls.length > 0) {
+        const dVal = parseFloat(distEls[0].textContent || '');
+        if (!isNaN(dVal) && dVal >= 0) embeddedDistMeters = dVal;
+      }
+      if (embeddedDistMeters === undefined) {
+        const tpxDistEls = pt.getElementsByTagName('gpxtpx:distance');
+        if (tpxDistEls.length > 0) {
+          const dVal = parseFloat(tpxDistEls[0].textContent || '');
+          if (!isNaN(dVal) && dVal >= 0) embeddedDistMeters = dVal;
+        }
+      }
+
       allRawPoints.push({
         lat,
         lng,
@@ -166,6 +182,7 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
         time,
         timestampMs,
         segmentIndex: sIdx,
+        embeddedDistMeters,
       });
     }
   }
@@ -196,21 +213,15 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
   let elevationLossM = 0;
   let movingDurationSeconds = 0;
 
-  // Jitter-filtered distance accumulator
-  let anchorPt: InternalPt | null = null;
-
   for (let i = 0; i < allRawPoints.length; i++) {
     const pt = allRawPoints[i];
     const currentEle = smoothedEle[i] ?? pt.ele;
 
-    if (i === 0 || allRawPoints[i - 1].segmentIndex !== pt.segmentIndex) {
-      // Starting a new track segment: reset anchor point
-      anchorPt = pt;
-    } else {
+    if (i > 0) {
       const prevPt = allRawPoints[i - 1];
       const prevEle = smoothedEle[i - 1] ?? prevPt.ele;
 
-      // 2D distance between consecutive points
+      // True 2D surface distance (standard Great Circle / Haversine distance used by Garmin/Strava/Mapy.cz)
       const d2d = calculateDistanceKm(prevPt.lat, prevPt.lng, pt.lat, pt.lng);
 
       // Time delta between consecutive points
@@ -219,42 +230,31 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
         dtSecs = (pt.timestampMs - prevPt.timestampMs) / 1000;
       }
 
-      // Calculate speed in km/h
+      // Calculate speed in km/h if valid time delta
       const speedKmh = dtSecs && dtSecs > 0 ? d2d / (dtSecs / 3600) : null;
 
-      // Filter GPS glitches: speed > 130 km/h is unrealistic for hiking (GPS teleport spike)
-      const isGlitch = speedKmh !== null && speedKmh > 130;
+      // Filter extreme GPS teleport glitches (> 150 km/h)
+      const isGlitch = speedKmh !== null && speedKmh > 150;
 
-      // Filter stationary GPS flutter: GPS drifting while user stands still or sits in a hut
-      const isStationaryFlutter =
-        (speedKmh !== null && speedKmh < 0.6 && d2d < 0.003) ||
-        (speedKmh === null && anchorPt && calculateDistanceKm(anchorPt.lat, anchorPt.lng, pt.lat, pt.lng) < 0.0025);
-
-      if (!isGlitch && !isStationaryFlutter && d2d > 0) {
-        // True 3D distance on mountain terrain
-        let d3d = d2d;
-        if (currentEle !== undefined && prevEle !== undefined) {
-          const eleDiffKm = Math.abs(currentEle - prevEle) / 1000;
-          d3d = Math.sqrt(d2d * d2d + eleDiffKm * eleDiffKm);
-        }
-
-        totalDistanceKm += d3d;
-        anchorPt = pt;
+      // Accumulate 2D distance for all legitimate movements (> 0.2 meters apart, no teleport)
+      // We do NOT discard slow walking speeds (< 0.6 km/h) so city strolls and slow climbs are fully preserved!
+      if (!isGlitch && d2d >= 0.0002) {
+        totalDistanceKm += d2d;
       }
 
-      // Accumulate moving duration if user is actively walking (speed >= 0.5 km/h, gap < 10 mins)
+      // Accumulate moving duration if user is actively moving (speed >= 0.3 km/h, gap < 10 mins)
       if (dtSecs && dtSecs > 0 && dtSecs < 600) {
-        if (speedKmh === null || (speedKmh >= 0.5 && speedKmh <= 120)) {
+        if (speedKmh === null || (speedKmh >= 0.3 && speedKmh <= 120)) {
           movingDurationSeconds += dtSecs;
         }
       }
 
-      // Elevation Gain and Loss with 1m minimum threshold to avoid micro-sensor jitter
+      // Elevation Gain and Loss with deadband of 1.2m on smoothed elevation to avoid sensor noise
       if (currentEle !== undefined && prevEle !== undefined) {
         const diff = currentEle - prevEle;
-        if (diff > 0.8) {
+        if (diff > 1.2) {
           elevationGainM += diff;
-        } else if (diff < -0.8) {
+        } else if (diff < -1.2) {
           elevationLossM += Math.abs(diff);
         }
       }
@@ -267,6 +267,16 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
       time: pt.time,
       distFromStartKm: Math.round(totalDistanceKm * 100) / 100,
     });
+  }
+
+  // If Garmin or Strava wrote an embedded odometer distance on the last point, prefer it if plausible
+  const lastPt = allRawPoints[allRawPoints.length - 1];
+  if (lastPt?.embeddedDistMeters && lastPt.embeddedDistMeters > 50) {
+    const garminDistKm = lastPt.embeddedDistMeters / 1000;
+    // Verify agreement within 25% to ensure it's not corrupt or lap-based
+    if (Math.abs(garminDistKm - totalDistanceKm) / Math.max(1, totalDistanceKm) < 0.25) {
+      totalDistanceKm = garminDistKm;
+    }
   }
 
   // Calculate Duration:
@@ -373,8 +383,22 @@ export function detectMountainRange(points: GPXTrackPoint[]): string | undefined
     { name: 'Český ráj', minLat: 50.45, maxLat: 50.66, minLng: 15.02, maxLng: 15.38 },
     // Broumovsko
     { name: 'Broumovsko a Adršpach', minLat: 50.48, maxLat: 50.70, minLng: 16.05, maxLng: 16.45 },
-    // Pálava
-    { name: 'Pálava', minLat: 48.80, maxLat: 48.92, minLng: 16.60, maxLng: 16.75 },
+    // Pálava a Jižní Morava
+    { name: 'Pálava a Jižní Morava', minLat: 48.70, maxLat: 49.15, minLng: 16.30, maxLng: 17.15 },
+    // Českomoravské pomezí / Litomyšlsko a Svitavsko
+    { name: 'Českomoravské pomezí (Litomyšlsko)', minLat: 49.72, maxLat: 50.06, minLng: 16.15, maxLng: 16.65 },
+    // Vysočina & Žďárské vrchy
+    { name: 'Vysočina a Žďárské vrchy', minLat: 49.25, maxLat: 49.80, minLng: 15.30, maxLng: 16.15 },
+    // Pardubicko a Polabí
+    { name: 'Pardubicko a Polabí', minLat: 49.95, maxLat: 50.25, minLng: 15.45, maxLng: 16.15 },
+    // Moravský kras a Drahanská vrchovina
+    { name: 'Moravský kras a Drahanská vrchovina', minLat: 49.25, maxLat: 49.60, minLng: 16.55, maxLng: 17.00 },
+    // Chřiby a Hostýnské vrchy
+    { name: 'Chřiby a Hostýnské vrchy', minLat: 49.05, maxLat: 49.40, minLng: 17.15, maxLng: 17.85 },
+    // Praha a okolí
+    { name: 'Praha a okolí', minLat: 49.95, maxLat: 50.20, minLng: 14.20, maxLng: 14.70 },
+    // Střední Čechy
+    { name: 'Střední Čechy', minLat: 49.50, maxLat: 50.45, minLng: 13.80, maxLng: 15.40 },
 
     // Slovensko
     // Vysoké Tatry

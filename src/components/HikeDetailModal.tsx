@@ -94,6 +94,12 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
   const handleRegenerateAI = async () => {
     setIsGeneratingAI(true);
     try {
+      const locCoords = hike.peakCoords
+        ? { lat: hike.peakCoords.lat, lng: hike.peakCoords.lng }
+        : hike.trackPoints?.[0]
+        ? { lat: hike.trackPoints[0].lat, lng: hike.trackPoints[0].lng }
+        : undefined;
+
       const res = await generateHikeAITips({
         mountainName: hike.title,
         mountainRange: hike.mountainRange,
@@ -103,6 +109,7 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
         weather: hike.weather,
         rawNotes: hike.description,
         tone: 'concise',
+        locationCoords: locCoords,
       });
 
       setLocalAiSummary(res);
@@ -123,6 +130,12 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
   const handleRewriteDescriptionWithAI = async () => {
     setIsGeneratingAI(true);
     try {
+      const locCoords = hike.peakCoords
+        ? { lat: hike.peakCoords.lat, lng: hike.peakCoords.lng }
+        : hike.trackPoints?.[0]
+        ? { lat: hike.trackPoints[0].lat, lng: hike.trackPoints[0].lng }
+        : undefined;
+
       const res = await generateHikeAITips({
         mountainName: hike.title,
         mountainRange: hike.mountainRange,
@@ -132,6 +145,7 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
         weather: hike.weather,
         rawNotes: hike.description,
         tone: 'concise',
+        locationCoords: locCoords,
       });
 
       setLocalAiSummary(res);

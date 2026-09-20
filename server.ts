@@ -21,13 +21,13 @@ function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
   return R * c;
 }
 
-// Server-side GPX track parser (robust regex-based with jitter filtering, duration & date)
+// Server-side GPX track parser (robust regex-based with Garmin odometer extraction, duration & date)
 function parseServerGpx(xmlString: string) {
   const points: { lat: number; lng: number; ele?: number; time?: string; distFromStartKm?: number }[] = [];
   const ptRegex = /<(?:trkpt|rtept|wpt)\s+[^>]*lat=["']([^"']+)["']\s+[^>]*lon=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:trkpt|rtept|wpt)>/gi;
   const ptRegex2 = /<(?:trkpt|rtept|wpt)\s+[^>]*lon=["']([^"']+)["']\s+[^>]*lat=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:trkpt|rtept|wpt)>/gi;
 
-  const raw: { lat: number; lng: number; ele?: number; time?: string; timestampMs?: number }[] = [];
+  const raw: { lat: number; lng: number; ele?: number; time?: string; timestampMs?: number; embeddedDistM?: number }[] = [];
   let match;
   let firstTimestamp: Date | null = null;
   let lastTimestamp: Date | null = null;
@@ -38,8 +38,10 @@ function parseServerGpx(xmlString: string) {
     const inner = match[3];
     const eleMatch = /<ele>([0-9.-]+)<\/ele>/i.exec(inner);
     const timeMatch = /<time>([^<]+)<\/time>/i.exec(inner);
+    const distMatch = /<(?:(?:gpxtpx:)?distance)>([0-9.-]+)<\/(?:(?:gpxtpx:)?distance)>/i.exec(inner);
     const ele = eleMatch ? parseFloat(eleMatch[1]) : undefined;
     const time = timeMatch ? timeMatch[1].trim() : undefined;
+    const embeddedDistM = distMatch ? parseFloat(distMatch[1]) : undefined;
     let timestampMs: number | undefined = undefined;
     if (time) {
       const d = new Date(time);
@@ -50,7 +52,7 @@ function parseServerGpx(xmlString: string) {
       }
     }
     if (!isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0)) {
-      raw.push({ lat, lng, ele, time, timestampMs });
+      raw.push({ lat, lng, ele, time, timestampMs, embeddedDistM });
     }
   }
 
@@ -61,8 +63,10 @@ function parseServerGpx(xmlString: string) {
       const inner = match[3];
       const eleMatch = /<ele>([0-9.-]+)<\/ele>/i.exec(inner);
       const timeMatch = /<time>([^<]+)<\/time>/i.exec(inner);
+      const distMatch = /<(?:(?:gpxtpx:)?distance)>([0-9.-]+)<\/(?:(?:gpxtpx:)?distance)>/i.exec(inner);
       const ele = eleMatch ? parseFloat(eleMatch[1]) : undefined;
       const time = timeMatch ? timeMatch[1].trim() : undefined;
+      const embeddedDistM = distMatch ? parseFloat(distMatch[1]) : undefined;
       let timestampMs: number | undefined = undefined;
       if (time) {
         const d = new Date(time);
@@ -73,7 +77,7 @@ function parseServerGpx(xmlString: string) {
         }
       }
       if (!isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0)) {
-        raw.push({ lat, lng, ele, time, timestampMs });
+        raw.push({ lat, lng, ele, time, timestampMs, embeddedDistM });
       }
     }
   }
@@ -90,6 +94,7 @@ function parseServerGpx(xmlString: string) {
     const pt = raw[i];
     if (i > 0) {
       const prev = raw[i - 1];
+      // True 2D surface distance (standard Great Circle / Haversine)
       const d2d = haversineDistanceKm(prev.lat, prev.lng, pt.lat, pt.lng);
 
       let dtSecs: number | null = null;
@@ -98,29 +103,24 @@ function parseServerGpx(xmlString: string) {
       }
 
       const speedKmh = dtSecs && dtSecs > 0 ? d2d / (dtSecs / 3600) : null;
-      const isGlitch = speedKmh !== null && speedKmh > 130;
-      const isStationary = speedKmh !== null && speedKmh < 0.6 && d2d < 0.003;
+      const isGlitch = speedKmh !== null && speedKmh > 150;
 
-      if (!isGlitch && !isStationary && d2d > 0) {
-        let d3d = d2d;
-        if (pt.ele !== undefined && prev.ele !== undefined) {
-          const eleDiffKm = Math.abs(pt.ele - prev.ele) / 1000;
-          d3d = Math.sqrt(d2d * d2d + eleDiffKm * eleDiffKm);
-        }
-        totalDistKm += d3d;
+      // Accumulate distance without discarding valid slow movements (> 0.2m)
+      if (!isGlitch && d2d >= 0.0002) {
+        totalDistKm += d2d;
       }
 
       if (dtSecs && dtSecs > 0 && dtSecs < 600) {
-        if (speedKmh === null || (speedKmh >= 0.5 && speedKmh <= 120)) {
+        if (speedKmh === null || (speedKmh >= 0.3 && speedKmh <= 120)) {
           movingDurationSecs += dtSecs;
         }
       }
 
       if (pt.ele !== undefined && prev.ele !== undefined) {
         const diff = pt.ele - prev.ele;
-        if (diff > 0.8) {
+        if (diff > 1.2) {
           calculatedGain += diff;
-        } else if (diff < -0.8) {
+        } else if (diff < -1.2) {
           calculatedLoss += Math.abs(diff);
         }
       }
@@ -139,6 +139,15 @@ function parseServerGpx(xmlString: string) {
       time: pt.time,
       distFromStartKm: Math.round(totalDistKm * 100) / 100,
     });
+  }
+
+  // Check if Garmin or Strava embedded odometer distance is available on last point
+  const lastRaw = raw[raw.length - 1];
+  if (lastRaw?.embeddedDistM && lastRaw.embeddedDistM > 50) {
+    const garminKm = lastRaw.embeddedDistM / 1000;
+    if (Math.abs(garminKm - totalDistKm) / Math.max(1, totalDistKm) < 0.25) {
+      totalDistKm = garminKm;
+    }
   }
 
   // Calculate Duration
@@ -183,7 +192,7 @@ function parseServerGpx(xmlString: string) {
   };
 }
 
-// Mountain range detector from GPS coordinates
+// Mountain and regional area detector from GPS coordinates
 function detectRangeFromCoords(lat: number, lng: number): string {
   if (lat >= 50.55 && lat <= 50.85 && lng >= 15.35 && lng <= 15.95) return 'Krkonoše';
   if (lat >= 50.75 && lat <= 50.95 && lng >= 15.05 && lng <= 15.45) return 'Jizerské hory';
@@ -191,11 +200,26 @@ function detectRangeFromCoords(lat: number, lng: number): string {
   if (lat >= 50.00 && lat <= 50.35 && lng >= 17.00 && lng <= 17.55) return 'Jeseníky';
   if (lat >= 49.35 && lat <= 49.65 && lng >= 18.15 && lng <= 18.70) return 'Beskydy';
   if (lat >= 50.35 && lat <= 50.85 && lng >= 12.35 && lng <= 14.15) return 'Krušné hory';
+  if (lat >= 50.12 && lat <= 50.46 && lng >= 16.24 && lng <= 16.68) return 'Orlické hory';
+  // Českomoravské pomezí / Litomyšlsko a Svitavsko
+  if (lat >= 49.72 && lat <= 50.06 && lng >= 16.15 && lng <= 16.65) return 'Českomoravské pomezí (Litomyšlsko)';
+  // Vysočina a Žďárské vrchy
+  if (lat >= 49.25 && lat <= 49.80 && lng >= 15.30 && lng <= 16.15) return 'Vysočina a Žďárské vrchy';
+  // Pardubicko a Polabí
+  if (lat >= 49.95 && lat <= 50.25 && lng >= 15.45 && lng <= 16.15) return 'Pardubicko a Polabí';
+  // Český ráj
+  if (lat >= 50.45 && lat <= 50.66 && lng >= 15.02 && lng <= 15.38) return 'Český ráj';
+  // Pálava a Jižní Morava
+  if (lat >= 48.70 && lat <= 49.15 && lng >= 16.30 && lng <= 17.15) return 'Pálava a Jižní Morava';
+  // Praha a okolí
+  if (lat >= 49.95 && lat <= 50.20 && lng >= 14.20 && lng <= 14.70) return 'Praha a okolí';
+  // Slovensko
   if (lat >= 49.10 && lat <= 49.30 && lng >= 19.80 && lng <= 20.30) return 'Vysoké Tatry';
   if (lat >= 48.85 && lat <= 49.05 && lng >= 19.45 && lng <= 20.25) return 'Nízke Tatry';
   if (lat >= 49.15 && lat <= 49.30 && lng >= 19.55 && lng <= 19.85) return 'Západné Tatry';
   if (lat >= 49.05 && lat <= 49.30 && lng >= 18.95 && lng <= 19.25) return 'Malá Fatra';
-  return 'České hory';
+  if (lat >= 48.55 && lat <= 51.05 && lng >= 12.09 && lng <= 18.86) return 'Česko (výlet)';
+  return 'Aktivita v terénu';
 }
 
 async function startServer() {
@@ -265,11 +289,12 @@ async function startServer() {
         weather,
         rawNotes,
         tone,
+        locationCoords,
       } = req.body;
 
       if (!mountainName && !mountainRange && !rawNotes) {
         return res.status(400).json({
-          error: 'Zadejte alespoň název hory nebo vaše poznámky z cesty.',
+          error: 'Zadejte alespoň název aktivity nebo vaše poznámky z cesty.',
         });
       }
 
@@ -282,39 +307,58 @@ async function startServer() {
       }
 
       const userNotesClean = (rawNotes || '').trim();
-      const prompt = `Jsi chytrý, vtipný a autentický horský vypravěč.
-Uživatel si do deníku zapsal tyto své konkrétní poznámky a postřehy z horské výpravy:
+      const coordsInfo = locationCoords?.lat && locationCoords?.lng
+        ? `GPS souřadnice lokality: ${locationCoords.lat.toFixed(4)}° s.š., ${locationCoords.lng.toFixed(4)}° v.d.`
+        : '';
+
+      const prompt = `Jsi inteligentní, bystrý, vtipný a autentický outdoorový vypravěč a průvodce.
+Máš perfektní geografický přehled o České republice, městech, památkách i horách.
+
+Uživatel si do deníku zapsal tyto své konkrétní poznámky a postřehy z výpravy:
 """
-${userNotesClean || 'Žádné poznámky nezadány – vygeneruj svěží zážitek z túry.'}
+${userNotesClean || 'Uživatel nezadal podrobné poznámky – vygeneruj trefný, živý text na základě zadaného místa a parametrů trasy.'}
 """
 
-Kontext túry:
-- Vrchol / Trasa: ${mountainName || 'Horský vrchol'}
-- Pohoří: ${mountainRange || 'Střední Evropa'}
+Kontext aktivity / trasy:
+- Místo / Trasa / Vrchol: ${mountainName || 'Výlet'}
+- Oblast / Pohoří / Region: ${mountainRange || 'Česká republika'}
+${coordsInfo ? `- ${coordsInfo}` : ''}
 - Náročnost: ${difficulty || 'střední'} (možné: lehká, střední, těžká, ferrata)
 - Délka trasy: ${distanceKm ? `${distanceKm} km` : 'neuvedeno'}
-- Převýšení: ${elevationGainM ? `+${elevationGainM} m` : 'neuvedeno'}
-- Počasí / podmínky: ${weather || 'horské proměnlivé'}
-- Požadovaný styl: ${tone === 'adventurous' ? 'dobrodružný a svižný' : tone === 'witty' ? 'odlehčený, vtipný a s horským nadhledem' : 'stručný, úderný, čtivý a autentický'}
+- Nastoupané metry: ${elevationGainM ? `+${elevationGainM} m` : 'neuvedeno'}
+- Počasí a podmínky: ${weather || 'příjemné outdoorové'}
+- Požadovaný styl vyprávění: ${tone === 'adventurous' ? 'svižný a dobrodružný' : tone === 'witty' ? 'odlehčený, vtipný s přirozeným nadhledem' : 'stručný, trefný, čtivý a autentický'}
 
-HLAVNÍ ÚKOLY A KRITICKÁ PRAVIDLA:
-1. VĚRNOST POZNÁMKÁM: Pokud uživatel zadal poznámky, příběh ("story") i shrnutí ("oneLiner") MUSÍ přímo a zřetelně zapracovat VŠECHNY jeho konkrétní postřehy, zmínky, lidi, jídla, únavu, chyby či zážitky! Nesmíš jeho poznámky ignorovat ani nahradit generickým klišé.
-2. STRUČNOST: Text "story" musí být úderný – přesně 2 až 4 svižné, čtivé věty (jeden ucelený odstavec). Žádné zdlouhavé slohy!
-3. JAZYK: Přirozená, hovorově přátelská moderní čeština, s lehkým horským humorem.
+ZÁSADNÍ GEOGRAFICKÁ A LOGICKÁ PRAVIDLA (NEPORUŠITELNÉ!):
+1. PŘEMÝŠLEJ O REÁLNÉM MÍSTĚ:
+   - Pokud je místo město, památka, nížina, park nebo zámek (např. Litomyšl, Pardubice, Český ráj, Pálava, Lednice, Kutná Hora atd.), NIKDY v textu nevymýšlej "horskou stezku", "vysokohorský výstup", "lavinové nebezpečí", "horské chaty" ani "alpské vrcholy"!
+   - Například pro Litomyšl: je to historické východočeské město s renesančním zámkem (UNESCO), Klášterními zahradami, Smetanovým náměstím a malebnými uličkami. Text musí reflektovat městskou procházku, atmosféru památek, parků či okolní mírné pahorkatiny.
+   - Pouze pokud jde skutečně o hory (Krkonoše, Šumava, Jeseníky, Beskydy, Tatry, Alpy apod.), použij horskou terminologii (hřeben, vrchol, horská chata, sedlo).
+2. RESPEKTUJ PŘEVÝŠENÍ A NÁROČNOST:
+   - Malé převýšení (+50 až +250 m) znamená pohodovou procházku či lehčí výlet, nikoli těžký horský výstup.
+3. VĚRNOST POZNÁMKÁM UŽIVATELE:
+   - Pokud uživatel do poznámek napsal cokoliv konkrétního (co viděl, jídlo, kávu, zážitky, únavu, ztracenou cestu, společnost, vtipnou situaci), MUSÍŠ to přirozeně a vtipně zapracovat do "story" i do "oneLiner".
+4. STRUČNOST:
+   - "story": Přesně 2 až 4 svižné, čtivé věty (jeden souvislý odstavec). Žádné dlouhé generické slohy!
+   - "oneLiner": Krátká, trefná a vtipná hláška na jeden řádek.
+5. REALISTICKÁ DOPORUČENÍ:
+   - "highlights": Reálná zajímavá místa v dané lokalitě (např. pro Litomyšl: renesanční zámek s sgrafity, Klášterní zahrady, Smetanovo náměstí, Portmoneum).
+   - "gear": Reálná výbava podle typu akce (pro město/procházku: pohodlné boty, fotoaparát, platební karta na kávu; pro hory: pohorky, větrovka atd.).
+   - "safety": Reálná bezpečnostní doporučení vhodná pro daný terén.
 
 Odpověz ve formátu JSON s těmito poli v češtině:
 {
-  "story": "Hotový přepsaný čtivý text přímo z poznámek (2-4 věty)...",
-  "oneLiner": "Krátká trefná hláška nebo pointa vystihující tuto konkrétní túru a poznámky.",
-  "safety": "Klíčová bezpečnostní doporučení a rizika terénu pro tuto trasu.",
-  "highlights": "Zajímavá místa na trase (chaty, plesa, vyhlídky).",
+  "story": "Hotový přepsaný čtivý text věrný poznámkám a konkrétnímu místu (2-4 věty)...",
+  "oneLiner": "Krátká trefná hláška nebo pointa vystihující tuto konkrétní aktivitu.",
+  "safety": "Klíčová bezpečnostní doporučení vhodná pro tento konkrétní terén.",
+  "highlights": "Zajímavá a reálná místa v dané lokalitě.",
   "gear": ["položka 1", "položka 2", "položka 3", "položka 4"],
-  "bestSeason": "Doporučené měsíce pro výstup.",
-  "weatherTips": "Praktické rady k počasí a času vyražení."
+  "bestSeason": "Doporučené měsíce či roční období.",
+  "weatherTips": "Praktické rady k počasí pro tento typ výletu."
 }`;
 
       // Try modern high-performing Gemini models in priority order
-      const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.8-flash'];
+      const modelsToTry = ['gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
       let responseText: string | null = null;
       let lastErr: any = null;
 
@@ -540,13 +584,13 @@ Odpověz ve formátu JSON s těmito poli v češtině:
       }
 
       const routeId = id || `hike-garmin-${Date.now()}`;
-      const finalTitle = title || parsedGpx?.name || 'Horská túra z Garminu';
-      const finalDistance = Number(distanceKm) || parsedGpx?.totalDistKm || 10;
-      const finalGain = Number(elevationGainM) || parsedGpx?.gainM || 500;
+      const finalTitle = title || parsedGpx?.name || 'Aktivita z Garminu';
+      const finalDistance = Number(distanceKm) || parsedGpx?.totalDistKm || 5;
+      const finalGain = Number(elevationGainM) || parsedGpx?.gainM || 100;
       const finalLoss = Number(elevationLossM) || parsedGpx?.lossM || finalGain;
 
       // Format duration
-      let formattedDuration = parsedGpx?.duration || '3h 30m';
+      let formattedDuration = parsedGpx?.duration || '1h 30m';
       if (durationMinutes && !isNaN(Number(durationMinutes))) {
         const mins = Math.round(Number(durationMinutes));
         const hours = Math.floor(mins / 60);
@@ -568,15 +612,13 @@ Odpověz ve formátu JSON s těmito poli v češtině:
         elevationGainM: Math.round(finalGain),
         elevationLossM: Math.round(finalLoss),
         duration: formattedDuration,
-        difficulty: finalGain > 1000 ? 'hard' : finalGain < 400 ? 'easy' : 'moderate',
+        difficulty: finalGain > 1000 ? 'hard' : finalGain < 300 ? 'easy' : 'moderate',
         rating: 5,
         description:
           description ||
-          'Nová túra z Garminu. Klikněte pro doplnění zážitků a fotek přes AI horského asistenta.',
-        photos: [
-          'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80',
-        ],
-        highestPointM: parsedGpx?.maxEle || finalGain + 800,
+          'Nová aktivita z Garminu. Klikněte pro doplnění zážitků a fotek.',
+        photos: [],
+        highestPointM: parsedGpx?.maxEle,
         lowestPointM: parsedGpx?.minEle,
         peakCoords: {
           lat: peakLat,
