@@ -8,7 +8,6 @@ import {
   Footprints,
   TrendingUp,
   Award,
-  Sparkles,
   Compass,
 } from 'lucide-react';
 import { MountainHike, UserRole, HikeDifficulty } from '../types';
@@ -20,6 +19,7 @@ interface HikeListProps {
   onSelectHike: (hike: MountainHike) => void;
   onEditHike: (hike: MountainHike) => void;
   onDeleteHike: (hikeId: string) => void;
+  onRequestDelete?: (hike: MountainHike) => void;
   onAddNewHike: () => void;
 }
 
@@ -29,6 +29,7 @@ export const HikeList: React.FC<HikeListProps> = ({
   onSelectHike,
   onEditHike,
   onDeleteHike,
+  onRequestDelete,
   onAddNewHike,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -257,6 +258,7 @@ export const HikeList: React.FC<HikeListProps> = ({
               onSelect={onSelectHike}
               onEdit={onEditHike}
               onDelete={onDeleteHike}
+              onRequestDelete={onRequestDelete}
             />
           ))}
         </div>

@@ -18,6 +18,7 @@ import {
 import { PinConfig, UserRole } from '../types';
 import { savePins, resetPinsToDefault, getShareUrl } from '../utils/auth';
 import { savePinsToFirestore } from '../utils/firebase';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -46,6 +47,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<'admin' | 'reader' | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    isDestructive?: boolean;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Sync inputs with current pinConfig whenever modal opens or props change
   useEffect(() => {
@@ -106,18 +115,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleResetPins = async () => {
-    if (confirm('Opravdu chcete obnovit výchozí hesla (Admin: 1234, Čtenář: 0000)?')) {
-      const def = resetPinsToDefault();
-      setAdminPin(def.adminPin);
-      setReaderPin(def.readerPin);
-      onPinsUpdated(def);
-      try {
-        await savePinsToFirestore(def);
-      } catch {}
-      setSaveMessage('Hesla byla resetována na výchozí hodnoty (1234 a 0000).');
-      setTimeout(() => setSaveMessage(null), 3000);
-    }
+  const handleResetPins = () => {
+    setConfirmAction({
+      isOpen: true,
+      title: 'Obnovit výchozí hesla',
+      message: 'Opravdu chcete obnovit výchozí hesla (Admin: 1234, Čtenář: 0000)?',
+      confirmLabel: 'Obnovit hesla',
+      isDestructive: false,
+      onConfirm: async () => {
+        setConfirmAction(null);
+        const def = resetPinsToDefault();
+        setAdminPin(def.adminPin);
+        setReaderPin(def.readerPin);
+        onPinsUpdated(def);
+        try {
+          await savePinsToFirestore(def);
+        } catch {}
+        setSaveMessage('Hesla byla resetována na výchozí hodnoty (1234 a 0000).');
+        setTimeout(() => setSaveMessage(null), 3000);
+      },
+    });
   };
 
   const copyToClipboard = (pin: string, type: 'admin' | 'reader') => {
@@ -363,10 +380,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm('Opravdu chcete vymazat všechny túry a mít deník zcela prázdný?')) {
-                      if (onClearAllHikes) onClearAllHikes();
-                      onClose();
-                    }
+                    setConfirmAction({
+                      isOpen: true,
+                      title: 'Vyčistit celý deník',
+                      message: 'Opravdu chcete trvale vymazat všechny túry a mít deník zcela prázdný pro nahrávání z Garminu?',
+                      confirmLabel: 'Vymazat vše',
+                      isDestructive: true,
+                      onConfirm: () => {
+                        setConfirmAction(null);
+                        if (onClearAllHikes) onClearAllHikes();
+                        onClose();
+                      },
+                    });
                   }}
                   className="px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-medium border border-rose-800/60 transition-colors cursor-pointer shrink-0"
                 >
@@ -386,10 +411,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm('Chcete načíst ukázkové túry?')) {
-                      onResetData();
-                      onClose();
-                    }
+                    setConfirmAction({
+                      isOpen: true,
+                      title: 'Obnovit ukázková data túr',
+                      message: 'Chcete načíst 4 ukázkové túry a přepsat aktuální obsah deníku?',
+                      confirmLabel: 'Nahrát ukázky',
+                      isDestructive: false,
+                      onConfirm: () => {
+                        setConfirmAction(null);
+                        onResetData();
+                        onClose();
+                      },
+                    });
                   }}
                   className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-medium border border-stone-700 transition-colors cursor-pointer shrink-0"
                 >
@@ -400,6 +433,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      {confirmAction && (
+        <ConfirmDialog
+          isOpen={confirmAction.isOpen}
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
+          isDestructive={confirmAction.isDestructive}
+          onConfirm={confirmAction.onConfirm}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
     </div>
   );
 };

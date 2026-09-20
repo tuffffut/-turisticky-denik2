@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   X,
   Calendar,
@@ -15,27 +15,20 @@ import {
   CloudSun,
   MapPin,
   ExternalLink,
-  Sparkles,
-  ShieldAlert,
-  Backpack,
-  SunMedium,
   Video,
   Maximize2,
-  Loader2,
-  Quote,
   Smile,
   Share2,
   Send,
   Copy,
   Check,
 } from 'lucide-react';
-import { MountainHike, UserRole, GPXTrackPoint, HikeAISummary } from '../types';
+import { MountainHike, UserRole, GPXTrackPoint } from '../types';
 import { HikeMap } from './HikeMap';
 import { ElevationProfile } from './ElevationProfile';
 import { downloadGPXFile, buildGPXXml } from '../utils/gpxParser';
 import { PhotoLightbox } from './PhotoLightbox';
 import { VideoPlayer } from './VideoPlayer';
-import { generateHikeAITips } from '../utils/aiAssistant';
 import { getHikeShareUrl, getTelegramShareUrl } from '../utils/auth';
 
 interface HikeDetailModalProps {
@@ -45,6 +38,7 @@ interface HikeDetailModalProps {
   onClose: () => void;
   onEdit: (hike: MountainHike) => void;
   onDelete: (hikeId: string) => void;
+  onRequestDelete?: (hike: MountainHike) => void;
   onUpdateHike?: (updatedHike: MountainHike) => void;
 }
 
@@ -55,26 +49,18 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
   onClose,
   onEdit,
   onDelete,
+  onRequestDelete,
   onUpdateHike,
 }) => {
   const [hoveredPoint, setHoveredPoint] = useState<GPXTrackPoint | null>(null);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
-  const [localAiSummary, setLocalAiSummary] = useState<HikeAISummary | undefined>(
-    hike?.aiSummary
-  );
-
-  useEffect(() => {
-    setLocalAiSummary(hike?.aiSummary);
-  }, [hike?.aiSummary, hike?.id]);
 
   if (!hike) return null;
 
   const isAdmin = currentRole === 'admin';
-  const effectiveAiSummary = localAiSummary || hike.aiSummary;
 
   const handleDownloadGPX = () => {
     let xmlContent = hike.gpxRawXml;
@@ -88,79 +74,6 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
         .replace(/[^a-z0-9]/g, '_')
         .slice(0, 30);
       downloadGPXFile(`${safeFilename}_trasa.gpx`, xmlContent);
-    }
-  };
-
-  const handleRegenerateAI = async () => {
-    setIsGeneratingAI(true);
-    try {
-      const locCoords = hike.peakCoords
-        ? { lat: hike.peakCoords.lat, lng: hike.peakCoords.lng }
-        : hike.trackPoints?.[0]
-        ? { lat: hike.trackPoints[0].lat, lng: hike.trackPoints[0].lng }
-        : undefined;
-
-      const res = await generateHikeAITips({
-        mountainName: hike.title,
-        mountainRange: hike.mountainRange,
-        difficulty: hike.difficulty,
-        distanceKm: hike.distanceKm,
-        elevationGainM: hike.elevationGainM,
-        weather: hike.weather,
-        rawNotes: hike.description,
-        tone: 'concise',
-        locationCoords: locCoords,
-      });
-
-      setLocalAiSummary(res);
-
-      if (onUpdateHike) {
-        onUpdateHike({
-          ...hike,
-          aiSummary: res,
-        });
-      }
-    } catch (err) {
-      console.error('Chyba při generování AI tipů v detailu:', err);
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  const handleRewriteDescriptionWithAI = async () => {
-    setIsGeneratingAI(true);
-    try {
-      const locCoords = hike.peakCoords
-        ? { lat: hike.peakCoords.lat, lng: hike.peakCoords.lng }
-        : hike.trackPoints?.[0]
-        ? { lat: hike.trackPoints[0].lat, lng: hike.trackPoints[0].lng }
-        : undefined;
-
-      const res = await generateHikeAITips({
-        mountainName: hike.title,
-        mountainRange: hike.mountainRange,
-        difficulty: hike.difficulty,
-        distanceKm: hike.distanceKm,
-        elevationGainM: hike.elevationGainM,
-        weather: hike.weather,
-        rawNotes: hike.description,
-        tone: 'concise',
-        locationCoords: locCoords,
-      });
-
-      setLocalAiSummary(res);
-
-      if (onUpdateHike && res.story) {
-        onUpdateHike({
-          ...hike,
-          description: res.story,
-          aiSummary: res,
-        });
-      }
-    } catch (err) {
-      console.error('Chyba při přepisování zápisu:', err);
-    } finally {
-      setIsGeneratingAI(false);
     }
   };
 
@@ -293,7 +206,9 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
                     id="detail-delete-hike-btn"
                     type="button"
                     onClick={() => {
-                      if (confirm(`Opravdu chcete smazat výpravu „${hike.title}“?`)) {
+                      if (onRequestDelete) {
+                        onRequestDelete(hike);
+                      } else {
                         onDelete(hike.id);
                         onClose();
                       }
@@ -429,149 +344,19 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
               )}
             </div>
 
-            {/* Description / Story narrative */}
-            <div className="bg-stone-950/60 p-4 sm:p-5 rounded-2xl border border-stone-800/80 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            {/* Description / Personal diary narrative */}
+            {hike.description && (
+              <div className="bg-stone-950/60 p-4 sm:p-5 rounded-2xl border border-stone-800/80 space-y-3">
                 <h3 className="text-sm font-semibold text-stone-200 flex items-center gap-2">
-                  <Smile className="w-4 h-4 text-amber-400" />
-                  <span>Zápis z deníku a zážitky z túry</span>
+                  <Smile className="w-4 h-4 text-emerald-400" />
+                  <span>Zápis z deníku a osobní zážitky</span>
                 </h3>
 
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={handleRewriteDescriptionWithAI}
-                    disabled={isGeneratingAI}
-                    className="px-3 py-1 bg-amber-950/60 hover:bg-amber-900/60 border border-amber-600/40 text-amber-200 text-xs rounded-xl font-medium flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 self-start sm:self-auto shadow-sm"
-                  >
-                    {isGeneratingAI ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                        <span>Přepisuji zápis...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                        <span>✨ Přepsat do stručného stylu (AI)</span>
-                      </>
-                    )}
-                  </button>
-                )}
+                <p className="text-stone-300 text-sm leading-relaxed whitespace-pre-line">
+                  {hike.description}
+                </p>
               </div>
-
-              {effectiveAiSummary?.oneLiner && (
-                <div className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-600/30 text-amber-300 text-xs italic font-medium flex items-center gap-2">
-                  <Quote className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span>„{effectiveAiSummary.oneLiner}“</span>
-                </div>
-              )}
-
-              <p className="text-stone-300 text-sm leading-relaxed whitespace-pre-line">
-                {hike.description}
-              </p>
-            </div>
-
-            {/* AI Mountain Guide & Safety Advice Box */}
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-950/30 via-stone-950/60 to-emerald-950/20 border border-amber-500/30 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-900/40 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-950 text-amber-400 flex items-center justify-center border border-amber-600/40">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-amber-200">
-                      AI Horský Průvodce (Gemini)
-                    </h3>
-                    <p className="text-[11px] text-stone-400">
-                      Bezpečnostní doporučení a výstroj generované umělou inteligencí
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleRegenerateAI}
-                  disabled={isGeneratingAI}
-                  className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs rounded-xl font-medium flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 self-start sm:self-auto"
-                >
-                  {isGeneratingAI ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                      <span>Analyzuji...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{effectiveAiSummary ? 'Přegenerovat AI analýzu' : 'Vygenerovat AI analýzu'}</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {effectiveAiSummary ? (
-                <div className="space-y-3.5 text-xs sm:text-sm">
-                  {effectiveAiSummary.story && (
-                    <div>
-                      <h4 className="text-xs uppercase tracking-wider text-amber-400 font-bold mb-1">
-                        Atmosféra výstupu
-                      </h4>
-                      <p className="text-stone-300 leading-relaxed">
-                        {effectiveAiSummary.story}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                    {effectiveAiSummary.safety && (
-                      <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-900/40 space-y-1">
-                        <div className="flex items-center gap-1.5 text-rose-300 font-bold text-xs uppercase tracking-wider">
-                          <ShieldAlert className="w-3.5 h-3.5" />
-                          <span>Bezpečnost a rizika</span>
-                        </div>
-                        <p className="text-stone-300 text-xs leading-relaxed">
-                          {effectiveAiSummary.safety}
-                        </p>
-                      </div>
-                    )}
-
-                    {effectiveAiSummary.gear && effectiveAiSummary.gear.length > 0 && (
-                      <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-900/40 space-y-1">
-                        <div className="flex items-center gap-1.5 text-emerald-300 font-bold text-xs uppercase tracking-wider">
-                          <Backpack className="w-3.5 h-3.5" />
-                          <span>Doporučená výstroj</span>
-                        </div>
-                        <ul className="text-stone-300 text-xs list-disc list-inside space-y-0.5">
-                          {effectiveAiSummary.gear.map((item, i) => (
-                            <li key={i}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-
-                  {(effectiveAiSummary.highlights || effectiveAiSummary.bestSeason) && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-stone-400 pt-1">
-                      {effectiveAiSummary.highlights && (
-                        <div>
-                          <strong className="text-stone-200">Zajímavosti na trase: </strong>
-                          <span>{effectiveAiSummary.highlights}</span>
-                        </div>
-                      )}
-                      {effectiveAiSummary.bestSeason && (
-                        <div>
-                          <strong className="text-stone-200">Vhodné období: </strong>
-                          <span>{effectiveAiSummary.bestSeason}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-xs text-stone-400">
-                  Zatím nebyl vygenerován AI zápis pro tuto výpravu. Klikněte na tlačítko výše pro analýzu trasy.
-                </div>
-              )}
-            </div>
+            )}
 
             {/* Videos Section */}
             {hike.videos && hike.videos.length > 0 && (

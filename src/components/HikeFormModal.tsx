@@ -12,22 +12,15 @@ import {
   Check,
   AlertCircle,
   Star,
-  Sparkles,
   Video,
-  Loader2,
-  ShieldAlert,
   Compass,
   CloudSun,
-  Backpack,
   Smile,
   ArrowRight,
-  RotateCw,
-  Quote,
-  Undo2,
+  Loader2,
 } from 'lucide-react';
 import { MountainHike, HikeDifficulty, GPXTrackPoint, HikeVideo, HikeAISummary } from '../types';
 import { parseGPX, buildGPXXml } from '../utils/gpxParser';
-import { generateHikeAITips } from '../utils/aiAssistant';
 
 interface HikeFormModalProps {
   isOpen: boolean;
@@ -101,14 +94,6 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
   const [newVideoUrl, setNewVideoUrl] = useState('');
   const [newVideoTitle, setNewVideoTitle] = useState('');
   const [aiSummary, setAiSummary] = useState<HikeAISummary | undefined>(undefined);
-  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
-  const [aiTone, setAiTone] = useState<'concise' | 'witty' | 'adventurous'>('concise');
-  const [rewrittenPreview, setRewrittenPreview] = useState<{
-    story: string;
-    oneLiner?: string;
-  } | null>(null);
-  const [originalNotes, setOriginalNotes] = useState<string | null>(null);
-
   const [trackPoints, setTrackPoints] = useState<GPXTrackPoint[] | undefined>(undefined);
   const [gpxFileName, setGpxFileName] = useState<string | null>(null);
   const [gpxRawXml, setGpxRawXml] = useState<string | undefined>(undefined);
@@ -142,7 +127,6 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setPeakLng(hikeToEdit.peakCoords?.lng ?? '');
       setPeakName(hikeToEdit.peakCoords?.name ?? '');
       setGpxFileName(hikeToEdit.trackPoints ? 'Trasa je uložena' : null);
-      setRewrittenPreview(null);
       setImportedNotice(null);
     } else {
       // Reset defaults
@@ -163,14 +147,12 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setPhotos([]);
       setVideos([]);
       setAiSummary(undefined);
-      setAiTone('concise');
       setTrackPoints(undefined);
       setGpxRawXml(undefined);
       setGpxFileName(null);
       setPeakLat('');
       setPeakLng('');
       setPeakName('');
-      setRewrittenPreview(null);
       
       if (initialHikeData?.title || initialHikeData?.distanceKm) {
         setImportedNotice('Parametry výpravy byly automaticky předvyplněny z Garminu / Telegramu. Zkontrolujte je a uložte.');
@@ -329,70 +311,6 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       if (!trimmed) return tag;
       return `${trimmed}, ${tag}`;
     });
-  };
-
-  // Trigger Gemini AI generation: Rewrite rough notes into an engaging & witty story
-  const handleRewriteNotesWithAI = async () => {
-    setIsGeneratingAI(true);
-    setFormError(null);
-
-    try {
-      let locCoords: { lat: number; lng: number } | undefined = undefined;
-      if (typeof peakLat === 'number' && typeof peakLng === 'number') {
-        locCoords = { lat: peakLat, lng: peakLng };
-      } else if (trackPoints && trackPoints.length > 0) {
-        locCoords = { lat: trackPoints[0].lat, lng: trackPoints[0].lng };
-      }
-
-      const distNum = distanceKm !== '' ? parseNumberInput(distanceKm) : undefined;
-      const gainNum = elevationGainM !== '' ? parseNumberInput(elevationGainM) : undefined;
-
-      const result = await generateHikeAITips({
-        mountainName: title.trim() || 'Výlet / Procházka',
-        mountainRange: mountainRange.trim() || '',
-        difficulty,
-        distanceKm: distNum,
-        elevationGainM: gainNum,
-        weather: weather.trim() || undefined,
-        rawNotes: description,
-        tone: aiTone,
-        locationCoords: locCoords,
-      });
-
-      setAiSummary(result);
-
-      if (result.story) {
-        if (!originalNotes && description) {
-          setOriginalNotes(description);
-        }
-        setDescription(result.story);
-        setRewrittenPreview({
-          story: result.story,
-          oneLiner: result.oneLiner,
-        });
-      }
-    } catch (err: any) {
-      setFormError(err.message || 'Chyba při přepisování poznámek pomocí AI.');
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  // Revert rewritten story back to original notes
-  const handleRevertNotes = () => {
-    if (originalNotes !== null) {
-      setDescription(originalNotes);
-      setOriginalNotes(null);
-      setRewrittenPreview(null);
-    }
-  };
-
-  // Apply rewritten story directly to description field
-  const handleApplyRewrittenStory = () => {
-    if (rewrittenPreview?.story) {
-      setDescription(rewrittenPreview.story);
-      setRewrittenPreview(null);
-    }
   };
 
   const parseNumberInput = (val: any): number => {
@@ -736,198 +654,48 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
             ))}
           </div>
 
-          {/* Core Feature: AI Note Rewriter into Witty / Readable Story */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-amber-950/40 via-stone-950/80 to-emerald-950/30 border border-amber-500/35 space-y-3.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-amber-950 text-amber-400 flex items-center justify-center border border-amber-600/40 shadow-sm shrink-0">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold text-amber-200">
-                    AI Přepis poznámek do čtivého & vtipného textu
-                  </h4>
-                  <p className="text-[11px] text-stone-400">
-                    Napište níže pár surových poznámek či hesel a AI je přetvoří v zábavný deníkový zápis.
-                  </p>
-                </div>
-              </div>
-
-              {/* Tone switcher */}
-              <div className="flex items-center bg-stone-900 border border-amber-900/50 rounded-xl p-1 text-xs self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setAiTone('concise')}
-                  className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1 ${
-                    aiTone === 'concise'
-                      ? 'bg-amber-600 text-white shadow-sm'
-                      : 'text-stone-400 hover:text-stone-200'
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Stručný popisek (výchozí)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAiTone('witty')}
-                  className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1 ${
-                    aiTone === 'witty'
-                      ? 'bg-amber-600 text-white shadow-sm'
-                      : 'text-stone-400 hover:text-stone-200'
-                  }`}
-                >
-                  <Smile className="w-3.5 h-3.5" />
-                  <span>Vtipný</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAiTone('adventurous')}
-                  className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                    aiTone === 'adventurous'
-                      ? 'bg-amber-600 text-white shadow-sm'
-                      : 'text-stone-400 hover:text-stone-200'
-                  }`}
-                >
-                  Dobrodružný
-                </button>
-              </div>
+          {/* Authentic diary notes and description */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-stone-900/80 border border-stone-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-stone-200 flex items-center gap-2">
+                <Smile className="w-4 h-4 text-emerald-400" />
+                <span>Popis výpravy & osobní zážitky:</span>
+              </label>
+              <span className="text-[11px] text-stone-500">
+                {description.length} znaků
+              </span>
             </div>
 
-            {/* Description textarea: user notes or final text */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-stone-300">
-                  Poznámky z trasy & Popis zážitků:
-                </label>
-                <span className="text-[11px] text-stone-500">
-                  {description.length} znaků
-                </span>
-              </div>
-
-              {originalNotes && (
-                <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-emerald-950/50 border border-emerald-800/60 rounded-xl text-emerald-300 text-xs">
-                  <span className="flex items-center gap-1.5 font-medium">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    AI přepsala vaše poznámky do čtivého textu níže.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleRevertNotes}
-                    className="text-[11px] text-amber-300 hover:text-amber-200 underline cursor-pointer flex items-center gap-1 shrink-0 ml-2"
-                  >
-                    <Undo2 className="w-3 h-3" />
-                    <span>Vrátit původní poznámky</span>
-                  </button>
-                </div>
-              )}
-
-              <textarea
-                rows={4}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Sem napište své surové poznámky (např.: strmý krpál, bolely nohy, ztratil jsem se v lese, pivo na chatě studený a výborný, nahoře mlha nic jsme neviděli ale paráda...)"
-                className="w-full px-3.5 py-2.5 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-xs sm:text-sm leading-relaxed focus:outline-none focus:border-amber-500"
-              />
-            </div>
+            <textarea
+              rows={4}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Zde můžete popsat trasu, atmosféru, zastávky na jídlo a pivo nebo jakékoliv své osobní zážitky..."
+              className="w-full px-3.5 py-2.5 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-xs sm:text-sm leading-relaxed focus:outline-none focus:border-emerald-500 transition-colors"
+            />
 
             {/* Quick helper note chips */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] text-stone-400">Rychlé postřehy k připsání:</span>
+            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+              <span className="text-[11px] text-stone-400">Rychlé postřehy:</span>
               {[
                 'výborná káva a zákusek',
                 'krásná architektura a atmosféra',
                 'spousta kilometrů v nohách',
-                'ztratili jsme na chvíli trasu',
-                'orosené pivo jako odměna',
+                'orosené pivo v cíli',
                 'neskutečný výhled za odměnu',
+                'pohodová trasa',
               ].map((chip) => (
                 <button
                   key={chip}
                   type="button"
                   onClick={() => handleAddQuickNoteTag(chip)}
-                  className="px-2 py-0.5 rounded-full bg-stone-850 hover:bg-stone-800 text-stone-300 text-[11px] border border-stone-700/60 transition-colors cursor-pointer flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-full bg-stone-800 hover:bg-stone-750 text-stone-300 text-[11px] border border-stone-700/60 transition-colors cursor-pointer flex items-center gap-1"
                 >
-                  <Plus className="w-2.5 h-2.5 text-amber-400" />
+                  <Plus className="w-2.5 h-2.5 text-emerald-400" />
                   <span>{chip}</span>
                 </button>
               ))}
             </div>
-
-            {/* Action button to trigger rewrite */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">
-              <p className="text-[11px] text-stone-400">
-                AI model vezme vaše poznámky a sepíše je do přirozeného, čtivého a trochu vtipného textu.
-              </p>
-
-              <button
-                type="button"
-                onClick={handleRewriteNotesWithAI}
-                disabled={isGeneratingAI}
-                className="px-4 py-2 bg-gradient-to-r from-amber-500 via-emerald-500 to-teal-500 hover:from-amber-400 hover:to-emerald-400 text-stone-950 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-50 shrink-0"
-              >
-                {isGeneratingAI ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>AI přepisuje vaše zážitky...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>✨ Přepsat poznámky do vtipného textu</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* AI Rewritten Preview Result Box */}
-            {rewrittenPreview && (
-              <div className="mt-3 p-4 rounded-xl bg-stone-900/95 border border-amber-500/50 shadow-xl space-y-3 animate-fadeIn">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-amber-300 text-xs font-bold">
-                    <Quote className="w-4 h-4 text-amber-400" />
-                    <span>Návrh přepsaného textu od AI ({aiTone === 'witty' ? 'vtipný styl' : aiTone}):</span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleRewriteNotesWithAI}
-                    disabled={isGeneratingAI}
-                    className="text-[11px] text-stone-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer transition-colors"
-                  >
-                    <RotateCw className="w-3 h-3" />
-                    <span>Zkusit znovu</span>
-                  </button>
-                </div>
-
-                {rewrittenPreview.oneLiner && (
-                  <div className="p-2.5 rounded-lg bg-amber-950/40 border border-amber-800/40 text-amber-200 text-xs italic font-medium">
-                    „{rewrittenPreview.oneLiner}“
-                  </div>
-                )}
-
-                <p className="text-stone-200 text-xs sm:text-sm leading-relaxed whitespace-pre-line bg-stone-950/50 p-3 rounded-lg border border-stone-800">
-                  {rewrittenPreview.story}
-                </p>
-
-                <div className="flex items-center justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setRewrittenPreview(null)}
-                    className="px-3 py-1.5 text-xs text-stone-400 hover:text-stone-200 transition-colors cursor-pointer"
-                  >
-                    Zavřít náhled
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleApplyRewrittenStory}
-                    className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md transition-colors cursor-pointer"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Použít tento text jako popis výpravy</span>
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Photos Management */}

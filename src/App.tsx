@@ -37,6 +37,7 @@ import { SwitchToAdminModal } from './components/SwitchToAdminModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ShareModal } from './components/ShareModal';
 import { TelegramModal } from './components/TelegramModal';
+import { ConfirmDialog } from './components/ConfirmDialog';
 
 export default function App() {
   // 1. Session & PIN security: Remember login session on the same device
@@ -58,6 +59,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isTelegramOpen, setIsTelegramOpen] = useState(false);
+  const [hikePendingDelete, setHikePendingDelete] = useState<MountainHike | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
 
   // 4. Deep linking & imported GPX state
@@ -289,6 +291,13 @@ export default function App() {
     }
   };
 
+  const handleConfirmDeleteHike = () => {
+    if (hikePendingDelete) {
+      handleDeleteHike(hikePendingDelete.id);
+      setHikePendingDelete(null);
+    }
+  };
+
   const handleResetData = () => {
     const defaults = resetHikesToDefault();
     setHikes(defaults);
@@ -397,6 +406,7 @@ export default function App() {
               setIsFormModalOpen(true);
             }}
             onDeleteHike={handleDeleteHike}
+            onRequestDelete={(hike) => setHikePendingDelete(hike)}
             onAddNewHike={() => {
               setHikeToEdit(null);
               setIsFormModalOpen(true);
@@ -423,6 +433,7 @@ export default function App() {
             setIsFormModalOpen(true);
           }}
           onDelete={handleDeleteHike}
+          onRequestDelete={(hike) => setHikePendingDelete(hike)}
           onUpdateHike={handleSaveHike}
         />
       )}
@@ -478,6 +489,22 @@ export default function App() {
         pinConfig={pinConfig}
         currentRole={currentRole}
         onSimulateAddHike={handleTelegramAddHike}
+      />
+
+      {/* Confirm Delete Hike Dialog */}
+      <ConfirmDialog
+        isOpen={!!hikePendingDelete}
+        title="Smazat výpravu z deníku"
+        message={
+          hikePendingDelete
+            ? `Opravdu chcete trvale smazat výpravu „${hikePendingDelete.title}“? Tato akce smaže trasu ze všech vašich zařízení.`
+            : ''
+        }
+        confirmLabel="Trvale smazat"
+        cancelLabel="Zrušit"
+        isDestructive
+        onConfirm={handleConfirmDeleteHike}
+        onCancel={() => setHikePendingDelete(null)}
       />
 
       {/* Footer */}

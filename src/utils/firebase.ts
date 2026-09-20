@@ -131,8 +131,28 @@ export async function saveHikeToFirestore(hike: MountainHike): Promise<void> {
  * Deletes a hike document from Firestore.
  */
 export async function deleteHikeFromFirestore(hikeId: string): Promise<void> {
-  const docRef = doc(db, HIKES_COLLECTION, hikeId);
-  await deleteDoc(docRef);
+  let firestoreError: any = null;
+  try {
+    const docRef = doc(db, HIKES_COLLECTION, hikeId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    firestoreError = err;
+    console.warn(`[Firestore client] Chyba při mazání trasy ${hikeId}:`, err);
+  }
+
+  // Also call server-side deletion endpoint as guaranteed sync
+  try {
+    const res = await fetch(`/api/routes/${encodeURIComponent(hikeId)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok && firestoreError) {
+      throw new Error(`Mazání selhalo na klientu i serveru: ${firestoreError?.message || res.statusText}`);
+    }
+  } catch (serverErr) {
+    if (firestoreError) {
+      throw firestoreError;
+    }
+  }
 }
 
 /**

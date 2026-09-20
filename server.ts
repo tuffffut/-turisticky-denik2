@@ -4,7 +4,7 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
 
 // Helper for distance calculation
 function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -682,6 +682,21 @@ Odpověz ve formátu JSON s těmito poli v češtině:
       }
       return res.json({ route: snap.data() });
     } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/routes/:id: Delete route by id
+  app.delete('/api/routes/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (db) {
+        await deleteDoc(doc(db, 'hikes', id));
+        console.log(`[API /api/routes] Trasa ${id} úspěšně smazána z Firestore serverem.`);
+      }
+      return res.json({ success: true, message: `Trasa ${id} byla smazána.` });
+    } catch (err: any) {
+      console.warn(`[API /api/routes] Chyba při mazání trasy ${req.params.id}:`, err);
       return res.status(500).json({ error: err.message });
     }
   });
