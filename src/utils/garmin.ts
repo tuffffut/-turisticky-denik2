@@ -106,6 +106,18 @@ export function parseDifficultyParam(
     if (clean === 'easy' || clean === 'lehka' || clean === 'lehká' || clean === 'snadna') return 'easy';
     if (clean === 'hard' || clean === 'tezka' || clean === 'těžká' || clean === 'narocna' || clean === 'náročná') return 'hard';
     if (clean === 'ferrata' || clean === 'expert' || clean === 'velmi tezka' || clean === 'extrem') return 'ferrata';
+    if (
+      clean === 'climbing' ||
+      clean === 'mountaineering' ||
+      clean === 'lezeni' ||
+      clean === 'lezení' ||
+      clean === 'horolezectvi' ||
+      clean === 'horolezectví' ||
+      clean === 'rock_climbing' ||
+      clean === 'bouldering'
+    ) {
+      return 'climbing';
+    }
     if (clean === 'moderate' || clean === 'stredni' || clean === 'střední') return 'moderate';
   }
   // Logické odvození pouze při splnění jasných parametrů
@@ -228,6 +240,7 @@ export function parseUrlSearch(search: string): ParsedUrlParams {
     null;
 
   const rawDifficulty = params.get('difficulty') || null;
+  const rawActivityType = params.get('activityType') || params.get('type') || params.get('sport') || null;
   const rawWeather = params.get('weather') || '';
   const rawDate = params.get('date') || null;
   const rawHighestPoint =
@@ -255,17 +268,25 @@ export function parseUrlSearch(search: string): ParsedUrlParams {
   const title = rawTitle ? decodeURIComponent(rawTitle) : undefined;
   const mountainRange = rawRange ? decodeURIComponent(rawRange) : undefined;
   const weather = rawWeather ? decodeURIComponent(rawWeather) : undefined;
+  const isMountaineering = rawActivityType && /climb|mountaineer|lezen|skal/i.test(rawActivityType);
+  const activityType = isMountaineering
+    ? 'mountaineering'
+    : rawActivityType
+    ? rawActivityType.trim().toLowerCase()
+    : undefined;
+  const finalDifficulty = difficulty || (isMountaineering ? 'climbing' : undefined);
 
   const hikeData: Partial<MountainHike> = {
     ...(title && { title }),
     ...(mountainRange && { mountainRange }),
+    ...(activityType && { activityType }),
     date,
     ...(distanceKm !== undefined && { distanceKm }),
     ...(elevationGainM !== undefined && { elevationGainM }),
     ...(elevationLossM !== undefined && { elevationLossM }),
     ...(duration && { duration }),
     ...(movingDuration && { movingDuration }),
-    ...(difficulty && { difficulty }),
+    ...(finalDifficulty && { difficulty: finalDifficulty }),
     ...(highestPointM !== undefined && { highestPointM }),
     ...(weather && { weather }),
   };

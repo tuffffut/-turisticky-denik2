@@ -595,6 +595,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         description,
         wantToVisitAgain,
         id,
+        activityType,
+        difficulty: reqDifficulty,
       } = req.body;
 
       console.log(`[API /api/routes] Přijata nová trasa z Garminu: "${title || 'Bez názvu'}" (${distanceKm} km)`);
@@ -636,19 +638,30 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       const peakLng = parsedGpx?.highestPoint?.lng || 15.74;
       const detectedRange = detectRangeFromCoords(peakLat, peakLng);
 
+      const isMountaineering =
+        (activityType && /climb|mountaineer|lezen|skal/i.test(String(activityType))) ||
+        (finalTitle && /lezení|horolezectví|climbing|mountaineering|boulder/i.test(finalTitle));
+
+      const determinedActivityType = isMountaineering
+        ? 'mountaineering'
+        : activityType
+        ? String(activityType).trim().toLowerCase()
+        : undefined;
+
       const newHike = {
         id: routeId,
         title: finalTitle,
         mountainRange: detectedRange,
+        activityType: determinedActivityType,
         date: date ? String(date).slice(0, 10) : (parsedGpx?.date || new Date().toISOString().split('T')[0]),
         distanceKm: Math.round(finalDistance * 10) / 10,
         elevationGainM: Math.round(finalGain),
         elevationLossM: Math.round(finalLoss),
         duration: formattedDuration,
         movingDuration: formattedMovingDuration,
-        difficulty: (finalGain > 0 || finalDistance > 0)
+        difficulty: reqDifficulty || (isMountaineering ? 'climbing' : (finalGain > 0 || finalDistance > 0)
           ? (finalGain >= 1000 || finalDistance >= 22 ? 'hard' : (finalGain <= 350 && finalDistance <= 10 ? 'easy' : 'moderate'))
-          : undefined,
+          : undefined),
         rating: undefined,
         description:
           description ||

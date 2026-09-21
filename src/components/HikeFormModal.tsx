@@ -674,6 +674,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
                 <option value="moderate">Střední (typická horská túra)</option>
                 <option value="hard">Těžká (náročné převýšení / řetězy)</option>
                 <option value="ferrata">🧗 Ferrata (zajištěná cesta s lanem)</option>
+                <option value="climbing">🧗 Lezení / Horolezectví (mountaineering)</option>
               </select>
             </div>
 

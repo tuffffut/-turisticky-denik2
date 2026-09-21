@@ -143,6 +143,9 @@ function generateClientFallbackTips(params: GenerateHikeAIParams): HikeAISummary
     } else if (difficulty === 'ferrata') {
       story = `Zajištěná ferrata nabídla parádní porci železa ve skále a vzdušné pasáže s výhledy. Převýšení dalo zabrat, ale vrcholová euforie byla stoprocentní.`;
       oneLiner = `Cvakání karabin, vzduch pod nohama a nahoře čistá radost.`;
+    } else if (difficulty === 'climbing') {
+      story = `Skvělá lezecká výprava na pevném skalním masivu. Dokonalé soustředění na každý krok a chyt, čistá hlava a vrcholová radost na štandu.`;
+      oneLiner = `Křída na prstech, lano v karabině a čistá radost z každého metru ve skále.`;
     } else {
       story = `Příjemná túra s čistou hlavou a horským větrem v zádech. Krásná trasa, která příjemně unaví tělo a dobije baterky na maximum.`;
       oneLiner = `Horský vzduch v plicích a nohy příjemně unavené – tak to má venku vypadat!`;
@@ -155,6 +158,8 @@ function generateClientFallbackTips(params: GenerateHikeAIParams): HikeAISummary
     safety = 'Pohodová trasa po zpevněných cestách a chodnících bez horských rizik. Sledujte aktuální počasí.';
   } else if (difficulty === 'ferrata') {
     safety = 'Kompletní ferratový set s přilbou a rukavicemi je nutnost. Při náznaku bouřky okamžitě sestupte!';
+  } else if (difficulty === 'climbing') {
+    safety = 'Vždy provádějte vzájemnou partnerskou kontrolu (partner check) navázání a jistítka. Helma a spolehlivé jištění jsou základ.';
   } else if ((elevationGainM && elevationGainM > 800) || difficulty === 'hard') {
     safety = 'Pevná kotníková obuv a nabitý telefon s aplikací Záchranka jsou základ. Nepřeceňujte síly na sestupu.';
   } else {
@@ -193,6 +198,8 @@ function generateClientFallbackTips(params: GenerateHikeAIParams): HikeAISummary
       ];
   if (difficulty === 'ferrata') {
     gear.unshift('Certifikovaný ferratový tlumič pádu', 'Horolezecká přilba a sedák');
+  } else if (difficulty === 'climbing') {
+    gear.unshift('Horolezecké dynamické lano a sedák', 'Lezečky a pytlík na magnézium', 'Horolezecká přilba, expresky a jistítko');
   }
 
   return {

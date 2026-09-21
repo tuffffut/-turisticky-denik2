@@ -81,6 +81,12 @@ export const HikeCard: React.FC<HikeCardProps> = ({
             <span>🧗 Ferrata</span>
           </span>
         );
+      case 'climbing':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-950/90 text-rose-300 border border-rose-700/80 shadow-sm flex items-center gap-1">
+            <span>🧗 Lezení</span>
+          </span>
+        );
       default:
         return null;
     }
@@ -133,8 +139,17 @@ export const HikeCard: React.FC<HikeCardProps> = ({
           <span>{hike.mountainRange}</span>
         </div>
 
-        {/* Difficulty badge */}
-        <div className="absolute top-3 right-3">{getDifficultyBadge(hike.difficulty)}</div>
+        {/* Difficulty & Activity badges */}
+        <div className="absolute top-3 right-3 flex items-center gap-1.5">
+          {hike.activityType &&
+            (hike.activityType === 'mountaineering' || hike.activityType === 'climbing') &&
+            hike.difficulty !== 'climbing' && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-950/90 text-rose-300 border border-rose-700/80 shadow-sm flex items-center gap-1">
+                <span>🧗 {hike.activityType === 'mountaineering' ? 'Horolezectví' : 'Lezení'}</span>
+              </span>
+            )}
+          {getDifficultyBadge(hike.difficulty)}
+        </div>
 
         {/* Summit Elevation Badge if present */}
         {hike.highestPointM && (

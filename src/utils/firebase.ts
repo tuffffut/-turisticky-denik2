@@ -87,6 +87,7 @@ export function subscribeToHikes(
             id: hikeId,
             title: cleanTitle,
             mountainRange: (raw.mountainRange && String(raw.mountainRange).trim()) || 'Aktivita v terénu',
+            activityType: raw.activityType || undefined,
             date: parseValidDate(raw.date || raw.time || raw.createdAt),
             distanceKm: typeof raw.distanceKm === 'number' && !isNaN(raw.distanceKm) ? raw.distanceKm : 0,
             elevationGainM: typeof raw.elevationGainM === 'number' && !isNaN(raw.elevationGainM) ? raw.elevationGainM : 0,

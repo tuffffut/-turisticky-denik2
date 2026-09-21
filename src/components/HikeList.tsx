@@ -196,6 +196,7 @@ export const HikeList: React.FC<HikeListProps> = ({
             <option value="moderate">Pouze střední</option>
             <option value="hard">Pouze těžké</option>
             <option value="ferrata">🧗 Pouze ferraty</option>
+            <option value="climbing">🧗 Pouze lezení / mountaineering</option>
             <option value="unspecified">Bez určené obtížnosti</option>
           </select>
 

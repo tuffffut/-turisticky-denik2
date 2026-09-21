@@ -1,6 +1,6 @@
 export type UserRole = 'admin' | 'reader';
 
-export type HikeDifficulty = 'easy' | 'moderate' | 'hard' | 'ferrata';
+export type HikeDifficulty = 'easy' | 'moderate' | 'hard' | 'ferrata' | 'climbing';
 
 export interface GPXTrackPoint {
   lat: number;
@@ -33,6 +33,7 @@ export interface MountainHike {
   id: string;
   title: string;
   mountainRange: string;
+  activityType?: string; // e.g. 'mountaineering' | 'climbing' | 'hiking'
   date: string; // YYYY-MM-DD
   distanceKm: number;
   elevationGainM: number;

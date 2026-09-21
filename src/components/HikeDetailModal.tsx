@@ -94,6 +94,8 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
         return 'Těžká / Náročná';
       case 'ferrata':
         return '🧗 Zajištěná cesta (Via Ferrata)';
+      case 'climbing':
+        return '🧗 Horolezectví / Lezení';
       default:
         return diff;
     }
