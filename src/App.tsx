@@ -38,6 +38,7 @@ import { SwitchToAdminModal } from './components/SwitchToAdminModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ShareModal } from './components/ShareModal';
 import { TelegramModal } from './components/TelegramModal';
+import { ImportHistoryModal } from './components/ImportHistoryModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 
 export default function App() {
@@ -58,6 +59,7 @@ export default function App() {
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [isSwitchToAdminOpen, setIsSwitchToAdminOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isTelegramOpen, setIsTelegramOpen] = useState(false);
   const [hikePendingDelete, setHikePendingDelete] = useState<MountainHike | null>(null);
@@ -473,6 +475,17 @@ export default function App() {
         onPinsUpdated={setPinConfig}
         onResetData={handleResetData}
         onClearAllHikes={handleClearAllHikes}
+        onOpenImportHistory={() => setIsImportOpen(true)}
+      />
+
+      {/* Bulk History Import Modal */}
+      <ImportHistoryModal
+        isOpen={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        onHikesImported={() => {
+          setSaveToast('Historické výpravy byly úspěšně naimportovány do cloudu.');
+          setTimeout(() => setSaveToast(null), 5000);
+        }}
       />
 
       {/* Share Modal */}

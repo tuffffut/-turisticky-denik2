@@ -629,6 +629,9 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         const remMins = mins % 60;
         formattedDuration = `${hours}h ${remMins < 10 ? '0' : ''}${remMins}m`;
       }
+      if (req.body.duration && typeof req.body.duration === 'string') {
+        formattedDuration = req.body.duration.trim();
+      }
       if (req.body.movingDuration && typeof req.body.movingDuration === 'string') {
         formattedMovingDuration = req.body.movingDuration.trim();
       }
@@ -651,7 +654,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       const newHike = {
         id: routeId,
         title: finalTitle,
-        mountainRange: detectedRange,
+        mountainRange: req.body.mountainRange || detectedRange,
         activityType: determinedActivityType,
         date: date ? String(date).slice(0, 10) : (parsedGpx?.date || new Date().toISOString().split('T')[0]),
         distanceKm: Math.round(finalDistance * 10) / 10,
@@ -738,6 +741,26 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       const data = snap.data() as any;
       return res.json({ route: { ...data, id: data.id || snap.id } });
     } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/routes: Delete all routes from Firestore
+  app.delete('/api/routes', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(500).json({ error: 'Firestore není připojen' });
+      }
+      const snapshot = await getDocs(collection(db, 'hikes'));
+      const deletedIds: string[] = [];
+      for (const d of snapshot.docs) {
+        await deleteDoc(d.ref);
+        deletedIds.push(d.id);
+      }
+      console.log(`[API /api/routes] Hromadně smazáno ${deletedIds.length} tras z Firestore.`);
+      return res.json({ success: true, count: deletedIds.length, deletedIds });
+    } catch (err: any) {
+      console.error('[API /api/routes] Chyba při hromadném mazání:', err);
       return res.status(500).json({ error: err.message });
     }
   });

@@ -223,6 +223,33 @@ export async function deleteAllHikesFromFirestore(): Promise<void> {
 }
 
 /**
+ * Saves a list of hikes into Firestore in optimized batches.
+ */
+export async function saveHikesBatchToFirestore(
+  hikes: MountainHike[],
+  onProgress?: (current: number, total: number) => void
+): Promise<number> {
+  let savedCount = 0;
+  const chunkSize = 40;
+  for (let i = 0; i < hikes.length; i += chunkSize) {
+    const chunk = hikes.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    for (const rawHike of chunk) {
+      const hydrated = hydrateHikeWithGPX(rawHike);
+      const cleanData = sanitizeHikeForStorage(hydrated);
+      const docRef = doc(db, HIKES_COLLECTION, cleanData.id);
+      batch.set(docRef, cleanData, { merge: true });
+    }
+    await batch.commit();
+    savedCount += chunk.length;
+    if (onProgress) {
+      onProgress(savedCount, hikes.length);
+    }
+  }
+  return savedCount;
+}
+
+/**
  * Fetches a single hike from Firestore by its ID.
  */
 export async function getHikeFromFirestore(hikeId: string): Promise<MountainHike | null> {
