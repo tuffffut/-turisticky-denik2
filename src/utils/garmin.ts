@@ -209,8 +209,14 @@ export function parseUrlSearch(search: string): ParsedUrlParams {
   const rawTime =
     params.get('time') ||
     params.get('duration') ||
-    params.get('movingTime') ||
     params.get('elapsedTime') ||
+    params.get('elapsed_time') ||
+    null;
+
+  const rawMovingTime =
+    params.get('movingTime') ||
+    params.get('movingDuration') ||
+    params.get('moving_time') ||
     null;
 
   const rawDifficulty = params.get('difficulty') || null;
@@ -233,6 +239,7 @@ export function parseUrlSearch(search: string): ParsedUrlParams {
   const elevationGainM = parseElevationParam(rawElevGain);
   const elevationLossM = parseElevationParam(rawElevLoss) ?? elevationGainM;
   const duration = parseTimeParam(rawTime);
+  const movingDuration = parseTimeParam(rawMovingTime);
   const difficulty = parseDifficultyParam(rawDifficulty, elevationGainM, distanceKm);
   const highestPointM = parseElevationParam(rawHighestPoint);
   const date = parseDateParam(rawDate);
@@ -249,6 +256,7 @@ export function parseUrlSearch(search: string): ParsedUrlParams {
     ...(elevationGainM !== undefined && { elevationGainM }),
     ...(elevationLossM !== undefined && { elevationLossM }),
     ...(duration && { duration }),
+    ...(movingDuration && { movingDuration }),
     difficulty,
     ...(highestPointM !== undefined && { highestPointM }),
     ...(weather && { weather }),

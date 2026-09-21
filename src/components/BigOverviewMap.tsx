@@ -146,12 +146,27 @@ export const BigOverviewMap: React.FC<BigOverviewMapProps> = ({
         const marker = L.marker([markerLat, markerLng], { icon: hikePinIcon }).addTo(map);
 
         // Custom rich HTML popup
-        const photoUrl = hike.photos?.[0] || 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=400&q=80';
+        const hasPhoto = Boolean(hike.photos?.[0]);
+        const photoBlock = hasPhoto
+          ? `
+            <div class="w-full h-28 rounded-lg overflow-hidden mb-2 bg-stone-200">
+              <img src="${hike.photos![0]}" alt="${hike.title}" class="w-full h-full object-cover" />
+            </div>
+          `
+          : `
+            <div class="w-full h-16 rounded-lg mb-2 bg-stone-800 flex items-center justify-center text-stone-300 gap-2 border border-stone-700">
+              <span class="text-xl">🏔️</span>
+              <span class="text-xs font-semibold text-stone-200">${hike.mountainRange}</span>
+            </div>
+          `;
+
+        const timeBlock = hike.movingDuration
+          ? `<div>⏱️ Celkem: <strong>${hike.duration}</strong></div><div>🏃 Pohyb: <strong>${hike.movingDuration}</strong></div>`
+          : `<div>⏱️ Čas: <strong>${hike.duration}</strong></div><div>⛰️ Výška: <strong>${hike.highestPointM || 'N/A'} m</strong></div>`;
+
         const popupContent = `
           <div class="p-1 max-w-[260px] text-stone-900 font-sans">
-            <div class="w-full h-28 rounded-lg overflow-hidden mb-2 bg-stone-200">
-              <img src="${photoUrl}" alt="${hike.title}" class="w-full h-full object-cover" />
-            </div>
+            ${photoBlock}
             <h4 class="font-bold text-sm leading-snug mb-1">${hike.title}</h4>
             <div class="text-xs text-stone-600 mb-2 flex items-center gap-2">
               <span>📍 ${hike.mountainRange}</span>
@@ -160,8 +175,7 @@ export const BigOverviewMap: React.FC<BigOverviewMapProps> = ({
             <div class="grid grid-cols-2 gap-1 text-[11px] bg-stone-100 p-2 rounded mb-2">
               <div>📏 Vzdálenost: <strong>${hike.distanceKm} km</strong></div>
               <div>📈 Převýšení: <strong>+${hike.elevationGainM} m</strong></div>
-              <div>⏱️ Čas: <strong>${hike.duration}</strong></div>
-              <div>⛰️ Výška: <strong>${hike.highestPointM || 'N/A'} m</strong></div>
+              ${timeBlock}
             </div>
             <button
               id="popup-open-hike-${hike.id}"

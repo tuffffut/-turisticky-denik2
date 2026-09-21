@@ -31,7 +31,8 @@ export interface ParsedGPXResult {
   maxElevationM: number;
   detectedRange?: string;
   name?: string;
-  duration?: string; // Formatted e.g. "4h 15m" or "45m"
+  duration?: string; // Formatted e.g. "4h 15m" or "45m" (celkový čas)
+  movingDuration?: string; // Formatted e.g. "3h 40m" (čas v pohybu)
   durationMinutes?: number;
   movingDurationMinutes?: number;
   date?: string; // YYYY-MM-DD
@@ -280,26 +281,34 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
   }
 
   // Calculate Duration:
-  let finalDurationSeconds = 0;
   let totalElapsedSeconds = 0;
-
   if (firstTimestamp && lastTimestamp) {
     totalElapsedSeconds = Math.max(0, (lastTimestamp.getTime() - firstTimestamp.getTime()) / 1000);
   }
 
-  if (movingDurationSeconds >= 60) {
-    // Prefer moving time (standard across Garmin / Strava / hiking computers)
-    finalDurationSeconds = movingDurationSeconds;
-  } else if (totalElapsedSeconds >= 60) {
-    finalDurationSeconds = totalElapsedSeconds;
+  let finalTotalDurationSeconds = 0;
+  let finalMovingDurationSeconds = 0;
+
+  if (totalElapsedSeconds >= 60) {
+    finalTotalDurationSeconds = totalElapsedSeconds;
+  } else if (movingDurationSeconds >= 60) {
+    finalTotalDurationSeconds = movingDurationSeconds;
   } else {
     // If GPX has no timestamps (e.g. exported planned route from Mapy.cz),
     // estimate realistic hiking time via Naismith's Rule: 4 km/h horizontal + 600m/h vertical
     const estimatedHours = totalDistanceKm / 4.0 + elevationGainM / 600.0;
-    finalDurationSeconds = Math.max(1800, Math.round(estimatedHours * 3600));
+    finalTotalDurationSeconds = Math.max(1800, Math.round(estimatedHours * 3600));
   }
 
-  const durationStr = formatDurationFromSeconds(finalDurationSeconds);
+  if (movingDurationSeconds >= 60) {
+    finalMovingDurationSeconds = movingDurationSeconds;
+  }
+
+  const durationStr = formatDurationFromSeconds(finalTotalDurationSeconds);
+  const movingDurationStr =
+    finalMovingDurationSeconds >= 60 && Math.abs(finalMovingDurationSeconds - finalTotalDurationSeconds) >= 60
+      ? formatDurationFromSeconds(finalMovingDurationSeconds)
+      : undefined;
 
   // Extract activity date from first trackpoint timestamp or metadata
   const activityDate = firstTimestamp
@@ -318,8 +327,9 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
     detectedRange,
     name,
     duration: durationStr,
-    durationMinutes: Math.round(finalDurationSeconds / 60),
-    movingDurationMinutes: Math.round(movingDurationSeconds / 60),
+    movingDuration: movingDurationStr,
+    durationMinutes: Math.round(finalTotalDurationSeconds / 60),
+    movingDurationMinutes: finalMovingDurationSeconds ? Math.round(finalMovingDurationSeconds / 60) : undefined,
     date: activityDate,
     startTime: firstTimestamp ? firstTimestamp.toISOString() : undefined,
     endTime: lastTimestamp ? lastTimestamp.toISOString() : undefined,

@@ -59,10 +59,12 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
+  const [downloadSuccess, setDownloadSuccess] = useState(false);
 
   if (!hike) return null;
 
   const isAdmin = currentRole === 'admin';
+  const hasGpx = Boolean(hike.gpxRawXml || (hike.trackPoints && hike.trackPoints.length > 0));
 
   const handleDownloadGPX = () => {
     let xmlContent = hike.gpxRawXml;
@@ -75,7 +77,9 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '_')
         .slice(0, 30);
-      downloadGPXFile(`${safeFilename}_trasa.gpx`, xmlContent);
+      downloadGPXFile(`${safeFilename || 'trasa'}.gpx`, xmlContent);
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 2500);
     }
   };
 
@@ -185,11 +189,27 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
                 id="detail-download-gpx-btn"
                 type="button"
                 onClick={handleDownloadGPX}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium border border-stone-700 transition-colors cursor-pointer"
-                title="Stáhnout GPX soubor s trasou"
+                disabled={!hasGpx}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                  !hasGpx
+                    ? 'bg-stone-800/40 text-stone-500 border-stone-800 cursor-not-allowed opacity-60'
+                    : downloadSuccess
+                    ? 'bg-emerald-950 text-emerald-300 border-emerald-500 shadow-md scale-95'
+                    : 'bg-stone-800 hover:bg-stone-700 text-stone-200 border-stone-700 cursor-pointer'
+                }`}
+                title={hasGpx ? 'Stáhnout GPX soubor s trasou' : 'K této túře nebyl přiložen GPX záznam'}
               >
-                <Download className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Stáhnout GPX</span>
+                {downloadSuccess ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>GPX staženo!</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className={`w-3.5 h-3.5 ${hasGpx ? 'text-emerald-400' : 'text-stone-500'}`} />
+                    <span className="hidden sm:inline">Stáhnout GPX</span>
+                  </>
+                )}
               </button>
 
               {/* Admin actions */}
@@ -260,11 +280,21 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
                 </span>
               </div>
 
-              <div className="p-3 rounded-xl bg-stone-950/70 border border-stone-800 flex flex-col">
-                <span className="text-stone-500 text-[11px] uppercase tracking-wider">Doba chůze</span>
-                <span className="text-lg font-bold text-stone-100 font-mono mt-0.5">
-                  {hike.duration}
+              <div className="p-3 rounded-xl bg-stone-950/70 border border-stone-800 flex flex-col justify-between">
+                <span className="text-stone-500 text-[11px] uppercase tracking-wider">
+                  {hike.movingDuration ? 'Celkový čas' : 'Čas na trase'}
                 </span>
+                <div>
+                  <span className="text-lg font-bold text-stone-100 font-mono mt-0.5 block">
+                    {hike.duration}
+                  </span>
+                  {hike.movingDuration && (
+                    <span className="text-xs text-emerald-400 font-mono flex items-center gap-1 mt-0.5" title="Aktivní čas v pohybu">
+                      <span>🏃</span>
+                      <span>Pohyb: {hike.movingDuration}</span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="p-3 rounded-xl bg-stone-950/70 border border-stone-800 flex flex-col">
@@ -471,6 +501,28 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
                       </button>
                     ))}
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* Empty photos banner */}
+            {(!hike.photos || hike.photos.length === 0) && (
+              <div className="p-4 rounded-2xl bg-stone-950/40 border border-dashed border-stone-800 flex items-center justify-between gap-3 text-xs text-stone-400">
+                <span className="flex items-center gap-2">
+                  <span>📷</span>
+                  <span>K této túře z Garminu zatím nebyly nahrány žádné osobní fotografie.</span>
+                </span>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onEdit(hike);
+                      onClose();
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium transition-colors cursor-pointer shrink-0"
+                  >
+                    Doplnit fotky
+                  </button>
                 )}
               </div>
             )}

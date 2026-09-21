@@ -151,19 +151,38 @@ function parseServerGpx(xmlString: string) {
   }
 
   // Calculate Duration
-  let durationSecs = 0;
-  if (movingDurationSecs >= 60) {
-    durationSecs = movingDurationSecs;
-  } else if (firstTimestamp && lastTimestamp) {
-    durationSecs = Math.max(0, (lastTimestamp.getTime() - firstTimestamp.getTime()) / 1000);
-  } else {
-    // Naismith's hiking rule
-    durationSecs = Math.max(1800, Math.round((totalDistKm / 4.0 + calculatedGain / 600.0) * 3600));
+  let totalElapsedSecs = 0;
+  if (firstTimestamp && lastTimestamp) {
+    totalElapsedSecs = Math.max(0, (lastTimestamp.getTime() - firstTimestamp.getTime()) / 1000);
   }
 
-  const hours = Math.floor(durationSecs / 3600);
-  const mins = Math.round((durationSecs % 3600) / 60);
-  const formattedDuration = hours > 0 ? `${hours}h ${mins.toString().padStart(2, '0')}m` : `${mins}m`;
+  let finalTotalSecs = 0;
+  let finalMovingSecs = 0;
+
+  if (totalElapsedSecs >= 60) {
+    finalTotalSecs = totalElapsedSecs;
+  } else if (movingDurationSecs >= 60) {
+    finalTotalSecs = movingDurationSecs;
+  } else {
+    // Naismith's hiking rule
+    finalTotalSecs = Math.max(1800, Math.round((totalDistKm / 4.0 + calculatedGain / 600.0) * 3600));
+  }
+
+  if (movingDurationSecs >= 60) {
+    finalMovingSecs = movingDurationSecs;
+  }
+
+  const formatSecs = (s: number) => {
+    const hours = Math.floor(s / 3600);
+    const mins = Math.round((s % 3600) / 60);
+    return hours > 0 ? `${hours}h ${mins.toString().padStart(2, '0')}m` : `${mins}m`;
+  };
+
+  const formattedDuration = formatSecs(finalTotalSecs);
+  const formattedMovingDuration =
+    finalMovingSecs >= 60 && Math.abs(finalMovingSecs - finalTotalSecs) >= 60
+      ? formatSecs(finalMovingSecs)
+      : undefined;
 
   const nameMatch = /<name>([^<]+)<\/name>/i.exec(xmlString);
   const name = nameMatch ? nameMatch[1].trim() : undefined;
@@ -184,7 +203,9 @@ function parseServerGpx(xmlString: string) {
     gainM: Math.round(calculatedGain),
     lossM: Math.round(calculatedLoss),
     duration: formattedDuration,
-    durationMinutes: Math.round(durationSecs / 60),
+    movingDuration: formattedMovingDuration,
+    durationMinutes: Math.round(finalTotalSecs / 60),
+    movingDurationMinutes: finalMovingSecs ? Math.round(finalMovingSecs / 60) : undefined,
     date: activityDate,
     minEle: minEle === Number.POSITIVE_INFINITY ? undefined : Math.round(minEle),
     maxEle: maxEle === Number.NEGATIVE_INFINITY ? undefined : Math.round(maxEle),
@@ -599,11 +620,15 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
 
       // Format duration
       let formattedDuration = parsedGpx?.duration || '1h 30m';
+      let formattedMovingDuration = parsedGpx?.movingDuration;
       if (durationMinutes && !isNaN(Number(durationMinutes))) {
         const mins = Math.round(Number(durationMinutes));
         const hours = Math.floor(mins / 60);
         const remMins = mins % 60;
         formattedDuration = `${hours}h ${remMins < 10 ? '0' : ''}${remMins}m`;
+      }
+      if (req.body.movingDuration && typeof req.body.movingDuration === 'string') {
+        formattedMovingDuration = req.body.movingDuration.trim();
       }
 
       // Peak coordinates & mountain range
@@ -620,6 +645,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         elevationGainM: Math.round(finalGain),
         elevationLossM: Math.round(finalLoss),
         duration: formattedDuration,
+        movingDuration: formattedMovingDuration,
         difficulty: finalGain > 1000 ? 'hard' : finalGain < 300 ? 'easy' : 'moderate',
         rating: 5,
         description:

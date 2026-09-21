@@ -86,6 +86,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
   const [elevationGainM, setElevationGainM] = useState<string | number>('');
   const [elevationLossM, setElevationLossM] = useState<string | number>('');
   const [duration, setDuration] = useState('');
+  const [movingDuration, setMovingDuration] = useState('');
   const [difficulty, setDifficulty] = useState<HikeDifficulty>('moderate');
   const [rating, setRating] = useState(5);
   const [description, setDescription] = useState('');
@@ -120,6 +121,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setElevationGainM(hikeToEdit.elevationGainM);
       setElevationLossM(hikeToEdit.elevationLossM ?? hikeToEdit.elevationGainM);
       setDuration(hikeToEdit.duration);
+      setMovingDuration(hikeToEdit.movingDuration || '');
       setDifficulty(hikeToEdit.difficulty);
       setRating(hikeToEdit.rating);
       setDescription(hikeToEdit.description);
@@ -146,6 +148,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setElevationGainM(initialHikeData?.elevationGainM ?? '');
       setElevationLossM(initialHikeData?.elevationLossM ?? '');
       setDuration(initialHikeData?.duration || '2h 00m');
+      setMovingDuration(initialHikeData?.movingDuration || '');
       setDifficulty(initialHikeData?.difficulty || 'moderate');
       setRating(5);
       setDescription(initialHikeData?.description || '');
@@ -178,6 +181,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
           setElevationGainM(result.elevationGainM);
           setElevationLossM(result.elevationLossM);
           if (result.duration) setDuration(result.duration);
+          if (result.movingDuration) setMovingDuration(result.movingDuration);
           if (result.date) setDate(result.date);
           if (result.maxElevationM) setHighestPointM(result.maxElevationM);
           if (!defaultTitle && result.name) setTitle(result.name);
@@ -226,6 +230,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
         setElevationGainM(result.elevationGainM);
         setElevationLossM(result.elevationLossM);
         if (result.duration) setDuration(result.duration);
+        if (result.movingDuration) setMovingDuration(result.movingDuration);
         if (result.date) setDate(result.date);
         if (result.maxElevationM) setHighestPointM(result.maxElevationM);
         if (!title && result.name) setTitle(result.name);
@@ -436,6 +441,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       elevationGainM: Math.round(gain),
       elevationLossM: Math.round(loss),
       duration: duration.trim() || '2h 00m',
+      movingDuration: movingDuration.trim() || undefined,
       difficulty,
       rating,
       description: description.trim() || 'Záznam výpravy.',
@@ -570,7 +576,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
           </div>
 
           {/* Metrics row */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
             <div>
               <label className="block text-xs font-medium text-stone-300 mb-1.5">
                 Datum túry
@@ -627,7 +633,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-stone-300 mb-1.5">
-                Čas chůze
+                Celkový čas
               </label>
               <input
                 type="text"
@@ -635,6 +641,19 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
                 onChange={(e) => setDuration(e.target.value)}
                 placeholder="5h 30m"
                 className="w-full px-3 py-2 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-xs focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-stone-300 mb-1.5">
+                Aktivní čas (pohyb)
+              </label>
+              <input
+                type="text"
+                value={movingDuration}
+                onChange={(e) => setMovingDuration(e.target.value)}
+                placeholder="4h 15m"
+                className="w-full px-3 py-2 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-xs focus:outline-none focus:border-emerald-500 font-mono"
               />
             </div>
           </div>

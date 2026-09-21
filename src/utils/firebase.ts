@@ -40,6 +40,9 @@ function hydrateHikeWithGPX(hike: MountainHike): MountainHike {
       if (!hike.highestPointM && parsed.maxElevationM) {
         hike.highestPointM = parsed.maxElevationM;
       }
+      if (!hike.movingDuration && parsed.movingDuration) {
+        hike.movingDuration = parsed.movingDuration;
+      }
     } catch (e) {
       console.warn('Nelze naparsovat gpxRawXml pro trasu:', hike.id, e);
     }
@@ -72,6 +75,14 @@ export function subscribeToHikes(
           }
 
           const cleanTitle = (raw.title && String(raw.title).trim()) || 'Aktivita v terénu';
+          let cleanPhotos = Array.isArray(raw.photos) ? raw.photos : [];
+          // Strip stock Unsplash placeholder photo from Garmin activities so it's clean for user photos
+          cleanPhotos = cleanPhotos.filter((url: any) => {
+            if (typeof url !== 'string' || !url.trim()) return false;
+            if (hikeId.startsWith('garmin') && url.includes('1464822759023')) return false;
+            return true;
+          });
+
           const cleanHike: MountainHike = {
             id: hikeId,
             title: cleanTitle,
@@ -81,10 +92,11 @@ export function subscribeToHikes(
             elevationGainM: typeof raw.elevationGainM === 'number' && !isNaN(raw.elevationGainM) ? raw.elevationGainM : 0,
             elevationLossM: typeof raw.elevationLossM === 'number' && !isNaN(raw.elevationLossM) ? raw.elevationLossM : 0,
             duration: (raw.duration && String(raw.duration).trim()) || '0m',
+            movingDuration: (raw.movingDuration && String(raw.movingDuration).trim()) || undefined,
             difficulty: raw.difficulty || 'easy',
             rating: typeof raw.rating === 'number' && !isNaN(raw.rating) ? raw.rating : 5,
             description: raw.description || '',
-            photos: Array.isArray(raw.photos) ? raw.photos : [],
+            photos: cleanPhotos,
             videos: Array.isArray(raw.videos) ? raw.videos : [],
             highestPointM: raw.highestPointM,
             lowestPointM: raw.lowestPointM,

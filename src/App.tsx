@@ -345,9 +345,7 @@ export default function App() {
       rating: 5,
       description: `Výprava zaznamenána a synchronizována přes mobilního Telegram bota.\nPočasí: ${weather}`,
       weather,
-      photos: [
-        'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80',
-      ],
+      photos: [],
       peakCoords: {
         lat: 49.546,
         lng: 18.448,

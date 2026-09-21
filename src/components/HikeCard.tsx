@@ -12,9 +12,11 @@ import {
   ArrowRight,
   Video,
   CloudSun,
+  Download,
 } from 'lucide-react';
 import { MountainHike, UserRole } from '../types';
 import { formatDateDisplay } from '../utils/dateUtils';
+import { downloadGPXFile, buildGPXXml } from '../utils/gpxParser';
 
 interface HikeCardProps {
   hike: MountainHike;
@@ -34,6 +36,22 @@ export const HikeCard: React.FC<HikeCardProps> = ({
   onRequestDelete,
 }) => {
   const isAdmin = currentRole === 'admin';
+  const hasGpx = Boolean(hike.gpxRawXml || (hike.trackPoints && hike.trackPoints.length > 0));
+
+  const handleDownloadGPX = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    let xmlContent = hike.gpxRawXml;
+    if (!xmlContent && hike.trackPoints && hike.trackPoints.length > 0) {
+      xmlContent = buildGPXXml(hike.title, hike.trackPoints);
+    }
+    if (xmlContent) {
+      const safeFilename = hike.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '_')
+        .slice(0, 30);
+      downloadGPXFile(`${safeFilename || 'trasa'}.gpx`, xmlContent);
+    }
+  };
 
   const getDifficultyBadge = (difficulty: string) => {
     switch (difficulty) {
@@ -191,10 +209,17 @@ export const HikeCard: React.FC<HikeCardProps> = ({
               </span>
             </div>
             <div className="flex flex-col items-center text-center">
-              <span className="text-stone-500 text-[10px] uppercase tracking-wider">Čas</span>
+              <span className="text-stone-500 text-[10px] uppercase tracking-wider">
+                {hike.movingDuration ? 'Čas celk.' : 'Čas'}
+              </span>
               <span className="font-bold text-stone-200 font-mono mt-0.5">
                 {hike.duration}
               </span>
+              {hike.movingDuration && (
+                <span className="text-[10px] text-emerald-400 font-mono leading-none mt-0.5" title="Aktivní čas v pohybu">
+                  🏃 {hike.movingDuration}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -210,37 +235,50 @@ export const HikeCard: React.FC<HikeCardProps> = ({
             <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
           </button>
 
-          {/* Admin only action buttons */}
-          {isAdmin && (
-            <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1">
+            {hasGpx && (
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit(hike);
-                }}
-                className="p-1.5 text-stone-400 hover:text-stone-100 hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
-                title="Upravit túru"
+                onClick={handleDownloadGPX}
+                className="p-1.5 text-stone-400 hover:text-emerald-400 hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
+                title="Stáhnout GPX soubor s trasou"
               >
-                <Edit2 className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5" />
               </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onRequestDelete) {
-                    onRequestDelete(hike);
-                  } else {
-                    onDelete(hike.id);
-                  }
-                }}
-                className="p-1.5 text-stone-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
-                title="Smazat túru"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
+            )}
+
+            {/* Admin only action buttons */}
+            {isAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(hike);
+                  }}
+                  className="p-1.5 text-stone-400 hover:text-stone-100 hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
+                  title="Upravit túru"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onRequestDelete) {
+                      onRequestDelete(hike);
+                    } else {
+                      onDelete(hike.id);
+                    }
+                  }}
+                  className="p-1.5 text-stone-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                  title="Smazat túru"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
