@@ -39,8 +39,8 @@ export interface MountainHike {
   elevationLossM?: number;
   duration: string; // e.g. "5h 30m" (celkový čas / elapsed)
   movingDuration?: string; // e.g. "4h 15m" (aktivní čas / čas v pohybu)
-  difficulty: HikeDifficulty;
-  rating: number; // 1 to 5
+  difficulty?: HikeDifficulty;
+  rating?: number; // 1 to 5 (optional, unrated if undefined)
   description: string;
   photos: string[];
   videos?: HikeVideo[];

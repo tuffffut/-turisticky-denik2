@@ -3,7 +3,7 @@ import { HikeAISummary, HikeDifficulty } from '../types';
 export interface GenerateHikeAIParams {
   mountainName: string;
   mountainRange: string;
-  difficulty: HikeDifficulty;
+  difficulty?: HikeDifficulty;
   distanceKm?: number;
   elevationGainM?: number;
   duration?: string;

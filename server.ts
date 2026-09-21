@@ -646,8 +646,10 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         elevationLossM: Math.round(finalLoss),
         duration: formattedDuration,
         movingDuration: formattedMovingDuration,
-        difficulty: finalGain > 1000 ? 'hard' : finalGain < 300 ? 'easy' : 'moderate',
-        rating: 5,
+        difficulty: (finalGain > 0 || finalDistance > 0)
+          ? (finalGain >= 1000 || finalDistance >= 22 ? 'hard' : (finalGain <= 350 && finalDistance <= 10 ? 'easy' : 'moderate'))
+          : undefined,
+        rating: undefined,
         description:
           description ||
           'Nová aktivita z Garminu. Klikněte pro doplnění zážitků a fotek.',

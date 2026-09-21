@@ -87,8 +87,8 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
   const [elevationLossM, setElevationLossM] = useState<string | number>('');
   const [duration, setDuration] = useState('');
   const [movingDuration, setMovingDuration] = useState('');
-  const [difficulty, setDifficulty] = useState<HikeDifficulty>('moderate');
-  const [rating, setRating] = useState(5);
+  const [difficulty, setDifficulty] = useState<HikeDifficulty | ''>('');
+  const [rating, setRating] = useState<number | undefined>(undefined);
   const [description, setDescription] = useState('');
   const [highestPointM, setHighestPointM] = useState<string | number>('');
   const [weather, setWeather] = useState('');
@@ -122,8 +122,8 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setElevationLossM(hikeToEdit.elevationLossM ?? hikeToEdit.elevationGainM);
       setDuration(hikeToEdit.duration);
       setMovingDuration(hikeToEdit.movingDuration || '');
-      setDifficulty(hikeToEdit.difficulty);
-      setRating(hikeToEdit.rating);
+      setDifficulty(hikeToEdit.difficulty || '');
+      setRating(typeof hikeToEdit.rating === 'number' && hikeToEdit.rating > 0 ? hikeToEdit.rating : undefined);
       setDescription(hikeToEdit.description);
       setHighestPointM(hikeToEdit.highestPointM ?? '');
       setWeather(hikeToEdit.weather ?? '');
@@ -149,8 +149,8 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       setElevationLossM(initialHikeData?.elevationLossM ?? '');
       setDuration(initialHikeData?.duration || '2h 00m');
       setMovingDuration(initialHikeData?.movingDuration || '');
-      setDifficulty(initialHikeData?.difficulty || 'moderate');
-      setRating(5);
+      setDifficulty(initialHikeData?.difficulty || '');
+      setRating(undefined);
       setDescription(initialHikeData?.description || '');
       setHighestPointM(initialHikeData?.highestPointM ?? '');
       setWeather(initialHikeData?.weather ?? '');
@@ -335,7 +335,7 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       const result = await generateHikeAITips({
         mountainName: title.trim() || 'Aktivita',
         mountainRange: mountainRange.trim() || 'Česká republika',
-        difficulty,
+        difficulty: (difficulty as HikeDifficulty) || undefined,
         distanceKm: dist > 0 ? dist : undefined,
         elevationGainM: gain > 0 ? gain : undefined,
         duration: duration.trim() || undefined,
@@ -442,8 +442,8 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       elevationLossM: Math.round(loss),
       duration: duration.trim() || '2h 00m',
       movingDuration: movingDuration.trim() || undefined,
-      difficulty,
-      rating,
+      difficulty: (difficulty as HikeDifficulty) || undefined,
+      rating: typeof rating === 'number' && rating > 0 ? rating : undefined,
       description: description.trim() || 'Záznam výpravy.',
       photos: photos,
       videos: videos.length > 0 ? videos : undefined,
@@ -666,9 +666,10 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
               </label>
               <select
                 value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value as HikeDifficulty)}
+                onChange={(e) => setDifficulty(e.target.value as HikeDifficulty | '')}
                 className="w-full px-3 py-2 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-xs focus:outline-none focus:border-emerald-500 cursor-pointer"
               >
+                <option value="">Nevyplněno / neurčeno</option>
                 <option value="easy">Lehká (rodinná / pohodová trasa)</option>
                 <option value="moderate">Střední (typická horská túra)</option>
                 <option value="hard">Těžká (náročné převýšení / řetězy)</option>
@@ -685,17 +686,30 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
                   <button
                     key={star}
                     type="button"
-                    onClick={() => setRating(star)}
+                    onClick={() => setRating(rating === star ? undefined : star)}
                     className="p-0.5 cursor-pointer text-amber-400 hover:scale-110 transition-transform"
+                    title={`Nastavit ${star} z 5 (kliknutím zrušíte)`}
                   >
                     <Star
                       className={`w-4 h-4 ${
-                        star <= rating ? 'fill-amber-400 text-amber-400' : 'text-stone-700'
+                        rating && star <= rating ? 'fill-amber-400 text-amber-400' : 'text-stone-700'
                       }`}
                     />
                   </button>
                 ))}
-                <span className="text-xs text-stone-400 ml-2">{rating}/5</span>
+                <span className="text-xs text-stone-400 ml-1.5">
+                  {rating ? `${rating}/5` : 'Nehodnoceno'}
+                </span>
+                {rating && (
+                  <button
+                    type="button"
+                    onClick={() => setRating(undefined)}
+                    className="text-[10px] text-stone-500 hover:text-rose-400 ml-auto transition-colors cursor-pointer"
+                    title="Zrušit hodnocení"
+                  >
+                    Zrušit
+                  </button>
+                )}
               </div>
             </div>
 

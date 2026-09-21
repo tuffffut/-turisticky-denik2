@@ -170,7 +170,7 @@ export const BigOverviewMap: React.FC<BigOverviewMapProps> = ({
             <h4 class="font-bold text-sm leading-snug mb-1">${hike.title}</h4>
             <div class="text-xs text-stone-600 mb-2 flex items-center gap-2">
               <span>📍 ${hike.mountainRange}</span>
-              <span>⭐ ${hike.rating}/5</span>
+              ${hike.rating && hike.rating > 0 ? `<span>⭐ ${hike.rating}/5</span>` : `<span style="color:#78716c; font-style:italic;">Nehodnoceno</span>`}
             </div>
             <div class="grid grid-cols-2 gap-1 text-[11px] bg-stone-100 p-2 rounded mb-2">
               <div>📏 Vzdálenost: <strong>${hike.distanceKm} km</strong></div>

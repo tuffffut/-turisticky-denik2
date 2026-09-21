@@ -83,7 +83,8 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
     }
   };
 
-  const getDifficultyText = (diff: string) => {
+  const getDifficultyText = (diff?: string) => {
+    if (!diff) return 'Obtížnost neuvedena';
     switch (diff) {
       case 'easy':
         return 'Lehká obtížnost';
@@ -306,18 +307,30 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
 
               <div className="p-3 rounded-xl bg-stone-950/70 border border-stone-800 flex flex-col">
                 <span className="text-stone-500 text-[11px] uppercase tracking-wider">Hodnocení</span>
-                <div className="flex items-center gap-1 mt-1">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star
-                      key={s}
-                      className={`w-3.5 h-3.5 ${
-                        s <= hike.rating
-                          ? 'text-amber-400 fill-amber-400'
-                          : 'text-stone-700'
-                      }`}
-                    />
-                  ))}
-                </div>
+                {typeof hike.rating === 'number' && hike.rating > 0 ? (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <div className="flex items-center gap-0.5">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star
+                          key={s}
+                          className={`w-3.5 h-3.5 ${
+                            s <= hike.rating!
+                              ? 'text-amber-400 fill-amber-400'
+                              : 'text-stone-700'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-xs font-mono font-bold text-amber-400">
+                      {hike.rating}/5
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-xs text-stone-500 italic mt-1.5 flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 text-stone-600" />
+                    <span>Nehodnoceno</span>
+                  </span>
+                )}
               </div>
             </div>
 

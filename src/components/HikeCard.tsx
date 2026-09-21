@@ -13,6 +13,7 @@ import {
   Video,
   CloudSun,
   Download,
+  Camera,
 } from 'lucide-react';
 import { MountainHike, UserRole } from '../types';
 import { formatDateDisplay } from '../utils/dateUtils';
@@ -53,7 +54,8 @@ export const HikeCard: React.FC<HikeCardProps> = ({
     }
   };
 
-  const getDifficultyBadge = (difficulty: string) => {
+  const getDifficultyBadge = (difficulty?: string) => {
+    if (!difficulty) return null;
     switch (difficulty) {
       case 'easy':
         return (
@@ -84,17 +86,24 @@ export const HikeCard: React.FC<HikeCardProps> = ({
     }
   };
 
+  const hasPhotos = Boolean(hike.photos && hike.photos.length > 0);
+  const hasRating = typeof hike.rating === 'number' && hike.rating > 0;
+
   return (
     <div
       id={`hike-card-${hike.id}`}
-      className="group relative flex flex-col bg-stone-900/90 border border-stone-800/80 rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl hover:border-emerald-500/40 transition-all duration-300"
+      className={`group relative flex flex-col rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 ${
+        hasPhotos
+          ? 'bg-stone-900/90 border border-stone-800/80 hover:border-emerald-500/40'
+          : 'bg-stone-900 border-2 border-amber-600/35 hover:border-amber-400/80 ring-1 ring-amber-500/20'
+      }`}
     >
       {/* Cover Image & Overlays */}
       <div
         className="relative h-44 sm:h-48 w-full overflow-hidden bg-stone-950 cursor-pointer select-none"
         onClick={() => onSelect(hike)}
       >
-        {hike.photos && hike.photos.length > 0 ? (
+        {hasPhotos ? (
           <>
             <img
               src={hike.photos[0]}
@@ -105,9 +114,9 @@ export const HikeCard: React.FC<HikeCardProps> = ({
             <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/20 to-transparent" />
           </>
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900">
-            <div className="w-12 h-12 rounded-2xl bg-stone-850/90 border border-stone-700/60 flex items-center justify-center text-emerald-400 mb-2 shadow-inner group-hover:scale-105 transition-transform">
-              <Compass className="w-6 h-6 text-emerald-400" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-br from-stone-900 via-stone-850 to-stone-900 border-b border-stone-800/70">
+            <div className="w-12 h-12 rounded-2xl bg-amber-950/40 border border-amber-600/40 flex items-center justify-center text-amber-400 mb-2 shadow-inner group-hover:scale-105 transition-transform">
+              <Camera className="w-5 h-5 text-amber-400" />
             </div>
             <span className="text-stone-300 font-semibold text-xs tracking-wide uppercase line-clamp-1 max-w-[220px] text-center">
               {hike.mountainRange || 'Aktivita'}
@@ -136,9 +145,14 @@ export const HikeCard: React.FC<HikeCardProps> = ({
 
         {/* Media & AI Badges */}
         <div className="absolute bottom-3 left-3 flex items-center gap-1.5 flex-wrap">
-          {hike.photos && hike.photos.length > 0 && (
+          {hasPhotos ? (
             <div className="px-2 py-0.5 rounded-md bg-stone-950/80 backdrop-blur-sm text-stone-300 text-[11px] font-medium border border-stone-800/80 shadow">
               📷 {hike.photos.length} {hike.photos.length === 1 ? 'fotka' : hike.photos.length < 5 ? 'fotky' : 'fotek'}
+            </div>
+          ) : (
+            <div className="px-2 py-0.5 rounded-md bg-stone-900/90 backdrop-blur-sm text-amber-300 text-[11px] font-medium border border-amber-600/40 shadow flex items-center gap-1">
+              <Camera className="w-3 h-3 text-amber-400" />
+              <span>Čeká na fotky</span>
             </div>
           )}
           {hike.videos && hike.videos.length > 0 && (
@@ -166,19 +180,34 @@ export const HikeCard: React.FC<HikeCardProps> = ({
               </span>
             </span>
 
-            {/* Stars */}
-            <div className="flex items-center gap-0.5" title={`Hodnocení: ${hike.rating}/5`}>
-              {[1, 2, 3, 4, 5].map((s) => (
-                <Star
-                  key={s}
-                  className={`w-3.5 h-3.5 ${
-                    s <= hike.rating
-                      ? 'text-amber-400 fill-amber-400'
-                      : 'text-stone-700'
-                  }`}
-                />
-              ))}
-            </div>
+            {/* Rating */}
+            {hasRating ? (
+              <div className="flex items-center gap-1" title={`Hodnocení: ${hike.rating}/5`}>
+                <div className="flex items-center gap-0.5">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star
+                      key={s}
+                      className={`w-3.5 h-3.5 ${
+                        s <= (hike.rating || 0)
+                          ? 'text-amber-400 fill-amber-400'
+                          : 'text-stone-700'
+                      }`}
+                    />
+                  ))}
+                </div>
+                <span className="text-[11px] font-mono font-semibold text-amber-400">
+                  {hike.rating}
+                </span>
+              </div>
+            ) : (
+              <span
+                className="text-[11px] text-stone-500 font-normal italic flex items-center gap-1"
+                title="Zatím nehodnoceno"
+              >
+                <Star className="w-3 h-3 text-stone-600" />
+                <span>Nehodnoceno</span>
+              </span>
+            )}
           </div>
 
           {/* Title */}

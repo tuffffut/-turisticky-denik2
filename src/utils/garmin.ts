@@ -100,7 +100,7 @@ export function parseDifficultyParam(
   val: string | null,
   elevation?: number,
   distance?: number
-): HikeDifficulty {
+): HikeDifficulty | undefined {
   if (val) {
     const clean = val.toLowerCase().trim();
     if (clean === 'easy' || clean === 'lehka' || clean === 'lehká' || clean === 'snadna') return 'easy';
@@ -108,10 +108,18 @@ export function parseDifficultyParam(
     if (clean === 'ferrata' || clean === 'expert' || clean === 'velmi tezka' || clean === 'extrem') return 'ferrata';
     if (clean === 'moderate' || clean === 'stredni' || clean === 'střední') return 'moderate';
   }
-  if (elevation && elevation > 1000) return 'hard';
-  if (distance && distance > 22) return 'hard';
-  if (elevation && elevation < 400 && (!distance || distance < 10)) return 'easy';
-  return 'moderate';
+  // Logické odvození pouze při splnění jasných parametrů
+  if (elevation !== undefined && elevation > 0 && distance !== undefined && distance > 0) {
+    if (elevation >= 1000 || distance >= 22) return 'hard';
+    if (elevation <= 350 && distance <= 10) return 'easy';
+    if (elevation >= 350 && elevation < 1000) return 'moderate';
+  } else if (elevation !== undefined && elevation > 0) {
+    if (elevation >= 1000) return 'hard';
+    if (elevation <= 350) return 'easy';
+    if (elevation > 350 && elevation < 1000) return 'moderate';
+  }
+  // Pokud nelze logicky odvodit, zůstává nevyplněné
+  return undefined;
 }
 
 /**
@@ -257,7 +265,7 @@ export function parseUrlSearch(search: string): ParsedUrlParams {
     ...(elevationLossM !== undefined && { elevationLossM }),
     ...(duration && { duration }),
     ...(movingDuration && { movingDuration }),
-    difficulty,
+    ...(difficulty && { difficulty }),
     ...(highestPointM !== undefined && { highestPointM }),
     ...(weather && { weather }),
   };

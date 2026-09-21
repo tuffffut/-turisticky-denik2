@@ -88,7 +88,9 @@ export const HikeList: React.FC<HikeListProps> = ({
     }
 
     // Difficulty
-    if (selectedDifficulty !== 'all') {
+    if (selectedDifficulty === 'unspecified') {
+      result = result.filter((h) => !h.difficulty);
+    } else if (selectedDifficulty !== 'all') {
       result = result.filter((h) => h.difficulty === selectedDifficulty);
     }
 
@@ -104,7 +106,7 @@ export const HikeList: React.FC<HikeListProps> = ({
         case 'ele-desc':
           return b.elevationGainM - a.elevationGainM;
         case 'rating-desc':
-          return b.rating - a.rating;
+          return (b.rating || 0) - (a.rating || 0);
         default:
           return 0;
       }
@@ -194,6 +196,7 @@ export const HikeList: React.FC<HikeListProps> = ({
             <option value="moderate">Pouze střední</option>
             <option value="hard">Pouze těžké</option>
             <option value="ferrata">🧗 Pouze ferraty</option>
+            <option value="unspecified">Bez určené obtížnosti</option>
           </select>
 
           {/* Sort dropdown */}
