@@ -73,7 +73,7 @@ export const MOUNTAIN_REGIONS: MountainRegionDef[] = [
   { name: 'České Švýcarsko a Lužické hory', minLat: 50.76, maxLat: 50.96, minLng: 14.18, maxLng: 14.88 },
   { name: 'Krušné hory', minLat: 50.25, maxLat: 50.85, minLng: 12.35, maxLng: 14.15 },
   { name: 'Šumava', minLat: 48.65, maxLat: 49.36, minLng: 13.00, maxLng: 14.20 },
-  { name: 'Český les', minLat: 49.30, maxLat: 50.05, minLng: 12.35, maxLng: 12.90 },
+  { name: 'Český les a Slavkovský les', minLat: 49.30, maxLat: 50.18, minLng: 12.35, maxLng: 12.95 },
   { name: 'Jeseníky', minLat: 49.80, maxLat: 50.36, minLng: 16.95, maxLng: 17.75 },
   { name: 'Rychlebské hory', minLat: 50.18, maxLat: 50.48, minLng: 16.82, maxLng: 17.18 },
   { name: 'Králický Sněžník', minLat: 50.08, maxLat: 50.28, minLng: 16.74, maxLng: 17.00 },
@@ -89,10 +89,10 @@ export const MOUNTAIN_REGIONS: MountainRegionDef[] = [
   // 2. Specific Czech Regional Hiking & Protected Areas
   // Moravský kras (Adamov, Blansko, Sloup, Jedovnice, Lipovec, Macocha)
   { name: 'Moravský kras', minLat: 49.26, maxLat: 49.45, minLng: 16.65, maxLng: 16.88 },
-  // Brno a okolí (Brno, Vranov, Tišnov, Kanice, Lelekovice, Čebín, Javůrek, Kuřim, Moravany, Mokrá)
-  { name: 'Brno a okolí', minLat: 49.12, maxLat: 49.38, minLng: 16.32, maxLng: 16.75 },
-  // Pálava a Jižní Morava (Mikulov, Pavlov, Podyjí, Znojmo, Lednice, Břeclav)
-  { name: 'Pálava a Jižní Morava', minLat: 48.60, maxLat: 49.12, minLng: 15.80, maxLng: 17.30 },
+  // Brno a okolí (Brno, Vranov, Tišnov, Kanice, Lelekovice, Čebín, Javůrek, Kuřim, Moravany, Mokrá, Slavkov, Vyškov, Luleč)
+  { name: 'Brno a okolí', minLat: 49.12, maxLat: 49.38, minLng: 16.32, maxLng: 17.05 },
+  // Pálava a Jižní Morava (Mikulov, Pavlov, Podyjí, Znojmo, Vranov nad Dyjí, Bítov, Vranovská přehrada, Lednice, Břeclav)
+  { name: 'Pálava a Jižní Morava', minLat: 48.60, maxLat: 49.12, minLng: 15.40, maxLng: 17.30 },
   // Vysočina a Žďárské vrchy (Žďár, Vír, Jihlava, Želiv, Sedlice, Mohelno, Hartvíkovice, Dalešice, Třebíč)
   { name: 'Vysočina a Žďárské vrchy', minLat: 49.10, maxLat: 49.85, minLng: 15.15, maxLng: 16.35 },
   // Českomoravské pomezí (Litomyšl, Svitavy, Polička, Toulovcovy maštale)
@@ -201,19 +201,34 @@ export function detectMountainRangeFromCoords(lat: number, lng: number): string 
 
 /**
  * Checks if a hike's current mountainRange is suspicious.
- * For example: if range is 'Polsko' or 'Aktivita v terénu', but coordinates are in Czech Republic.
+ * Catches cases where a Czech hike was misassigned to Poland, Slovakia, Germany, Austria/Alps,
+ * or generic labels like 'Zahraničí' or 'Aktivita v terénu'.
  */
 export function isSuspectMountainRange(currentRange: string | undefined, lat?: number, lng?: number): boolean {
   if (!currentRange || !currentRange.trim()) return true;
   if (!lat || !lng) return false;
 
   const isCzechCoords = lat >= 48.55 && lat <= 51.06 && lng >= 12.09 && lng <= 18.86;
-  if (isCzechCoords && currentRange.toLowerCase() === 'polsko') {
-    return true; // Clearly erroneous assignment
+  const lower = currentRange.toLowerCase().trim();
+
+  if (isCzechCoords) {
+    if (
+      lower === 'polsko' ||
+      lower === 'slovensko' ||
+      lower === 'německo' ||
+      lower === 'nemecko' ||
+      lower.includes('alp') ||
+      lower === 'zahraničí' ||
+      lower === 'zahranici' ||
+      lower === 'aktivita v terénu' ||
+      lower === 'historická výprava'
+    ) {
+      return true; // Clearly erroneous assignment for coordinates in Czech Republic
+    }
   }
 
   const detected = detectMountainRangeFromCoords(lat, lng);
-  if (currentRange.toLowerCase() === 'polsko' && detected !== 'Polsko') {
+  if (lower === 'polsko' && detected !== 'Polsko') {
     return true;
   }
 

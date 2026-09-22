@@ -766,13 +766,12 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
 
         if (lat !== undefined && lng !== undefined && !isNaN(lat) && !isNaN(lng)) {
           const detected = detectMountainRangeFromCoords(lat, lng);
-          const isPoland = currentRange.toLowerCase() === 'polsko';
-          const isSuspect = isPoland || !currentRange || currentRange === 'Aktivita v terénu';
+          const isSuspect = isSuspectMountainRange(currentRange, lat, lng);
 
           const shouldUpdate =
             (forceAll && detected !== currentRange) ||
             (fixSuspectOnly && isSuspect && detected !== currentRange) ||
-            (isPoland && detected !== 'Polsko');
+            (isSuspect && detected && detected !== currentRange);
 
           if (shouldUpdate && detected) {
             await updateDoc(d.ref, { mountainRange: detected });
