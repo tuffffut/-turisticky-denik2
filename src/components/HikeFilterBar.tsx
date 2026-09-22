@@ -31,6 +31,7 @@ interface HikeFilterBarProps {
   isFloatingOnMap?: boolean;
   onCloseMapOverlay?: () => void;
   renderExtraActions?: React.ReactNode;
+  onOpenRangeManager?: () => void;
 }
 
 export const HikeFilterBar: React.FC<HikeFilterBarProps> = ({
@@ -42,6 +43,7 @@ export const HikeFilterBar: React.FC<HikeFilterBarProps> = ({
   isFloatingOnMap = false,
   onCloseMapOverlay,
   renderExtraActions,
+  onOpenRangeManager,
 }) => {
   const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
   const activeCount = countActiveFilters(filters);
@@ -177,10 +179,22 @@ export const HikeFilterBar: React.FC<HikeFilterBarProps> = ({
         <div className="mt-3 pt-3 border-t border-stone-800/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
           {/* 1. Mountain Range Selector */}
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-semibold text-stone-400 flex items-center gap-1">
-              <Compass className="w-3 h-3 text-emerald-400" />
-              <span>Pohoří:</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-semibold text-stone-400 flex items-center gap-1">
+                <Compass className="w-3 h-3 text-emerald-400" />
+                <span>Pohoří:</span>
+              </label>
+              {onOpenRangeManager && (
+                <button
+                  type="button"
+                  onClick={onOpenRangeManager}
+                  className="text-[10px] text-emerald-400 hover:text-emerald-300 font-medium hover:underline cursor-pointer"
+                  title="Otevřít správce pohoří a lokalit"
+                >
+                  Správa pohoří
+                </button>
+              )}
+            </div>
             <select
               value={filters.mountainRange}
               onChange={(e) => updateFilter('mountainRange', e.target.value)}

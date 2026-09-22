@@ -20,6 +20,7 @@ interface HikeListProps {
   onDeleteHike: (hikeId: string) => void;
   onRequestDelete?: (hike: MountainHike) => void;
   onAddNewHike: () => void;
+  onOpenRangeManager?: () => void;
 }
 
 export const HikeList: React.FC<HikeListProps> = ({
@@ -30,6 +31,7 @@ export const HikeList: React.FC<HikeListProps> = ({
   onDeleteHike,
   onRequestDelete,
   onAddNewHike,
+  onOpenRangeManager,
 }) => {
   const [filters, setFilters] = useState<HikeFilterState>(DEFAULT_FILTER_STATE);
 
@@ -129,6 +131,7 @@ export const HikeList: React.FC<HikeListProps> = ({
         totalHikesCount={hikes.length}
         filteredHikesCount={filteredAndSortedHikes.length}
         filterOptions={filterOptions}
+        onOpenRangeManager={onOpenRangeManager}
         renderExtraActions={
           isAdmin ? (
             <button

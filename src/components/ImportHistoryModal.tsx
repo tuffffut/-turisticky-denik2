@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { MountainHike } from '../types';
 import { saveHikesBatchToFirestore } from '../utils/firebase';
-import { detectMountainRange } from '../utils/gpxParser';
+import { detectMountainRangeFromCoords, isSuspectMountainRange } from '../utils/mountainRanges';
 
 function inferRangeFromTitleAndCoords(title: string, lat?: number, lng?: number): string {
   const t = title.toLowerCase();
@@ -32,12 +32,16 @@ function inferRangeFromTitleAndCoords(title: string, lat?: number, lng?: number)
   if (t.includes('fatra')) return 'Malá Fatra';
   if (t.includes('šumav')) return 'Šumava';
   if (t.includes('litomyšl') || t.includes('svitav')) return 'Českomoravské pomezí (Litomyšlsko)';
+  if (t.includes('brno') || t.includes('vranov') || t.includes('tišnov') || t.includes('lelekovic')) return 'Brno a okolí';
+  if (t.includes('adamov') || t.includes('machocha') || t.includes('jedovnic') || t.includes('moravský kras')) return 'Moravský kras';
+  if (t.includes('pálava') || t.includes('mikulov') || t.includes('dívčí hrad')) return 'Pálava a Jižní Morava';
+  if (t.includes('vír') || t.includes('žďár') || t.includes('vysočin')) return 'Vysočina a Žďárské vrchy';
 
   if (lat && lng) {
-    const detected = detectMountainRange([{ lat, lng, distFromStartKm: 0 }]);
+    const detected = detectMountainRangeFromCoords(lat, lng);
     if (detected) return detected;
   }
-  return 'Historická výprava';
+  return 'Aktivita v terénu';
 }
 
 interface ImportHistoryModalProps {
@@ -86,10 +90,19 @@ export const ImportHistoryModal: React.FC<ImportHistoryModalProps> = ({
           const id = item.id || `garmin-${item.act_id || idx}`;
           const title = item.title || 'Horská výprava';
           const date = item.date || item.time || new Date().toISOString().split('T')[0];
+          const lat = item.peakCoords?.lat || item.trackPoints?.[0]?.lat;
+          const lng = item.peakCoords?.lng || item.trackPoints?.[0]?.lng;
+
+          let range = item.mountainRange;
+          if (!range || isSuspectMountainRange(range, lat, lng)) {
+            range = inferRangeFromTitleAndCoords(title, lat, lng);
+          }
+
           return {
             ...item,
             id,
             title,
+            mountainRange: range,
             date,
             photos: Array.isArray(item.photos) ? item.photos : [],
           };

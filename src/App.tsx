@@ -39,7 +39,9 @@ import { SettingsModal } from './components/SettingsModal';
 import { ShareModal } from './components/ShareModal';
 import { TelegramModal } from './components/TelegramModal';
 import { ImportHistoryModal } from './components/ImportHistoryModal';
+import { MountainRangeManagerModal } from './components/MountainRangeManagerModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { detectMountainRangeFromCoords, isSuspectMountainRange } from './utils/mountainRanges';
 
 export default function App() {
   // 1. Session & PIN security: Remember login session on the same device
@@ -62,6 +64,7 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isTelegramOpen, setIsTelegramOpen] = useState(false);
+  const [isRangeManagerOpen, setIsRangeManagerOpen] = useState(false);
   const [hikePendingDelete, setHikePendingDelete] = useState<MountainHike | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
 
@@ -247,7 +250,17 @@ export default function App() {
 
   // Hike CRUD handlers with Firestore persistence
   const handleSaveHike = async (savedHike: MountainHike): Promise<void> => {
-    const cleanHike = sanitizeHikeForStorage(savedHike);
+    let cleanHike = sanitizeHikeForStorage(savedHike);
+
+    // Auto-correct mountain range if missing or suspect (e.g. Polsko on Czech coordinates)
+    const lat = cleanHike.peakCoords?.lat || cleanHike.trackPoints?.[0]?.lat;
+    const lng = cleanHike.peakCoords?.lng || cleanHike.trackPoints?.[0]?.lng;
+    if (lat && lng && (!cleanHike.mountainRange || isSuspectMountainRange(cleanHike.mountainRange, lat, lng))) {
+      const detected = detectMountainRangeFromCoords(lat, lng);
+      if (detected) {
+        cleanHike = { ...cleanHike, mountainRange: detected };
+      }
+    }
 
     setHikes((prevHikes) => {
       const existingIndex = prevHikes.findIndex((h) => h.id === cleanHike.id);
@@ -414,11 +427,13 @@ export default function App() {
               setHikeToEdit(null);
               setIsFormModalOpen(true);
             }}
+            onOpenRangeManager={() => setIsRangeManagerOpen(true)}
           />
         ) : (
           <BigOverviewMap
             hikes={hikes}
             onSelectHike={(hike) => setSelectedHike(hike)}
+            onOpenRangeManager={() => setIsRangeManagerOpen(true)}
           />
         )}
       </main>
@@ -476,7 +491,32 @@ export default function App() {
         onResetData={handleResetData}
         onClearAllHikes={handleClearAllHikes}
         onOpenImportHistory={() => setIsImportOpen(true)}
+        onOpenRangeManager={() => setIsRangeManagerOpen(true)}
       />
+
+      {/* Mountain Range Manager Modal */}
+      {isRangeManagerOpen && (
+        <MountainRangeManagerModal
+          isOpen={isRangeManagerOpen}
+          onClose={() => setIsRangeManagerOpen(false)}
+          hikes={hikes}
+          currentRole={currentRole || 'reader'}
+          onSaveHike={handleSaveHike}
+          onRefreshHikes={async () => {
+            try {
+              const res = await fetch('/api/routes');
+              if (res.ok) {
+                const data = await res.json();
+                if (data.routes) {
+                  setHikes(data.routes);
+                }
+              }
+            } catch (e) {
+              console.warn('Error refreshing hikes:', e);
+            }
+          }}
+        />
+      )}
 
       {/* Bulk History Import Modal */}
       <ImportHistoryModal

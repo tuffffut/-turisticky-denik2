@@ -4,7 +4,8 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, updateDoc, writeBatch } from 'firebase/firestore';
+import { detectMountainRangeFromCoords, isSuspectMountainRange } from './src/utils/mountainRanges';
 
 // Helper for distance calculation
 function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -215,32 +216,7 @@ function parseServerGpx(xmlString: string) {
 
 // Mountain and regional area detector from GPS coordinates
 function detectRangeFromCoords(lat: number, lng: number): string {
-  if (lat >= 50.55 && lat <= 50.85 && lng >= 15.35 && lng <= 15.95) return 'Krkonoše';
-  if (lat >= 50.75 && lat <= 50.95 && lng >= 15.05 && lng <= 15.45) return 'Jizerské hory';
-  if (lat >= 48.80 && lat <= 49.35 && lng >= 13.15 && lng <= 14.15) return 'Šumava';
-  if (lat >= 50.00 && lat <= 50.35 && lng >= 17.00 && lng <= 17.55) return 'Jeseníky';
-  if (lat >= 49.35 && lat <= 49.65 && lng >= 18.15 && lng <= 18.70) return 'Beskydy';
-  if (lat >= 50.35 && lat <= 50.85 && lng >= 12.35 && lng <= 14.15) return 'Krušné hory';
-  if (lat >= 50.12 && lat <= 50.46 && lng >= 16.24 && lng <= 16.68) return 'Orlické hory';
-  // Českomoravské pomezí / Litomyšlsko a Svitavsko
-  if (lat >= 49.72 && lat <= 50.06 && lng >= 16.15 && lng <= 16.65) return 'Českomoravské pomezí (Litomyšlsko)';
-  // Vysočina a Žďárské vrchy
-  if (lat >= 49.25 && lat <= 49.80 && lng >= 15.30 && lng <= 16.15) return 'Vysočina a Žďárské vrchy';
-  // Pardubicko a Polabí
-  if (lat >= 49.95 && lat <= 50.25 && lng >= 15.45 && lng <= 16.15) return 'Pardubicko a Polabí';
-  // Český ráj
-  if (lat >= 50.45 && lat <= 50.66 && lng >= 15.02 && lng <= 15.38) return 'Český ráj';
-  // Pálava a Jižní Morava
-  if (lat >= 48.70 && lat <= 49.15 && lng >= 16.30 && lng <= 17.15) return 'Pálava a Jižní Morava';
-  // Praha a okolí
-  if (lat >= 49.95 && lat <= 50.20 && lng >= 14.20 && lng <= 14.70) return 'Praha a okolí';
-  // Slovensko
-  if (lat >= 49.10 && lat <= 49.30 && lng >= 19.80 && lng <= 20.30) return 'Vysoké Tatry';
-  if (lat >= 48.85 && lat <= 49.05 && lng >= 19.45 && lng <= 20.25) return 'Nízke Tatry';
-  if (lat >= 49.15 && lat <= 49.30 && lng >= 19.55 && lng <= 19.85) return 'Západné Tatry';
-  if (lat >= 49.05 && lat <= 49.30 && lng >= 18.95 && lng <= 19.25) return 'Malá Fatra';
-  if (lat >= 48.55 && lat <= 51.05 && lng >= 12.09 && lng <= 18.86) return 'Česko (výlet)';
-  return 'Aktivita v terénu';
+  return detectMountainRangeFromCoords(lat, lng);
 }
 
 async function startServer() {
@@ -651,10 +627,16 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         ? String(activityType).trim().toLowerCase()
         : undefined;
 
+      const candidateRange = typeof req.body.mountainRange === 'string' ? req.body.mountainRange.trim() : '';
+      const finalRange =
+        candidateRange && !isSuspectMountainRange(candidateRange, peakLat, peakLng)
+          ? candidateRange
+          : detectedRange;
+
       const newHike = {
         id: routeId,
         title: finalTitle,
-        mountainRange: req.body.mountainRange || detectedRange,
+        mountainRange: finalRange,
         activityType: determinedActivityType,
         date: date ? String(date).slice(0, 10) : (parsedGpx?.date || new Date().toISOString().split('T')[0]),
         distanceKm: Math.round(finalDistance * 10) / 10,
@@ -741,6 +723,117 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       const data = snap.data() as any;
       return res.json({ route: { ...data, id: data.id || snap.id } });
     } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/routes/reassign-ranges: Re-evaluates mountain ranges from GPS coordinates
+  app.post('/api/routes/reassign-ranges', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(500).json({ error: 'Firestore není připojen' });
+      }
+
+      const { forceAll, fixSuspectOnly = true } = req.body || {};
+      const snapshot = await getDocs(collection(db, 'hikes'));
+      const updatedRoutes: Array<{
+        id: string;
+        title: string;
+        oldRange: string;
+        newRange: string;
+        lat?: number;
+        lng?: number;
+      }> = [];
+
+      for (const d of snapshot.docs) {
+        const data = d.data() as any;
+        const currentRange = (data.mountainRange && String(data.mountainRange).trim()) || '';
+        let lat: number | undefined = data.peakCoords?.lat;
+        let lng: number | undefined = data.peakCoords?.lng;
+
+        // If no peakCoords, look at trackPoints
+        if ((!lat || !lng) && data.trackPoints && data.trackPoints.length > 0) {
+          const pts = data.trackPoints;
+          let sumLat = 0;
+          let sumLng = 0;
+          pts.forEach((p: any) => {
+            sumLat += p.lat;
+            sumLng += p.lng;
+          });
+          lat = sumLat / pts.length;
+          lng = sumLng / pts.length;
+        }
+
+        if (lat !== undefined && lng !== undefined && !isNaN(lat) && !isNaN(lng)) {
+          const detected = detectMountainRangeFromCoords(lat, lng);
+          const isPoland = currentRange.toLowerCase() === 'polsko';
+          const isSuspect = isPoland || !currentRange || currentRange === 'Aktivita v terénu';
+
+          const shouldUpdate =
+            (forceAll && detected !== currentRange) ||
+            (fixSuspectOnly && isSuspect && detected !== currentRange) ||
+            (isPoland && detected !== 'Polsko');
+
+          if (shouldUpdate && detected) {
+            await updateDoc(d.ref, { mountainRange: detected });
+            updatedRoutes.push({
+              id: d.id,
+              title: data.title || 'Bez názvu',
+              oldRange: currentRange,
+              newRange: detected,
+              lat,
+              lng,
+            });
+          }
+        }
+      }
+
+      console.log(`[API /api/routes/reassign-ranges] Úspěšně opraveno ${updatedRoutes.length} tras.`);
+      return res.json({
+        success: true,
+        updatedCount: updatedRoutes.length,
+        updatedRoutes,
+      });
+    } catch (err: any) {
+      console.error('[API /api/routes/reassign-ranges] Chyba při přehodnocení pohoří:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/routes/batch-rename-range: Bulk rename a mountain range
+  app.post('/api/routes/batch-rename-range', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(500).json({ error: 'Firestore není připojen' });
+      }
+
+      const { fromRange, toRange } = req.body || {};
+      if (!fromRange || !toRange || !fromRange.trim() || !toRange.trim()) {
+        return res.status(400).json({ error: 'Zadejte původní i nové pohoří.' });
+      }
+
+      const cleanFrom = fromRange.trim();
+      const cleanTo = toRange.trim();
+      const snapshot = await getDocs(collection(db, 'hikes'));
+      let count = 0;
+
+      for (const d of snapshot.docs) {
+        const data = d.data() as any;
+        if (data.mountainRange === cleanFrom) {
+          await updateDoc(d.ref, { mountainRange: cleanTo });
+          count++;
+        }
+      }
+
+      console.log(`[API /api/routes/batch-rename-range] Přejmenováno ${count} tras z "${cleanFrom}" na "${cleanTo}".`);
+      return res.json({
+        success: true,
+        updatedCount: count,
+        fromRange: cleanFrom,
+        toRange: cleanTo,
+      });
+    } catch (err: any) {
+      console.error('[API /api/routes/batch-rename-range] Chyba při hromadném přejmenování:', err);
       return res.status(500).json({ error: err.message });
     }
   });

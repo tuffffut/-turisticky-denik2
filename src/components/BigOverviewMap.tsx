@@ -30,6 +30,7 @@ import { formatDateDisplay } from '../utils/dateUtils';
 interface BigOverviewMapProps {
   hikes: MountainHike[];
   onSelectHike: (hike: MountainHike) => void;
+  onOpenRangeManager?: () => void;
 }
 
 type RouteDisplayMode = 'selected-only' | 'all-routes' | 'hidden';
@@ -37,6 +38,7 @@ type RouteDisplayMode = 'selected-only' | 'all-routes' | 'hidden';
 export const BigOverviewMap: React.FC<BigOverviewMapProps> = ({
   hikes,
   onSelectHike,
+  onOpenRangeManager,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -671,6 +673,7 @@ export const BigOverviewMap: React.FC<BigOverviewMapProps> = ({
               filterOptions={filterOptions}
               isFloatingOnMap={true}
               onCloseMapOverlay={() => setIsFilterOpen(false)}
+              onOpenRangeManager={onOpenRangeManager}
             />
           </div>
         )}

@@ -25,6 +25,7 @@ import { MountainHike, HikeDifficulty, GPXTrackPoint, HikeVideo, HikeAISummary }
 import { parseGPX, buildGPXXml } from '../utils/gpxParser';
 import { generateHikeAITips } from '../utils/aiAssistant';
 import { resizeImageFile, processMultipleImageFiles } from '../utils/imageUtils';
+import { POPULAR_MOUNTAIN_RANGES } from '../utils/mountainRanges';
 
 interface HikeFormModalProps {
   isOpen: boolean;
@@ -548,11 +549,17 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
               </label>
               <input
                 type="text"
+                list="popular-mountain-ranges"
                 value={mountainRange}
                 onChange={(e) => setMountainRange(e.target.value)}
-                placeholder="např. Krkonoše, Vysoké Tatry, Malá Fatra, Jeseníky"
+                placeholder="např. Brno a okolí, Moravský kras, Krkonoše, Jeseníky"
                 className="w-full px-3.5 py-2.5 bg-stone-950 border border-stone-800 rounded-xl text-stone-100 text-sm focus:outline-none focus:border-emerald-500"
               />
+              <datalist id="popular-mountain-ranges">
+                {POPULAR_MOUNTAIN_RANGES.map((r) => (
+                  <option key={r} value={r} />
+                ))}
+              </datalist>
             </div>
           </div>
 
