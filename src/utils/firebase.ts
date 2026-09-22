@@ -177,6 +177,14 @@ export function sanitizeHikeForStorage(hike: MountainHike): MountainHike {
     jsonStr = JSON.stringify(clean);
   }
 
+  // If still above 880KB, trim excess photos to prevent Firestore document failure
+  if (jsonStr.length > 880000 && clean.photos && clean.photos.length > 10) {
+    while (jsonStr.length > 880000 && clean.photos.length > 10) {
+      clean.photos.pop();
+      jsonStr = JSON.stringify(clean);
+    }
+  }
+
   return JSON.parse(jsonStr);
 }
 

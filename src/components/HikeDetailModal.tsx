@@ -25,6 +25,7 @@ import {
   Sparkles,
   Image as ImageIcon,
   Loader2,
+  Plus,
 } from 'lucide-react';
 import { MountainHike, UserRole, GPXTrackPoint } from '../types';
 import { HikeMap } from './HikeMap';
@@ -78,7 +79,8 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
     try {
       const newBase64Photos = await processMultipleImageFiles(files);
       if (newBase64Photos.length > 0) {
-        const updatedPhotos = [...(hike.photos || []), ...newBase64Photos];
+        const combined = [...(hike.photos || []), ...newBase64Photos];
+        const updatedPhotos = combined.slice(0, 25);
         onUpdateHike({
           ...hike,
           photos: updatedPhotos,
@@ -491,7 +493,8 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-stone-200 flex items-center gap-2">
-                    <span>Fotogalerie z výpravy ({hike.photos.length})</span>
+                    <ImageIcon className="w-4 h-4 text-emerald-400" />
+                    <span>Fotogalerie z výpravy ({hike.photos.length} / 25)</span>
                   </h3>
                   <div className="flex items-center gap-2.5">
                     {isAdmin && (
@@ -577,22 +580,44 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
 
             {/* Empty photos banner */}
             {(!hike.photos || hike.photos.length === 0) && (
-              <div className="p-4 rounded-2xl bg-stone-950/40 border border-dashed border-stone-800 flex items-center justify-between gap-3 text-xs text-stone-400">
-                <span className="flex items-center gap-2">
-                  <span>📷</span>
-                  <span>K této túře z Garminu zatím nebyly nahrány žádné osobní fotografie.</span>
-                </span>
+              <div className="p-5 rounded-2xl bg-stone-950/40 border border-dashed border-stone-800 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-400">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-stone-900 border border-stone-800 text-stone-400 flex items-center justify-center shrink-0">
+                    <ImageIcon className="w-5 h-5 text-stone-500" />
+                  </div>
+                  <div>
+                    <span className="font-semibold text-stone-300 block">Zatím nebyly nahrány žádné osobní fotografie</span>
+                    <span className="text-[11px] text-stone-500">Můžete sem přímo nahrát až 25 fotografií najednou</span>
+                  </div>
+                </div>
                 {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onEdit(hike);
-                      onClose();
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium transition-colors cursor-pointer shrink-0"
-                  >
-                    Doplnit fotky
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <label className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      isUploadingMorePhotos
+                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800 pointer-events-none'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'
+                    }`}>
+                      {isUploadingMorePhotos ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Optimalizuji...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Nahrát fotky</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        disabled={isUploadingMorePhotos}
+                        className="hidden"
+                        onChange={handleUploadMorePhotos}
+                      />
+                    </label>
+                  </div>
                 )}
               </div>
             )}

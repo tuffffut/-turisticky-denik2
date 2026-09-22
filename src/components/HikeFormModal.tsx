@@ -241,7 +241,13 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
       });
 
       if (compressedList.length > 0) {
-        setPhotos((prev) => [...prev, ...compressedList]);
+        setPhotos((prev) => {
+          const combined = [...prev, ...compressedList];
+          if (combined.length > 25) {
+            return combined.slice(0, 25);
+          }
+          return combined;
+        });
       }
     } catch (err) {
       console.warn('Chyba při zpracování fotografií:', err);
@@ -897,12 +903,16 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
 
           {/* Photos Management */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <label className="block text-xs font-semibold text-stone-300">
-                Fotografie z výpravy ({photos.length})
+                Fotografie z výpravy ({photos.length} / 25)
               </label>
-              <span className="text-[11px] text-stone-500">
-                Lze nahrát i více fotek najednou (automatická komprese)
+              <span className="text-[11px] text-stone-400">
+                {photos.length >= 25 ? (
+                  <span className="text-amber-400 font-medium">Dosaženo doporučeného limitu 25 fotografií</span>
+                ) : (
+                  <span>Lze nahrát až 25 fotek najednou (automatická webová optimalizace)</span>
+                )}
               </span>
             </div>
 
