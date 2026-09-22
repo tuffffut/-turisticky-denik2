@@ -11,7 +11,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { MountainHike, PinConfig } from '../types';
+import { MountainHike, PinConfig, GPXTrackPoint } from '../types';
 import { parseGPX } from './gpxParser';
 import { parseValidDate } from './dateUtils';
 
@@ -133,10 +133,10 @@ export function subscribeToHikes(
 export function sanitizeHikeForStorage(hike: MountainHike): MountainHike {
   const clean: MountainHike = { ...hike };
 
-  // Downsample trackPoints to max 600 points if track is excessively long
-  if (clean.trackPoints && clean.trackPoints.length > 600) {
+  // Downsample trackPoints to max 500 points if track is excessively long
+  if (clean.trackPoints && clean.trackPoints.length > 500) {
     const total = clean.trackPoints.length;
-    const step = Math.ceil(total / 600);
+    const step = Math.ceil(total / 500);
     const downsampled = [];
     for (let i = 0; i < total; i += step) {
       downsampled.push(clean.trackPoints[i]);
@@ -148,21 +148,35 @@ export function sanitizeHikeForStorage(hike: MountainHike): MountainHike {
     clean.trackPoints = downsampled;
   }
 
-  // If trackPoints are present, avoid saving giant duplicate GPX XML string (> 50KB)
+  // If trackPoints are present, avoid saving giant duplicate GPX XML string (> 30KB)
   // because buildGPXXml dynamically reconstructs GPX for export/download anytime!
-  if (clean.trackPoints && clean.trackPoints.length > 0 && clean.gpxRawXml && clean.gpxRawXml.length > 50000) {
+  if (clean.trackPoints && clean.trackPoints.length > 0 && clean.gpxRawXml) {
     delete (clean as any).gpxRawXml;
-  } else if (clean.gpxRawXml && clean.gpxRawXml.length > 350000) {
+  } else if (clean.gpxRawXml && clean.gpxRawXml.length > 250000) {
     delete (clean as any).gpxRawXml;
   }
 
   // Strip undefined and NaN values that could cause Firestore setDoc to fail
-  const jsonStr = JSON.stringify(clean, (_key, value) => {
+  let jsonStr = JSON.stringify(clean, (_key, value) => {
     if (typeof value === 'number' && isNaN(value)) {
       return null;
     }
     return value;
   });
+
+  // Strict Firestore 1,048,576 bytes threshold guard
+  // If JSON is approaching 850KB, downsample points even further
+  if (jsonStr.length > 850000 && clean.trackPoints && clean.trackPoints.length > 200) {
+    const total = clean.trackPoints.length;
+    const step = Math.ceil(total / 200);
+    const compact: GPXTrackPoint[] = [];
+    for (let i = 0; i < total; i += step) {
+      compact.push(clean.trackPoints[i]);
+    }
+    clean.trackPoints = compact;
+    jsonStr = JSON.stringify(clean);
+  }
+
   return JSON.parse(jsonStr);
 }
 

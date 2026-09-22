@@ -428,10 +428,31 @@ export function detectMountainRange(points: GPXTrackPoint[]): string | undefined
     // Slovenský raj
     { name: 'Slovenský raj', minLat: 48.84, maxLat: 49.02, minLng: 20.24, maxLng: 20.56 },
 
-    // Alpy / Rakousko / Itálie
-    { name: 'Alpy (Rakousko / Itálie)', minLat: 46.00, maxLat: 47.85, minLng: 9.50, maxLng: 16.00 },
+    // Alpy & Rakousko
+    // Vídeňské Alpy (Rax, Schneeberg, Semmering, Hohen Wand, Gutensteiner Alpen)
+    { name: 'Vídeňské Alpy (Rax / Schneeberg / Hohen Wand)', minLat: 47.50, maxLat: 48.15, minLng: 15.50, maxLng: 16.35 },
+    // Mürzsteger Alpen & Hochschwab
+    { name: 'Hochschwab & Mürzsteger Alpen', minLat: 47.45, maxLat: 47.85, minLng: 14.95, maxLng: 15.65 },
+    // Ennstalské Alpy / Gesäuse
+    { name: 'Ennstalské Alpy (Gesäuse)', minLat: 47.45, maxLat: 47.75, minLng: 14.35, maxLng: 14.95 },
+    // Totes Gebirge, Dachstein a Solná komora (Salzkammergut)
+    { name: 'Dachstein a Salzkammergut', minLat: 47.40, maxLat: 47.90, minLng: 13.40, maxLng: 14.35 },
+    // Berchtesgadenské Alpy
+    { name: 'Berchtesgadenské Alpy', minLat: 47.40, maxLat: 47.78, minLng: 12.60, maxLng: 13.25 },
+    // Vysoké Taury (Hohe Tauern)
+    { name: 'Vysoké Taury (Hohe Tauern)', minLat: 46.85, maxLat: 47.35, minLng: 11.90, maxLng: 13.60 },
+    // Nízké Taury (Niedere Tauern)
+    { name: 'Nízké Taury (Niedere Tauern)', minLat: 47.05, maxLat: 47.55, minLng: 13.45, maxLng: 14.90 },
+    // Zillertalské a Ötztalské Alpy (Tyrolsko)
+    { name: 'Tyrolské Alpy (Zillertal / Ötztal)', minLat: 46.80, maxLat: 47.45, minLng: 10.70, maxLng: 12.20 },
+    // Dolomity (Itálie)
+    { name: 'Dolomity (Itálie)', minLat: 46.15, maxLat: 46.80, minLng: 11.45, maxLng: 12.65 },
     // Julské Alpy
-    { name: 'Julské Alpy (Slovinsko)', minLat: 46.15, maxLat: 46.52, minLng: 13.40, maxLng: 14.50 },
+    { name: 'Julské Alpy (Slovinsko)', minLat: 46.15, maxLat: 46.55, minLng: 13.35, maxLng: 14.30 },
+    // Kamnicko-Savinjské Alpy
+    { name: 'Kamnicko-Savinjské Alpy (Slovinsko)', minLat: 46.25, maxLat: 46.48, minLng: 14.35, maxLng: 14.85 },
+    // Všechny ostatní Alpy v Rakousku
+    { name: 'Alpy (Rakousko)', minLat: 46.30, maxLat: 48.30, minLng: 9.50, maxLng: 16.50 },
   ];
 
   for (const range of ranges) {
@@ -445,13 +466,30 @@ export function detectMountainRange(points: GPXTrackPoint[]): string | undefined
     }
   }
 
-  // Fallback if inside Czech Republic
-  if (avgLat >= 48.55 && avgLat <= 51.05 && avgLng >= 12.09 && avgLng <= 18.86) {
-    return 'Česko';
+  // Country-level fallbacks based on geographic borders
+  if (avgLat >= 46.35 && avgLat <= 49.02 && avgLng >= 9.53 && avgLng <= 17.16) {
+    return 'Rakousko (Alpy)';
   }
-  // Fallback if inside Slovakia
   if (avgLat >= 47.73 && avgLat <= 49.61 && avgLng >= 16.83 && avgLng <= 22.56) {
     return 'Slovensko';
+  }
+  if (avgLat >= 45.40 && avgLat <= 46.88 && avgLng >= 13.35 && avgLng <= 16.61) {
+    return 'Slovinsko';
+  }
+  if (avgLat >= 36.50 && avgLat <= 47.10 && avgLng >= 6.60 && avgLng <= 18.60) {
+    return 'Itálie';
+  }
+  if (avgLat >= 47.25 && avgLat <= 55.05 && avgLng >= 5.85 && avgLng <= 15.05) {
+    return 'Německo';
+  }
+  if (avgLat >= 49.00 && avgLat <= 54.85 && avgLng >= 14.10 && avgLng <= 24.15) {
+    return 'Polsko';
+  }
+  if (avgLat >= 42.35 && avgLat <= 46.55 && avgLng >= 13.45 && avgLng <= 19.45) {
+    return 'Chorvatsko';
+  }
+  if (avgLat >= 48.55 && avgLat <= 51.05 && avgLng >= 12.09 && avgLng <= 18.86) {
+    return 'Česká republika';
   }
 
   return undefined;

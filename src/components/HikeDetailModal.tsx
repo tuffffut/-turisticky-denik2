@@ -23,6 +23,8 @@ import {
   Copy,
   Check,
   Sparkles,
+  Image as ImageIcon,
+  Loader2,
 } from 'lucide-react';
 import { MountainHike, UserRole, GPXTrackPoint } from '../types';
 import { HikeMap } from './HikeMap';
@@ -32,6 +34,7 @@ import { PhotoLightbox } from './PhotoLightbox';
 import { VideoPlayer } from './VideoPlayer';
 import { getHikeShareUrl, getTelegramShareUrl } from '../utils/auth';
 import { formatDateDisplay } from '../utils/dateUtils';
+import { processMultipleImageFiles } from '../utils/imageUtils';
 
 interface HikeDetailModalProps {
   hike: MountainHike | null;
@@ -60,11 +63,34 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
   const [copiedShare, setCopiedShare] = useState(false);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [isUploadingMorePhotos, setIsUploadingMorePhotos] = useState(false);
 
   if (!hike) return null;
 
   const isAdmin = currentRole === 'admin';
   const hasGpx = Boolean(hike.gpxRawXml || (hike.trackPoints && hike.trackPoints.length > 0));
+
+  const handleUploadMorePhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !hike || !onUpdateHike) return;
+
+    setIsUploadingMorePhotos(true);
+    try {
+      const newBase64Photos = await processMultipleImageFiles(files);
+      if (newBase64Photos.length > 0) {
+        const updatedPhotos = [...(hike.photos || []), ...newBase64Photos];
+        onUpdateHike({
+          ...hike,
+          photos: updatedPhotos,
+        });
+      }
+    } catch (err) {
+      console.warn('Chyba při nahrávání dalších fotek:', err);
+    } finally {
+      setIsUploadingMorePhotos(false);
+      e.target.value = '';
+    }
+  };
 
   const handleDownloadGPX = () => {
     let xmlContent = hike.gpxRawXml;
@@ -463,18 +489,47 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
             {/* Photos Gallery */}
             {hike.photos && hike.photos.length > 0 && (
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-stone-200 flex items-center gap-2">
                     <span>Fotogalerie z výpravy ({hike.photos.length})</span>
                   </h3>
-                  <button
-                    type="button"
-                    onClick={() => setIsLightboxOpen(true)}
-                    className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer transition-colors"
-                  >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                    <span>Zobrazit na celou obrazovku</span>
-                  </button>
+                  <div className="flex items-center gap-2.5">
+                    {isAdmin && (
+                      <label className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                        isUploadingMorePhotos
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800 pointer-events-none'
+                          : 'bg-stone-800 hover:bg-stone-700 text-stone-300 border border-stone-700'
+                      }`}>
+                        {isUploadingMorePhotos ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Optimalizuji fotky...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>+ Přidat další fotky</span>
+                          </>
+                        )}
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          disabled={isUploadingMorePhotos}
+                          className="hidden"
+                          onChange={handleUploadMorePhotos}
+                        />
+                      </label>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsLightboxOpen(true)}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span>Na celou obrazovku</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Main Photo Preview (Click to open Lightbox) */}

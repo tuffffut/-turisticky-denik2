@@ -13,6 +13,32 @@ import {
 } from 'lucide-react';
 import { MountainHike } from '../types';
 import { saveHikesBatchToFirestore } from '../utils/firebase';
+import { detectMountainRange } from '../utils/gpxParser';
+
+function inferRangeFromTitleAndCoords(title: string, lat?: number, lng?: number): string {
+  const t = title.toLowerCase();
+  if (t.includes('hohen wand')) return 'Vídeňské Alpy (Hohen Wand)';
+  if (t.includes('schneeberg')) return 'Vídeňské Alpy (Schneeberg)';
+  if (t.includes('rax')) return 'Vídeňské Alpy (Rax)';
+  if (t.includes('semmering')) return 'Vídeňské Alpy (Semmering)';
+  if (t.includes('gesäuse') || t.includes('gesause')) return 'Ennstalské Alpy (Gesäuse)';
+  if (t.includes('dachstein')) return 'Dachstein a Salzkammergut';
+  if (t.includes('dolomit')) return 'Dolomity (Itálie)';
+  if (t.includes('triglav') || t.includes('julsk')) return 'Julské Alpy (Slovinsko)';
+  if (t.includes('sněžk') || t.includes('krkonoš') || t.includes('špindl') || t.includes('pec pod')) return 'Krkonoše';
+  if (t.includes('praděd') || t.includes('jeseník')) return 'Jeseníky';
+  if (t.includes('lysá hora') || t.includes('beskyd') || t.includes('smrk')) return 'Beskydy';
+  if (t.includes('tatr') || t.includes('gerlach') || t.includes('rysy') || t.includes('kriváň')) return 'Vysoké Tatry';
+  if (t.includes('fatra')) return 'Malá Fatra';
+  if (t.includes('šumav')) return 'Šumava';
+  if (t.includes('litomyšl') || t.includes('svitav')) return 'Českomoravské pomezí (Litomyšlsko)';
+
+  if (lat && lng) {
+    const detected = detectMountainRange([{ lat, lng, distFromStartKm: 0 }]);
+    if (detected) return detected;
+  }
+  return 'Historická výprava';
+}
 
 interface ImportHistoryModalProps {
   isOpen: boolean;
@@ -88,45 +114,68 @@ export const ImportHistoryModal: React.FC<ImportHistoryModalProps> = ({
       const lines = pastedText.trim().split('\n');
       const results: MountainHike[] = [];
 
-      for (let i = 0; i < lines.length; i++) {
+      // Find header column indices if header row is provided
+      let colMap: Record<string, number> = {};
+      const firstLineCols = lines[0].split('\t').map((c) => c.trim().toLowerCase());
+      const hasHeader = firstLineCols.some((c) => c.includes('datum') || c.includes('název') || c.includes('typ'));
+
+      if (hasHeader) {
+        firstLineCols.forEach((col, idx) => {
+          if (col.includes('datum')) colMap.date = idx;
+          else if (col.includes('název')) colMap.title = idx;
+          else if (col.includes('typ')) colMap.type = idx;
+          else if (col.includes('vzdálenost')) colMap.dist = idx;
+          else if (col.includes('celkem')) colMap.duration = idx;
+          else if (col.includes('pohybu') && colMap.duration === undefined) colMap.duration = idx;
+          else if (col.includes('převýšení')) colMap.elev = idx;
+          else if (col.includes('garmin') || col.includes('activity id')) colMap.actId = idx;
+          else if (col.includes('gpx')) colMap.gpx = idx;
+          else if (col.includes('start') && col.includes('lat')) colMap.startLat = idx;
+          else if (col.includes('start') && (col.includes('lon') || col.includes('lng'))) colMap.startLon = idx;
+        });
+      }
+
+      for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
         const cols = line.split('\t');
 
-        // Skip header line
-        if (cols[0].toLowerCase().includes('datum') || cols[1]?.toLowerCase().includes('název')) {
-          continue;
-        }
+        const getCol = (key: string, defaultIdx: number) => {
+          const idx = colMap[key] !== undefined ? colMap[key] : defaultIdx;
+          return (cols[idx] || '').trim();
+        };
 
-        const dateRaw = (cols[0] || '').trim();
-        const title = (cols[1] || '').trim() || 'Horská túra';
-        const typeRaw = (cols[2] || '').trim().toLowerCase();
+        const dateRaw = getCol('date', 0);
+        const title = getCol('title', 1) || 'Horská túra';
+        const typeRaw = getCol('type', 2).toLowerCase();
 
         // Skip non-hiking/climbing
-        if (typeRaw && !['hiking', 'chůze', 'turistika', 'walking', 'mountaineering', 'climbing'].includes(typeRaw)) {
+        if (typeRaw && !['hiking', 'chůze', 'turistika', 'walking', 'mountaineering', 'climbing', 'rock_climbing'].includes(typeRaw)) {
           continue;
         }
 
-        const distStr = (cols[3] || '0').replace(' ', '').replace(',', '.');
+        const distStr = getCol('dist', 3).replace(' ', '').replace(',', '.');
         let dist = parseFloat(distStr) || 0;
         if (dist > 100) dist = dist / 1000; // in meters
 
-        const duration = (cols[5] || cols[4] || '').trim();
-        const elevStr = (cols[6] || '0').replace(' ', '').replace(',', '.');
+        const duration = getCol('duration', 5) || getCol('duration', 4);
+        const elevStr = getCol('elev', 6).replace(' ', '').replace(',', '.');
         const elev = Math.round(parseFloat(elevStr) || 0);
 
-        const actId = (cols[20] || '').trim();
-        const gpxPath = (cols[21] || '').trim();
-        const startLat = parseFloat((cols[23] || '').replace(',', '.')) || undefined;
-        const startLon = parseFloat((cols[24] || '').replace(',', '.')) || undefined;
+        const actId = getCol('actId', 20);
+        const latVal = parseFloat(getCol('startLat', 23).replace(' ', '').replace(',', '.'));
+        const lonVal = parseFloat(getCol('startLon', 24).replace(' ', '').replace(',', '.'));
+        const startLat = !isNaN(latVal) && latVal !== 0 ? latVal : undefined;
+        const startLon = !isNaN(lonVal) && lonVal !== 0 ? lonVal : undefined;
 
         const hikeId = actId ? `garmin-${actId}` : `import-${Date.now()}-${i}`;
         const isClimb = typeRaw.includes('climb') || typeRaw.includes('mountaineer');
+        const range = inferRangeFromTitleAndCoords(title, startLat, startLon);
 
         results.push({
           id: hikeId,
           title,
-          mountainRange: 'Historická výprava',
+          mountainRange: range,
           activityType: isClimb ? 'climbing' : 'hiking',
           date: dateRaw.slice(0, 10),
           distanceKm: Math.round(dist * 10) / 10,
@@ -137,8 +186,8 @@ export const ImportHistoryModal: React.FC<ImportHistoryModalProps> = ({
           description: `Záznam z hodinek Garmin (${typeRaw || 'turistika'}).`,
           photos: [],
           peakCoords: {
-            lat: startLat || 50.0,
-            lng: startLon || 15.0,
+            lat: startLat || (range.includes('Vídeňské') ? 47.78 : range.includes('Jeseník') ? 50.08 : 50.0),
+            lng: startLon || (range.includes('Vídeňské') ? 15.9 : range.includes('Jeseník') ? 17.23 : 15.0),
             name: title,
           },
           gpxRawXml: undefined,

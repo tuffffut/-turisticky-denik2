@@ -24,6 +24,7 @@ import {
 import { MountainHike, HikeDifficulty, GPXTrackPoint, HikeVideo, HikeAISummary } from '../types';
 import { parseGPX, buildGPXXml } from '../utils/gpxParser';
 import { generateHikeAITips } from '../utils/aiAssistant';
+import { resizeImageFile, processMultipleImageFiles } from '../utils/imageUtils';
 
 interface HikeFormModalProps {
   isOpen: boolean;
@@ -32,43 +33,6 @@ interface HikeFormModalProps {
   initialHikeData?: Partial<MountainHike> | null;
   onClose: () => void;
   onSave: (hike: MountainHike) => Promise<void> | void;
-}
-
-function resizeImageFile(file: File, maxDim = 1200, quality = 0.75): Promise<string> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        let width = img.width;
-        let height = img.height;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(e.target?.result as string);
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        resolve(dataUrl);
-      };
-      img.onerror = () => resolve(e.target?.result as string);
-      img.src = e.target?.result as string;
-    };
-    reader.onerror = () => resolve('');
-    reader.readAsDataURL(file);
-  });
 }
 
 export const HikeFormModal: React.FC<HikeFormModalProps> = ({
@@ -97,6 +61,8 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
   const [videos, setVideos] = useState<HikeVideo[]>([]);
   const [newVideoUrl, setNewVideoUrl] = useState('');
   const [newVideoTitle, setNewVideoTitle] = useState('');
+  const [isProcessingPhotos, setIsProcessingPhotos] = useState(false);
+  const [photoUploadProgress, setPhotoUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [aiSummary, setAiSummary] = useState<HikeAISummary | undefined>(undefined);
   const [trackPoints, setTrackPoints] = useState<GPXTrackPoint[] | undefined>(undefined);
   const [gpxFileName, setGpxFileName] = useState<string | null>(null);
@@ -266,15 +232,24 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    for (const file of Array.from(files)) {
-      try {
-        const base64 = await resizeImageFile(file, 1200, 0.75);
-        if (base64) {
-          setPhotos((prev) => [...prev, base64]);
-        }
-      } catch (err) {
-        console.warn('Chyba při kompresi fotky:', err);
+    setIsProcessingPhotos(true);
+    setPhotoUploadProgress({ done: 0, total: files.length });
+
+    try {
+      const compressedList = await processMultipleImageFiles(files, (done, total) => {
+        setPhotoUploadProgress({ done, total });
+      });
+
+      if (compressedList.length > 0) {
+        setPhotos((prev) => [...prev, ...compressedList]);
       }
+    } catch (err) {
+      console.warn('Chyba při zpracování fotografií:', err);
+    } finally {
+      setIsProcessingPhotos(false);
+      setPhotoUploadProgress(null);
+      // Reset input value so user can upload the same or more files again immediately
+      e.target.value = '';
     }
   };
 
@@ -922,9 +897,14 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
 
           {/* Photos Management */}
           <div className="space-y-3">
-            <label className="block text-xs font-medium text-stone-300">
-              Fotografie z túry
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-stone-300">
+                Fotografie z výpravy ({photos.length})
+              </label>
+              <span className="text-[11px] text-stone-500">
+                Lze nahrát i více fotek najednou (automatická komprese)
+              </span>
+            </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
               <input
@@ -943,13 +923,29 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
                 <span>Přidat URL</span>
               </button>
 
-              <label className="px-3.5 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1 shrink-0">
-                <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Nahrát z disku</span>
+              <label className={`px-3.5 py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
+                isProcessingPhotos
+                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-800 pointer-events-none'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'
+              }`}>
+                {isProcessingPhotos ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>
+                      Zpracovávám {photoUploadProgress ? `${photoUploadProgress.done}/${photoUploadProgress.total}` : '...'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    <span>Nahrát fotky (i více najednou)</span>
+                  </>
+                )}
                 <input
                   type="file"
                   multiple
                   accept="image/*"
+                  disabled={isProcessingPhotos}
                   className="hidden"
                   onChange={handleImageFileUpload}
                 />
@@ -962,16 +958,20 @@ export const HikeFormModal: React.FC<HikeFormModalProps> = ({
                 {photos.map((url, idx) => (
                   <div
                     key={idx}
-                    className="relative w-24 h-20 rounded-xl overflow-hidden bg-stone-950 border border-stone-800 group"
+                    className="relative w-24 h-20 rounded-xl overflow-hidden bg-stone-950 border border-stone-800 group shadow-sm"
                   >
                     <img src={url} alt="" className="w-full h-full object-cover" />
                     <button
                       type="button"
                       onClick={() => handleRemovePhoto(idx)}
                       className="absolute top-1 right-1 p-1 rounded bg-stone-950/80 text-rose-400 hover:text-rose-200 opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
+                      title="Smazat fotografii"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
+                    <span className="absolute bottom-1 left-1.5 px-1.5 py-0.5 rounded text-[9px] bg-stone-950/80 text-stone-300 font-mono">
+                      #{idx + 1}
+                    </span>
                   </div>
                 ))}
               </div>

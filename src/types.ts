@@ -77,3 +77,13 @@ export interface TelegramConfig {
   webhookSecret?: string;
   isEnabled?: boolean;
 }
+
+export interface HikeFilterState {
+  searchQuery: string;
+  year: string; // 'all' | '2026' | '2025' ...
+  month: string; // 'all' | '1' .. '12'
+  mountainRange: string; // 'all' | 'Krkonoše' ...
+  activityType: string; // 'all' | 'hiking' | 'climbing' | 'ferrata'
+  difficulty: string; // 'all' | 'easy' | 'moderate' | 'hard' | 'ferrata' | 'climbing' | 'unspecified'
+  sortBy: 'date-desc' | 'date-asc' | 'dist-desc' | 'ele-desc' | 'rating-desc';
+}

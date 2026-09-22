@@ -1,18 +1,16 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Search,
-  Filter,
-  ArrowUpDown,
   Mountain,
   Plus,
   Footprints,
   TrendingUp,
   Award,
-  Compass,
+  Sparkles,
 } from 'lucide-react';
-import { MountainHike, UserRole, HikeDifficulty } from '../types';
+import { MountainHike, UserRole, HikeFilterState } from '../types';
 import { HikeCard } from './HikeCard';
-import { getDateTimestamp } from '../utils/dateUtils';
+import { HikeFilterBar } from './HikeFilterBar';
+import { DEFAULT_FILTER_STATE, filterAndSortHikes, getAvailableFilterOptions } from '../utils/filterUtils';
 
 interface HikeListProps {
   hikes: MountainHike[];
@@ -33,10 +31,7 @@ export const HikeList: React.FC<HikeListProps> = ({
   onRequestDelete,
   onAddNewHike,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRange, setSelectedRange] = useState<string>('all');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'dist-desc' | 'ele-desc' | 'rating-desc'>('date-desc');
+  const [filters, setFilters] = useState<HikeFilterState>(DEFAULT_FILTER_STATE);
 
   const isAdmin = currentRole === 'admin';
 
@@ -62,58 +57,15 @@ export const HikeList: React.FC<HikeListProps> = ({
     };
   }, [hikes]);
 
-  // Unique mountain ranges
-  const mountainRanges = useMemo(() => {
-    return ['all', ...Array.from(new Set(hikes.map((h) => h.mountainRange)))];
-  }, [hikes]);
+  // Available filter options (years, months, ranges, activities) with counts
+  const filterOptions = useMemo(() => {
+    return getAvailableFilterOptions(hikes, filters);
+  }, [hikes, filters]);
 
   // Filter & Sort
   const filteredAndSortedHikes = useMemo(() => {
-    let result = [...hikes];
-
-    // Search query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      result = result.filter(
-        (h) =>
-          h.title.toLowerCase().includes(q) ||
-          h.mountainRange.toLowerCase().includes(q) ||
-          h.description.toLowerCase().includes(q)
-      );
-    }
-
-    // Mountain Range
-    if (selectedRange !== 'all') {
-      result = result.filter((h) => h.mountainRange === selectedRange);
-    }
-
-    // Difficulty
-    if (selectedDifficulty === 'unspecified') {
-      result = result.filter((h) => !h.difficulty);
-    } else if (selectedDifficulty !== 'all') {
-      result = result.filter((h) => h.difficulty === selectedDifficulty);
-    }
-
-    // Sorting
-    result.sort((a, b) => {
-      switch (sortBy) {
-        case 'date-desc':
-          return getDateTimestamp(b.date) - getDateTimestamp(a.date);
-        case 'date-asc':
-          return getDateTimestamp(a.date) - getDateTimestamp(b.date);
-        case 'dist-desc':
-          return b.distanceKm - a.distanceKm;
-        case 'ele-desc':
-          return b.elevationGainM - a.elevationGainM;
-        case 'rating-desc':
-          return (b.rating || 0) - (a.rating || 0);
-        default:
-          return 0;
-      }
-    });
-
-    return result;
-  }, [hikes, searchQuery, selectedRange, selectedDifficulty, sortBy]);
+    return filterAndSortHikes(hikes, filters);
+  }, [hikes, filters]);
 
   return (
     <div className="space-y-6">
@@ -170,87 +122,26 @@ export const HikeList: React.FC<HikeListProps> = ({
         </div>
       </div>
 
-      {/* Filter & Search Bar */}
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-stone-900/80 border border-stone-800 p-3 sm:p-4 rounded-2xl backdrop-blur-sm">
-        {/* Search input */}
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Hledat podle názvu, pohoří či zážitků..."
-            className="w-full pl-10 pr-4 py-2 bg-stone-950/80 border border-stone-800 rounded-xl text-xs sm:text-sm text-stone-200 placeholder:text-stone-500 focus:outline-none focus:border-emerald-500 transition-colors"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Difficulty filter */}
-          <select
-            value={selectedDifficulty}
-            onChange={(e) => setSelectedDifficulty(e.target.value)}
-            className="px-3 py-2 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-300 focus:outline-none focus:border-emerald-500 cursor-pointer"
-          >
-            <option value="all">Všechny obtížnosti</option>
-            <option value="easy">Pouze lehké</option>
-            <option value="moderate">Pouze střední</option>
-            <option value="hard">Pouze těžké</option>
-            <option value="ferrata">🧗 Pouze ferraty</option>
-            <option value="climbing">🧗 Pouze lezení / mountaineering</option>
-            <option value="unspecified">Bez určené obtížnosti</option>
-          </select>
-
-          {/* Sort dropdown */}
-          <div className="flex items-center gap-1 bg-stone-950 border border-stone-800 rounded-xl px-2 py-1">
-            <ArrowUpDown className="w-3.5 h-3.5 text-stone-400" />
-            <select
-              value={sortBy}
-              onChange={(e: any) => setSortBy(e.target.value)}
-              className="bg-transparent text-xs text-stone-300 focus:outline-none cursor-pointer py-1 pr-1"
-            >
-              <option value="date-desc">Nejnovější</option>
-              <option value="date-asc">Nejstarší</option>
-              <option value="dist-desc">Nejdelší trasa</option>
-              <option value="ele-desc">Nejvyšší převýšení</option>
-              <option value="rating-desc">Nejlépe hodnocené</option>
-            </select>
-          </div>
-
-          {/* Admin Add Hike button */}
-          {isAdmin && (
+      {/* Modern Compact Filter Bar (Search, Years, Months, Activities, Mountain Ranges, Difficulty) */}
+      <HikeFilterBar
+        filters={filters}
+        onChange={setFilters}
+        totalHikesCount={hikes.length}
+        filteredHikesCount={filteredAndSortedHikes.length}
+        filterOptions={filterOptions}
+        renderExtraActions={
+          isAdmin ? (
             <button
               type="button"
               onClick={onAddNewHike}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl shadow-md transition-colors cursor-pointer shrink-0"
+              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl shadow-md transition-colors cursor-pointer shrink-0"
             >
               <Plus className="w-4 h-4" />
-              <span>Přidat túru</span>
+              <span className="hidden sm:inline">Přidat túru</span>
             </button>
-          )}
-        </div>
-      </div>
-
-      {/* Mountain Range Chips */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-        <div className="flex items-center gap-1 text-stone-400 font-medium mr-1 shrink-0">
-          <Compass className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Pohoří:</span>
-        </div>
-        {mountainRanges.map((range) => (
-          <button
-            key={range}
-            type="button"
-            onClick={() => setSelectedRange(range)}
-            className={`px-3 py-1.5 rounded-xl font-medium transition-colors whitespace-nowrap cursor-pointer ${
-              selectedRange === range
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'bg-stone-900 text-stone-400 hover:text-stone-200 hover:bg-stone-800 border border-stone-800'
-            }`}
-          >
-            {range === 'all' ? 'Všechna pohoří' : range}
-          </button>
-        ))}
-      </div>
+          ) : undefined
+        }
+      />
 
       {/* Grid of Hikes */}
       {filteredAndSortedHikes.length > 0 ? (
