@@ -13,6 +13,7 @@ import {
   Send,
 } from 'lucide-react';
 import { UserRole } from '../types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface NavbarProps {
   currentRole: UserRole;
@@ -157,6 +158,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="hidden sm:inline">Přidat túru</span>
             </button>
           )}
+
+          {/* PWA Install Button */}
+          <PWAInstallButton />
 
           {/* Share links button */}
           <button

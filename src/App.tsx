@@ -41,6 +41,7 @@ import { TelegramModal } from './components/TelegramModal';
 import { ImportHistoryModal } from './components/ImportHistoryModal';
 import { MountainRangeManagerModal } from './components/MountainRangeManagerModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { detectMountainRangeFromCoords, isSuspectMountainRange } from './utils/mountainRanges';
 
 export default function App() {
@@ -384,6 +385,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col selection:bg-emerald-600 selection:text-white relative">
+      {/* Offline Status Badge */}
+      <OfflineIndicator />
+
       {/* Toast Notification */}
       {saveToast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-2xl shadow-2xl text-xs font-semibold border border-emerald-400/40 animate-bounce">

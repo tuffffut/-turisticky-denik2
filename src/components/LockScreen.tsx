@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Mountain, KeyRound, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { UserRole, PinConfig } from '../types';
 import { authenticatePin } from '../utils/auth';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface LockScreenProps {
   pinConfig: PinConfig;
@@ -81,6 +82,11 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         }}
       />
       <div className="absolute inset-0 z-0 bg-gradient-to-t from-stone-950 via-stone-950/85 to-stone-950/70" />
+
+      {/* Top action bar on lockscreen */}
+      <div className="absolute top-4 right-4 z-20">
+        <PWAInstallButton />
+      </div>
 
       {/* Main Lock Card */}
       <div
