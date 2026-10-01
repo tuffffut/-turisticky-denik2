@@ -6,6 +6,7 @@ import {
   TrendingUp,
   Award,
   Sparkles,
+  Camera,
 } from 'lucide-react';
 import { MountainHike, UserRole, HikeFilterState } from '../types';
 import { HikeCard } from './HikeCard';
@@ -20,6 +21,7 @@ interface HikeListProps {
   onDeleteHike: (hikeId: string) => void;
   onRequestDelete?: (hike: MountainHike) => void;
   onAddNewHike: () => void;
+  onOpenSmartPhotoImport?: () => void;
   onOpenRangeManager?: () => void;
 }
 
@@ -31,6 +33,7 @@ export const HikeList: React.FC<HikeListProps> = ({
   onDeleteHike,
   onRequestDelete,
   onAddNewHike,
+  onOpenSmartPhotoImport,
   onOpenRangeManager,
 }) => {
   const [filters, setFilters] = useState<HikeFilterState>(DEFAULT_FILTER_STATE);
@@ -143,14 +146,29 @@ export const HikeList: React.FC<HikeListProps> = ({
         onOpenRangeManager={onOpenRangeManager}
         renderExtraActions={
           isAdmin ? (
-            <button
-              type="button"
-              onClick={onAddNewHike}
-              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl shadow-md transition-colors cursor-pointer shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Přidat túru</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {onOpenSmartPhotoImport && (
+                <button
+                  id="hikelist-smart-photo-import-btn"
+                  type="button"
+                  onClick={onOpenSmartPhotoImport}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-semibold rounded-xl shadow-sm transition-all cursor-pointer hover:scale-102"
+                  title="Chytrý import fotek z mobilu: automatické roztřídění podle data a času pořízení"
+                >
+                  <Camera className="w-4 h-4 text-amber-400" />
+                  <span className="hidden sm:inline">Chytrý import fotek</span>
+                  <span className="sm:hidden">Fotky</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onAddNewHike}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl shadow-md transition-colors cursor-pointer shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">Přidat túru</span>
+              </button>
+            </div>
           ) : undefined
         }
       />

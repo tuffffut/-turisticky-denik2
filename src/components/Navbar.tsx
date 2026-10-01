@@ -11,6 +11,7 @@ import {
   Settings,
   ArrowRightLeft,
   Send,
+  Camera,
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -22,6 +23,7 @@ interface NavbarProps {
   onLock: () => void;
   onOpenSwitchToAdmin: () => void;
   onOpenNewHike: () => void;
+  onOpenSmartPhotoImport?: () => void;
   onOpenShareModal: () => void;
   onOpenTelegramModal: () => void;
   onOpenSettings: () => void;
@@ -36,6 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLock,
   onOpenSwitchToAdmin,
   onOpenNewHike,
+  onOpenSmartPhotoImport,
   onOpenShareModal,
   onOpenTelegramModal,
   onOpenSettings,
@@ -148,15 +151,31 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Admin Add Hike button */}
           {isAdmin && (
-            <button
-              id="navbar-add-hike-btn"
-              type="button"
-              onClick={onOpenNewHike}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shadow-sm transition-colors cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Přidat túru</span>
-            </button>
+            <>
+              {onOpenSmartPhotoImport && (
+                <button
+                  id="navbar-smart-photo-import-btn"
+                  type="button"
+                  onClick={onOpenSmartPhotoImport}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-semibold shadow-sm transition-all cursor-pointer hover:scale-102"
+                  title="Chytrý import fotek z mobilu: automatické roztřídění podle data a času pořízení"
+                >
+                  <Camera className="w-4 h-4 text-amber-400" />
+                  <span className="hidden md:inline">Chytrý import fotek</span>
+                  <span className="md:hidden">Fotky</span>
+                </button>
+              )}
+
+              <button
+                id="navbar-add-hike-btn"
+                type="button"
+                onClick={onOpenNewHike}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shadow-sm transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">Přidat túru</span>
+              </button>
+            </>
           )}
 
           {/* PWA Install Button */}

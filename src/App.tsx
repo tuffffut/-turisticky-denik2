@@ -43,6 +43,7 @@ import { ShareModal } from './components/ShareModal';
 import { TelegramModal } from './components/TelegramModal';
 import { ImportHistoryModal } from './components/ImportHistoryModal';
 import { MountainRangeManagerModal } from './components/MountainRangeManagerModal';
+import { SmartPhotoImportModal } from './components/SmartPhotoImportModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { detectMountainRangeFromCoords, isSuspectMountainRange } from './utils/mountainRanges';
@@ -82,6 +83,7 @@ export default function App() {
   const [selectedHike, setSelectedHike] = useState<MountainHike | null>(null);
   const [hikeToEdit, setHikeToEdit] = useState<MountainHike | null>(null);
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
+  const [isSmartPhotoImportOpen, setIsSmartPhotoImportOpen] = useState(false);
   const [isSwitchToAdminOpen, setIsSwitchToAdminOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -479,6 +481,7 @@ export default function App() {
           setHikeToEdit(null);
           setIsFormModalOpen(true);
         }}
+        onOpenSmartPhotoImport={() => setIsSmartPhotoImportOpen(true)}
         onOpenShareModal={() => setIsShareOpen(true)}
         onOpenTelegramModal={() => setIsTelegramOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -503,6 +506,7 @@ export default function App() {
               setHikeToEdit(null);
               setIsFormModalOpen(true);
             }}
+            onOpenSmartPhotoImport={() => setIsSmartPhotoImportOpen(true)}
             onOpenRangeManager={() => setIsRangeManagerOpen(true)}
           />
         ) : (
@@ -531,6 +535,14 @@ export default function App() {
           onUpdateHike={handleSaveHike}
         />
       )}
+
+      {/* Smart Photo Import Modal (Mobile auto-matching by EXIF timestamp) */}
+      <SmartPhotoImportModal
+        isOpen={isSmartPhotoImportOpen}
+        hikes={hikes}
+        onClose={() => setIsSmartPhotoImportOpen(false)}
+        onSaveHike={handleSaveHike}
+      />
 
       {/* Hike Add / Edit Form Modal (Admin only) */}
       {isFormModalOpen && currentRole === 'admin' && (
