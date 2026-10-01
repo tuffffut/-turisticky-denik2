@@ -35,17 +35,58 @@ export const ElevationProfile: React.FC<ElevationProfileProps> = ({
     );
   }
 
+  // Helper to compute distance between two lat/lng coords (Haversine in km)
+  const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
   const elevations = validPoints.map((p) => p.ele as number);
   const rawMinEle = Math.min(...elevations);
   const rawMaxEle = Math.max(...elevations);
 
   // Pad elevation range slightly for nice visual margins
-  const elePadding = Math.max(20, (rawMaxEle - rawMinEle) * 0.1);
+  const elePadding = Math.max(15, (rawMaxEle - rawMinEle) * 0.1);
   const minEle = Math.floor(rawMinEle - elePadding);
   const maxEle = Math.ceil(rawMaxEle + elePadding);
-  const eleRange = maxEle - minEle || 1;
+  const eleRange = Math.max(10, maxEle - minEle);
 
-  const totalDist = validPoints[validPoints.length - 1].distFromStartKm || 0;
+  // Calculate cumulative distance for each point (handles distFromStartKm, distanceKm, or calculates via GPS)
+  let runningDist = 0;
+  const processedPoints = validPoints.map((pt, idx) => {
+    let d = pt.distFromStartKm ?? (pt as any).distanceKm ?? (pt as any).dist;
+    if (d === undefined || isNaN(d) || (idx > 0 && d === 0 && runningDist > 0)) {
+      if (idx > 0) {
+        const prev = validPoints[idx - 1];
+        runningDist += haversineKm(prev.lat, prev.lng, pt.lat, pt.lng);
+      }
+      d = runningDist;
+    } else {
+      if (idx > 0 && d < runningDist) {
+        // Handle distance reset or meters passed as km
+        if (d > 100) d = d / 1000;
+        runningDist = Math.max(runningDist, d);
+      } else {
+        runningDist = d;
+      }
+    }
+    return {
+      ...pt,
+      computedDist: runningDist,
+    };
+  });
+
+  const lastDist = processedPoints[processedPoints.length - 1]?.computedDist || runningDist;
+  const totalDist = lastDist > 0.05 ? lastDist : processedPoints.length > 1 ? processedPoints.length * 0.05 : 1;
 
   // SVG viewBox coordinates
   const svgWidth = 800;
@@ -58,8 +99,8 @@ export const ElevationProfile: React.FC<ElevationProfileProps> = ({
   const plotHeight = svgHeight - padTop - padBottom;
 
   // Build SVG path points
-  const pointsCoords = validPoints.map((pt) => {
-    const dist = pt.distFromStartKm || 0;
+  const pointsCoords = processedPoints.map((pt) => {
+    const dist = pt.computedDist;
     const x = padLeft + (totalDist > 0 ? (dist / totalDist) * plotWidth : 0);
     const ele = pt.ele as number;
     const y = padTop + plotHeight - ((ele - minEle) / eleRange) * plotHeight;

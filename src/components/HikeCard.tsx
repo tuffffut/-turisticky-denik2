@@ -152,11 +152,25 @@ export const HikeCard: React.FC<HikeCardProps> = ({
         </div>
 
         {/* Summit Elevation Badge if present */}
-        {hike.highestPointM && (
-          <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded-md bg-stone-900/90 backdrop-blur-md text-stone-200 text-xs font-mono font-medium border border-stone-800">
-            ▲ {hike.highestPointM} m
-          </div>
-        )}
+        {(() => {
+          const rawVal = hike.highestPointM;
+          const parsedNum = typeof rawVal === 'number' ? rawVal : rawVal ? parseFloat(String(rawVal).replace(/[^\d.-]/g, '')) : NaN;
+          let eleDisplay: number | null = null;
+          if (!isNaN(parsedNum) && parsedNum > 0) {
+            eleDisplay = Math.round(parsedNum);
+          } else if (hike.trackPoints && hike.trackPoints.length > 0) {
+            const eles = hike.trackPoints.map((p) => p.ele).filter((e): e is number => typeof e === 'number' && e > 0);
+            if (eles.length > 0) {
+              eleDisplay = Math.round(Math.max(...eles));
+            }
+          }
+          if (!eleDisplay) return null;
+          return (
+            <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded-md bg-stone-900/90 backdrop-blur-md text-stone-200 text-xs font-mono font-medium border border-stone-800">
+              ▲ {eleDisplay} m
+            </div>
+          );
+        })()}
 
         {/* Media & AI Badges */}
         <div className="absolute bottom-3 left-3 flex items-center gap-1.5 flex-wrap">

@@ -57,6 +57,8 @@ export interface MountainHike {
   gpxRawXml?: string;
   hutsAndWaypoints?: string[];
   weather?: string;
+  garminActivityId?: string;
+  source?: string;
 }
 
 export interface PinConfig {

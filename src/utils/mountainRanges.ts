@@ -220,11 +220,17 @@ export function isSuspectMountainRange(currentRange: string | undefined, lat?: n
       lower.includes('alp') ||
       lower === 'zahraničí' ||
       lower === 'zahranici' ||
+      lower === 'české hory' ||
+      lower === 'ceske hory' ||
       lower === 'aktivita v terénu' ||
       lower === 'historická výprava'
     ) {
       return true; // Clearly erroneous assignment for coordinates in Czech Republic
     }
+  }
+
+  if (lower === 'české hory' || lower === 'ceske hory') {
+    return true; // Generic fallback to be replaced with specific region
   }
 
   const detected = detectMountainRangeFromCoords(lat, lng);
@@ -233,4 +239,34 @@ export function isSuspectMountainRange(currentRange: string | undefined, lat?: n
   }
 
   return false;
+}
+
+/**
+ * Detects mountain range from title keywords when coordinates are approximate or unavailable.
+ */
+export function detectMountainRangeFromTitle(title?: string): string | undefined {
+  if (!title) return undefined;
+  const t = title.toLowerCase();
+
+  if (/jesen[ií]k|lou[cč]n[aá]|prad[eě]d|kepr|sedlo|dlouh[eé]\s*str|kouty|[sš]er[aá]k/i.test(t)) return 'Jeseníky';
+  if (/brno|h[aá]dy|holedn[aá]|bab[ií]\s*lom|sob[eě][sš]ice|moravany|bystrc|p[rř]ehrada|lule[cč]|slavkov|vy[sš]kov/i.test(t)) return 'Brno a okolí';
+  if (/krkono[sš]|sn[eě][zž]k|pec\s*pod|ob[rř][ií]\s*d[uů]l|[sš]pindl|lu[cč]n[ií]\s*boud|medv[eě]d/i.test(t)) return 'Krkonoše';
+  if (/jizer|bed[rř]ichov|tanvald|ko[rř]enov|josef/i.test(t)) return 'Jizerské hory';
+  if (/beskyd|lys[aá]\s*hora|radho[sš]|pustevn|ostravic|fr[yý]dlant|smrk/i.test(t)) return 'Beskydy';
+  if (/p[aá]lava|mikulov|d[eě]v[ií]n|klentnic|pavlov|podyj|znojmo/i.test(t)) return 'Pálava a Jižní Morava';
+  if (/kras|adamov|blansko|macocha|sloup|jedovnic|rudic|k[rř]tiny/i.test(t)) return 'Moravský kras';
+  if (/[sš]umav|boub[ií]n|poledn[ií]k|kvild|modrav|[zž]elezn[aá]\s*ruda/i.test(t)) return 'Šumava';
+  if (/kru[sš]n|kl[ií]novec|bo[zž][ií]\s*dar|j[aá]chymov/i.test(t)) return 'Krušné hory';
+  if (/kr[aá]lick|sn[eě][zž]n[ií]k|doln[ií]\s*morav/i.test(t)) return 'Králický Sněžník';
+  if (/orlick|de[sš]tn/i.test(t)) return 'Orlické hory';
+  if (/rychleb/i.test(t)) return 'Rychlebské hory';
+  if (/vyso[cč]in|[zž][dď][aá]r|v[ií]r|jihlav|t[rř]eb[ií][cč]/i.test(t)) return 'Vysočina a Žďárské vrchy';
+  if (/tatr|rysy|kriv[aá][nň]|gerlach|lomnic/i.test(t)) return 'Vysoké Tatry';
+  if (/fatra/i.test(t)) return 'Malá Fatra';
+  if (/alpy|rax|schneeberg|hohe|tauern|dachstein/i.test(t)) return 'Alpy (Rakousko)';
+  if (/broumov|adr[sš]pach|teplic/i.test(t)) return 'Broumovsko a Adršpach';
+  if (/st[rř]edoho[rř]|mile[sš]ovk/i.test(t)) return 'České středohoří';
+  if (/[cč]esk[yý]\s*r[aá]j|trosk/i.test(t)) return 'Český ráj';
+
+  return undefined;
 }

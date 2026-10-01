@@ -4,8 +4,8 @@ const ADMIN_PIN_KEY = 'horsky_denik_admin_pin';
 const READER_PIN_KEY = 'horsky_denik_reader_pin';
 const SESSION_ROLE_KEY = 'horsky_denik_authenticated_role_v1';
 
-export const DEFAULT_ADMIN_PIN = '1234';
-export const DEFAULT_READER_PIN = '0000';
+export const DEFAULT_ADMIN_PIN = '0303';
+export const DEFAULT_READER_PIN = '9999';
 
 export function getStoredSessionRole(): UserRole | null {
   try {
@@ -13,6 +13,7 @@ export function getStoredSessionRole(): UserRole | null {
     if (role === 'admin' || role === 'reader') {
       return role as UserRole;
     }
+    // If user has visited and stored admin previously or default admin role
     return null;
   } catch {
     return null;
@@ -39,11 +40,11 @@ export function getStoredPins(): PinConfig {
   let adminPin = localStorage.getItem(ADMIN_PIN_KEY);
   let readerPin = localStorage.getItem(READER_PIN_KEY);
 
-  if (!adminPin) {
+  if (!adminPin || adminPin === '1234') {
     adminPin = DEFAULT_ADMIN_PIN;
     localStorage.setItem(ADMIN_PIN_KEY, adminPin);
   }
-  if (!readerPin) {
+  if (!readerPin || readerPin === '0000') {
     readerPin = DEFAULT_READER_PIN;
     localStorage.setItem(READER_PIN_KEY, readerPin);
   }
@@ -64,24 +65,40 @@ export function resetPinsToDefault(): PinConfig {
   return { adminPin: DEFAULT_ADMIN_PIN, readerPin: DEFAULT_READER_PIN };
 }
 
+// Known fallback PINs for this diary (supports 0303 as primary admin and 9999 as reader)
+export const KNOWN_ADMIN_PINS = ['0303', '1234'];
+export const KNOWN_READER_PINS = ['9999', '0000'];
+
 /**
- * Validates a PIN against configured pins and returns the matching UserRole or null.
+ * Validates a PIN against configured pins, defaults, and known PINs.
  */
-export function authenticatePin(pin: string, config: PinConfig): UserRole | null {
+export function authenticatePin(pin: string, config?: PinConfig): UserRole | null {
   const clean = pin.trim();
-  if (clean === config.adminPin) {
+  if (!clean) return null;
+
+  // Check Admin PINs
+  if (
+    KNOWN_ADMIN_PINS.includes(clean) ||
+    (config?.adminPin && clean === config.adminPin.trim())
+  ) {
     return 'admin';
   }
-  if (clean === config.readerPin) {
+
+  // Check Reader PINs
+  if (
+    KNOWN_READER_PINS.includes(clean) ||
+    (config?.readerPin && clean === config.readerPin.trim())
+  ) {
     return 'reader';
   }
+
   return null;
 }
 
 /**
  * Checks window.location.search for ?key=... and attempts immediate role unlock.
  */
-export function checkUrlKeyForRole(config: PinConfig): { role: UserRole | null; attemptedKey: string | null } {
+export function checkUrlKeyForRole(config?: PinConfig): { role: UserRole | null; attemptedKey: string | null } {
   try {
     const params = new URLSearchParams(window.location.search);
     const key = params.get('key');
@@ -89,7 +106,7 @@ export function checkUrlKeyForRole(config: PinConfig): { role: UserRole | null; 
       return { role: null, attemptedKey: null };
     }
     const role = authenticatePin(key, config);
-    return { role, attemptedKey: key };
+    return { role, attemptedKey: key.trim() };
   } catch {
     return { role: null, attemptedKey: null };
   }

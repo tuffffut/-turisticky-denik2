@@ -349,18 +349,19 @@ export function getStoredHikes(): MountainHike[] {
 
     // If user has already initialized or deliberately cleared the diary
     if (isInitialized) {
-      if (!raw) return [];
+      if (!raw) return SAMPLE_HIKES;
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
+      if (!Array.isArray(parsed) || parsed.length === 0) return SAMPLE_HIKES;
       // Clean corrupt/test items and ensure valid ids and dates
-      return parsed
-        .filter((h: any) => h && !h.test && (h.id || h.title))
+      const valid = parsed
+        .filter((h: any) => h && !h.test && (h.id || h.title || h.name))
         .map((h: any) => ({
           ...h,
           id: (h.id && String(h.id).trim()) || `hike-${Math.random().toString(36).substring(2, 9)}`,
-          title: (h.title && String(h.title).trim()) || 'Aktivita v terénu',
+          title: (h.title && String(h.title).trim()) || (h.name && String(h.name).trim()) || 'Aktivita v terénu',
           date: parseValidDate(h.date || h.time),
         }));
+      return valid.length > 0 ? valid : SAMPLE_HIKES;
     }
 
     // First time visitor only: provide sample hikes once

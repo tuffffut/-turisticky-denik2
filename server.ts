@@ -233,6 +233,9 @@ async function startServer() {
     if (req.url.includes('/api/routes')) {
       const idx = req.url.indexOf('/api/routes');
       req.url = req.url.slice(idx);
+    } else if (req.url.includes('/api/hikes')) {
+      const idx = req.url.indexOf('/api/hikes');
+      req.url = req.url.slice(idx);
     }
     next();
   });
@@ -557,8 +560,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
 
   // 5. Garmin Integration API: Receive uploaded routes from Python script
   // Handles requests from upload_to_hiking_diary:
-  // POST /api/routes { title, date, distanceKm, elevationGainM, elevationLossM, durationMinutes, gpxXml, description, ... }
-  app.post('/api/routes', async (req, res) => {
+  // POST /api/routes or /api/hikes { title, date, distanceKm, elevationGainM, elevationLossM, durationMinutes, gpxXml, description, ... }
+  const handleSaveRoute = async (req: express.Request, res: express.Response) => {
     try {
       const {
         title,
@@ -633,7 +636,14 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           ? candidateRange
           : detectedRange;
 
-      const newHike = {
+      const finalTrackPoints =
+        Array.isArray(req.body.trackPoints) && req.body.trackPoints.length > 0
+          ? req.body.trackPoints
+          : parsedGpx?.trackPoints?.length
+          ? parsedGpx.trackPoints
+          : undefined;
+
+      const newHike: Record<string, any> = {
         id: routeId,
         title: finalTitle,
         mountainRange: finalRange,
@@ -647,38 +657,47 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         difficulty: reqDifficulty || (isMountaineering ? 'climbing' : (finalGain > 0 || finalDistance > 0)
           ? (finalGain >= 1000 || finalDistance >= 22 ? 'hard' : (finalGain <= 350 && finalDistance <= 10 ? 'easy' : 'moderate'))
           : undefined),
-        rating: undefined,
         description:
           description ||
           'Nová aktivita z Garminu. Klikněte pro doplnění zážitků a fotek.',
-        photos: [],
-        highestPointM: parsedGpx?.maxEle,
-        lowestPointM: parsedGpx?.minEle,
-        peakCoords: {
+        photos: Array.isArray(req.body.photos) ? req.body.photos : [],
+        highestPointM: Number(req.body.highestPointM) || parsedGpx?.maxEle || (finalTrackPoints?.length ? Math.max(...finalTrackPoints.map((p: any) => p.ele ?? 0).filter((e: number) => e > 0)) : undefined),
+        lowestPointM: Number(req.body.lowestPointM) || parsedGpx?.minEle || (finalTrackPoints?.length ? Math.min(...finalTrackPoints.map((p: any) => p.ele ?? 9999).filter((e: number) => e > 0)) : undefined),
+        peakCoords: req.body.peakCoords || {
           lat: peakLat,
           lng: peakLng,
           name: finalTitle,
         },
-        trackPoints: parsedGpx?.trackPoints?.length ? parsedGpx.trackPoints : undefined,
+        trackPoints: finalTrackPoints,
         gpxRawXml: gpxXml || undefined,
+        garminActivityId: req.body.garminActivityId || req.body.activityId,
+        source: 'garmin',
       };
 
-      // Save to Firestore if available
+      // Sanitize: Firestore throws on undefined, so omit any undefined values
+      const cleanHikeForDb: Record<string, any> = {};
+      for (const [k, v] of Object.entries(newHike)) {
+        if (v !== undefined) {
+          cleanHikeForDb[k] = v;
+        }
+      }
+
+      // Save to Firestore
       if (db) {
         try {
-          await setDoc(doc(db, 'hikes', routeId), newHike);
+          await setDoc(doc(db, 'hikes', routeId), cleanHikeForDb, { merge: true });
           console.log(`[API /api/routes] Trasa ${routeId} úspěšně uložena do Firestore.`);
         } catch (dbErr) {
-          console.warn('[API /api/routes] Chyba při zápisu do Firestore:', dbErr);
+          console.error('[API /api/routes] Chyba při zápisu do Firestore:', dbErr);
         }
       }
 
       // Return structure expected by Garmin python script: r.json().get("route", {}).get("id")
       return res.status(201).json({
         success: true,
-        route: newHike,
+        route: cleanHikeForDb,
         message: 'Túra úspěšně uložena do Horského deníku.',
-        openUrl: `${baseUrl}/?key=1234&edit=${routeId}`,
+        openUrl: `${baseUrl}/?key=0303&edit=${routeId}`,
       });
     } catch (err: any) {
       console.error('[API /api/routes] Selhalo zpracování trasy:', err);
@@ -686,7 +705,10 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         error: err.message || 'Chyba při ukládání trasy',
       });
     }
-  });
+  };
+
+  app.post('/api/routes', handleSaveRoute);
+  app.post('/api/hikes', handleSaveRoute);
 
   // GET /api/routes: List all routes
   app.get('/api/routes', async (req, res) => {

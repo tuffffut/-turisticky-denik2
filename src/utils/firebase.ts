@@ -14,6 +14,11 @@ import firebaseConfig from '../../firebase-applet-config.json';
 import { MountainHike, PinConfig, GPXTrackPoint } from '../types';
 import { parseGPX } from './gpxParser';
 import { parseValidDate } from './dateUtils';
+import {
+  detectMountainRangeFromCoords,
+  detectMountainRangeFromTitle,
+  isSuspectMountainRange,
+} from './mountainRanges';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
@@ -47,6 +52,41 @@ function hydrateHikeWithGPX(hike: MountainHike): MountainHike {
       console.warn('Nelze naparsovat gpxRawXml pro trasu:', hike.id, e);
     }
   }
+
+  // Always derive highestPointM and lowestPointM from trackPoints if missing
+  if (!hike.highestPointM && hike.trackPoints && hike.trackPoints.length > 0) {
+    const validEles = hike.trackPoints.map((p) => p.ele).filter((e): e is number => typeof e === 'number' && e > 0);
+    if (validEles.length > 0) {
+      hike.highestPointM = Math.round(Math.max(...validEles));
+    }
+  }
+  if (!hike.lowestPointM && hike.trackPoints && hike.trackPoints.length > 0) {
+    const validEles = hike.trackPoints.map((p) => p.ele).filter((e): e is number => typeof e === 'number' && e > 0);
+    if (validEles.length > 0) {
+      hike.lowestPointM = Math.round(Math.min(...validEles));
+    }
+  }
+
+  // Ensure mountainRange is accurate and not generic České hory
+  if (
+    !hike.mountainRange ||
+    hike.mountainRange === 'Aktivita v terénu' ||
+    hike.mountainRange.toLowerCase() === 'české hory' ||
+    hike.mountainRange.toLowerCase() === 'ceske hory'
+  ) {
+    const pLat = hike.peakCoords?.lat || hike.trackPoints?.[0]?.lat;
+    const pLng = hike.peakCoords?.lng || hike.trackPoints?.[0]?.lng;
+    let detected: string | undefined = undefined;
+    if (pLat && pLng) {
+      detected = detectMountainRangeFromCoords(pLat, pLng);
+    }
+    if (!detected || detected === 'Aktivita v terénu' || detected === 'Česká republika (výlet)') {
+      const fromTitle = detectMountainRangeFromTitle(hike.title);
+      if (fromTitle) detected = fromTitle;
+    }
+    hike.mountainRange = detected || 'Česká republika (výlet)';
+  }
+
   return hike;
 }
 
@@ -74,7 +114,12 @@ export function subscribeToHikes(
             return;
           }
 
-          const cleanTitle = (raw.title && String(raw.title).trim()) || 'Aktivita v terénu';
+          const cleanTitle =
+            (raw.title && String(raw.title).trim()) ||
+            (raw.name && String(raw.name).trim()) ||
+            (raw.activityName && String(raw.activityName).trim()) ||
+            'Aktivita v terénu';
+
           let cleanPhotos = Array.isArray(raw.photos) ? raw.photos : [];
           // Strip stock Unsplash placeholder photo from Garmin activities so it's clean for user photos
           cleanPhotos = cleanPhotos.filter((url: any) => {
@@ -83,10 +128,116 @@ export function subscribeToHikes(
             return true;
           });
 
+          // Normalize trackPoints: ensure lat, lng, ele, distFromStartKm exist
+          let cleanTrackPoints: GPXTrackPoint[] | undefined = undefined;
+          if (Array.isArray(raw.trackPoints) && raw.trackPoints.length > 0) {
+            cleanTrackPoints = raw.trackPoints.map((pt: any) => ({
+              lat: Number(pt.lat) || 0,
+              lng: Number(pt.lng ?? pt.lon) || 0,
+              ele: typeof pt.ele === 'number' ? pt.ele : typeof pt.elevationM === 'number' ? pt.elevationM : undefined,
+              distFromStartKm:
+                typeof pt.distFromStartKm === 'number'
+                  ? pt.distFromStartKm
+                  : typeof pt.distanceKm === 'number'
+                  ? pt.distanceKm
+                  : undefined,
+              time: pt.time,
+            }));
+          }
+
+          // Mountain range resolution
+          let cleanRange = (raw.mountainRange && String(raw.mountainRange).trim()) || '';
+          const pLat = raw.peakCoords?.lat || raw.startPoint?.lat || cleanTrackPoints?.[0]?.lat;
+          const pLng =
+            raw.peakCoords?.lng ||
+            raw.peakCoords?.lon ||
+            raw.startPoint?.lon ||
+            raw.startPoint?.lng ||
+            cleanTrackPoints?.[0]?.lng;
+
+          const isGenericOrSuspect =
+            !cleanRange ||
+            cleanRange === 'Aktivita v terénu' ||
+            cleanRange.toLowerCase() === 'české hory' ||
+            cleanRange.toLowerCase() === 'ceske hory' ||
+            cleanRange.toLowerCase() === 'zahraničí' ||
+            isSuspectMountainRange(cleanRange, pLat, pLng);
+
+          if (isGenericOrSuspect) {
+            let detected: string | undefined = undefined;
+            if (pLat && pLng) {
+              detected = detectMountainRangeFromCoords(pLat, pLng);
+            }
+            if (!detected || detected === 'Aktivita v terénu' || detected === 'Česká republika (výlet)') {
+              const fromTitle = detectMountainRangeFromTitle(cleanTitle);
+              if (fromTitle) detected = fromTitle;
+            }
+            if (detected && detected !== 'Aktivita v terénu') {
+              cleanRange = detected;
+            } else {
+              cleanRange = detectMountainRangeFromTitle(cleanTitle) || 'Česká republika (výlet)';
+            }
+
+            // Self-heal document in Firestore if it was stored with generic 'České hory'
+            if (
+              raw.mountainRange &&
+              (raw.mountainRange.toLowerCase() === 'české hory' || raw.mountainRange.toLowerCase() === 'ceske hory') &&
+              cleanRange &&
+              cleanRange !== raw.mountainRange
+            ) {
+              setDoc(docSnap.ref, { mountainRange: cleanRange }, { merge: true }).catch(() => {});
+            }
+          }
+
+          // Elevation extremes fallback
+          let highestPointM: number | undefined = undefined;
+          if (typeof raw.highestPointM === 'number' && !isNaN(raw.highestPointM)) {
+            highestPointM = raw.highestPointM;
+          } else if (raw.highestPointM) {
+            const p = parseFloat(String(raw.highestPointM).replace(/[^\d.-]/g, ''));
+            if (!isNaN(p) && p > 0) highestPointM = Math.round(p);
+          }
+
+          let lowestPointM: number | undefined = undefined;
+          if (typeof raw.lowestPointM === 'number' && !isNaN(raw.lowestPointM)) {
+            lowestPointM = raw.lowestPointM;
+          } else if (raw.lowestPointM) {
+            const p = parseFloat(String(raw.lowestPointM).replace(/[^\d.-]/g, ''));
+            if (!isNaN(p) && p > 0) lowestPointM = Math.round(p);
+          }
+
+          if (!highestPointM && cleanTrackPoints && cleanTrackPoints.length > 0) {
+            const eles = cleanTrackPoints
+              .map((p) => p.ele)
+              .filter((e): e is number => typeof e === 'number' && e > 0);
+            if (eles.length > 0) {
+              highestPointM = Math.round(Math.max(...eles));
+            }
+          }
+          if (!highestPointM && raw.peakCoords?.name) {
+            const m = /(\d{3,4})\s*(?:m|m\s*n\.?\s*m\.?)?/i.exec(raw.peakCoords.name);
+            if (m) highestPointM = parseInt(m[1], 10);
+          }
+          if (!highestPointM && cleanTitle) {
+            const m = /(\d{3,4})\s*(?:m|m\s*n\.?\s*m\.?)?/i.exec(cleanTitle);
+            if (m) highestPointM = parseInt(m[1], 10);
+          }
+          if (!highestPointM && raw.elevationGainM && Number(raw.elevationGainM) > 0) {
+            highestPointM = Math.round(Number(raw.elevationGainM));
+          }
+          if (!lowestPointM && cleanTrackPoints && cleanTrackPoints.length > 0) {
+            const eles = cleanTrackPoints
+              .map((p) => p.ele)
+              .filter((e): e is number => typeof e === 'number' && e > 0);
+            if (eles.length > 0) {
+              lowestPointM = Math.round(Math.min(...eles));
+            }
+          }
+
           const cleanHike: MountainHike = {
             id: hikeId,
             title: cleanTitle,
-            mountainRange: (raw.mountainRange && String(raw.mountainRange).trim()) || 'Aktivita v terénu',
+            mountainRange: cleanRange,
             activityType: raw.activityType || undefined,
             date: parseValidDate(raw.date || raw.time || raw.createdAt),
             distanceKm: typeof raw.distanceKm === 'number' && !isNaN(raw.distanceKm) ? raw.distanceKm : 0,
@@ -99,10 +250,14 @@ export function subscribeToHikes(
             description: raw.description || '',
             photos: cleanPhotos,
             videos: Array.isArray(raw.videos) ? raw.videos : [],
-            highestPointM: raw.highestPointM,
-            lowestPointM: raw.lowestPointM,
-            peakCoords: raw.peakCoords || { lat: 50.736, lng: 15.74, name: cleanTitle },
-            trackPoints: raw.trackPoints,
+            highestPointM: highestPointM,
+            lowestPointM: lowestPointM,
+            peakCoords: raw.peakCoords || {
+              lat: cleanTrackPoints?.[0]?.lat || 50.736,
+              lng: cleanTrackPoints?.[0]?.lng || 15.74,
+              name: cleanTitle,
+            },
+            trackPoints: cleanTrackPoints,
             gpxRawXml: raw.gpxRawXml,
             weather: raw.weather,
             hutsAndWaypoints: Array.isArray(raw.hutsAndWaypoints) ? raw.hutsAndWaypoints : undefined,
@@ -272,24 +427,41 @@ export async function saveHikesBatchToFirestore(
 }
 
 /**
- * Fetches a single hike from Firestore by its ID.
+ * Fetches a single hike from Firestore by its ID (supports hikes and mountain_hikes collections, and hyphen/underscore variants).
  */
 export async function getHikeFromFirestore(hikeId: string): Promise<MountainHike | null> {
   if (!hikeId || !hikeId.trim()) return null;
-  try {
-    const docRef = doc(db, HIKES_COLLECTION, hikeId.trim());
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const raw = snap.data() as any;
-      const cleanHike: MountainHike = {
-        ...raw,
-        id: raw.id || snap.id,
-        date: parseValidDate(raw.date || raw.time),
-      };
-      return hydrateHikeWithGPX(cleanHike);
+  const rawId = hikeId.trim();
+  const candidateIds = Array.from(
+    new Set([
+      rawId,
+      rawId.replace(/_/g, '-'),
+      rawId.replace(/-/g, '_'),
+      rawId.startsWith('garmin') ? rawId : `garmin-${rawId}`,
+      rawId.startsWith('garmin') ? rawId : `garmin_${rawId}`,
+    ])
+  );
+
+  const candidateCollections = [HIKES_COLLECTION, 'mountain_hikes'];
+
+  for (const col of candidateCollections) {
+    for (const candId of candidateIds) {
+      try {
+        const docRef = doc(db, col, candId);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          const raw = snap.data() as any;
+          const cleanHike: MountainHike = {
+            ...raw,
+            id: raw.id || snap.id,
+            date: parseValidDate(raw.date || raw.time),
+          };
+          return hydrateHikeWithGPX(cleanHike);
+        }
+      } catch (err) {
+        // Continue trying next candidate
+      }
     }
-  } catch (err) {
-    console.warn(`Chyba při načítání trasy ${hikeId} z Firestore:`, err);
   }
   return null;
 }
@@ -315,6 +487,83 @@ export async function seedHikesIfEmpty(initialHikes: MountainHike[]): Promise<bo
     console.warn('Could not seed Firestore collection:', err);
   }
   return false;
+}
+
+/**
+ * Resets all hikes in Firestore by clearing the collection and inserting the provided default hikes.
+ */
+export async function resetAllHikesInFirestore(defaultHikes: MountainHike[]): Promise<boolean> {
+  try {
+    const colRef = collection(db, HIKES_COLLECTION);
+    const snapshot = await getDocs(colRef);
+    const batch = writeBatch(db);
+    snapshot.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
+    defaultHikes.forEach((hike) => {
+      const docRef = doc(db, HIKES_COLLECTION, hike.id);
+      const cleanData = JSON.parse(JSON.stringify(hike));
+      batch.set(docRef, cleanData);
+    });
+    await batch.commit();
+    return true;
+  } catch (err) {
+    console.warn('Could not reset Firestore hikes collection:', err);
+    return false;
+  }
+}
+
+/**
+ * Repairs missing fields (title, mountainRange, trackPoints format) on existing hikes in Firestore.
+ */
+export async function repairAllHikesInFirestore(): Promise<number> {
+  try {
+    const colRef = collection(db, HIKES_COLLECTION);
+    const snapshot = await getDocs(colRef);
+    const batch = writeBatch(db);
+    let count = 0;
+
+    snapshot.forEach((docSnap) => {
+      const raw = docSnap.data() as any;
+      let needsUpdate = false;
+      const updates: Record<string, any> = {};
+
+      if (!raw.title && (raw.name || raw.activityName)) {
+        updates.title = raw.name || raw.activityName;
+        needsUpdate = true;
+      }
+
+      if (!raw.mountainRange || raw.mountainRange === 'Aktivita v terénu') {
+        const pLat =
+          raw.peakCoords?.lat ||
+          raw.startPoint?.lat ||
+          (Array.isArray(raw.trackPoints) && raw.trackPoints[0]?.lat);
+        const pLng =
+          raw.peakCoords?.lng ||
+          raw.peakCoords?.lon ||
+          raw.startPoint?.lon ||
+          raw.startPoint?.lng ||
+          (Array.isArray(raw.trackPoints) && (raw.trackPoints[0]?.lng ?? raw.trackPoints[0]?.lon));
+        if (pLat && pLng) {
+          updates.mountainRange = detectMountainRangeFromCoords(pLat, pLng);
+          needsUpdate = true;
+        }
+      }
+
+      if (needsUpdate) {
+        batch.set(docSnap.ref, updates, { merge: true });
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      await batch.commit();
+    }
+    return count;
+  } catch (err) {
+    console.warn('Could not repair Firestore hikes:', err);
+    return 0;
+  }
 }
 
 /**

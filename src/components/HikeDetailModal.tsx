@@ -81,7 +81,7 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
       if (newBase64Photos.length > 0) {
         const combined = [...(hike.photos || []), ...newBase64Photos];
         const updatedPhotos = combined.slice(0, 25);
-        onUpdateHike({
+        onUpdateHike?.({
           ...hike,
           photos: updatedPhotos,
         });
@@ -92,6 +92,18 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
       setIsUploadingMorePhotos(false);
       e.target.value = '';
     }
+  };
+
+  const handleSetCoverPhoto = (index: number) => {
+    if (!hike || index === 0 || !hike.photos || index >= hike.photos.length) return;
+    const selected = hike.photos[index];
+    const rest = hike.photos.filter((_, i) => i !== index);
+    const reordered = [selected, ...rest];
+    onUpdateHike?.({
+      ...hike,
+      photos: reordered,
+    });
+    setActivePhotoIdx(0);
   };
 
   const handleDownloadGPX = () => {
@@ -331,7 +343,31 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
               <div className="p-3 rounded-xl bg-stone-950/70 border border-stone-800 flex flex-col">
                 <span className="text-stone-500 text-[11px] uppercase tracking-wider">Nejvyšší bod</span>
                 <span className="text-lg font-bold text-amber-400 font-mono mt-0.5">
-                  {hike.highestPointM ? `${hike.highestPointM} m` : 'N/A'}
+                  {(() => {
+                    const rawVal = hike.highestPointM;
+                    const parsedNum = typeof rawVal === 'number' ? rawVal : rawVal ? parseFloat(String(rawVal).replace(/[^\d.-]/g, '')) : NaN;
+                    if (!isNaN(parsedNum) && parsedNum > 0) {
+                      return `${Math.round(parsedNum)} m`;
+                    }
+                    if (hike.trackPoints && hike.trackPoints.length > 0) {
+                      const eles = hike.trackPoints.map((p) => p.ele).filter((e): e is number => typeof e === 'number' && e > 0);
+                      if (eles.length > 0) {
+                        return `${Math.round(Math.max(...eles))} m`;
+                      }
+                    }
+                    if (hike.peakCoords?.name) {
+                      const match = /(\d{3,4})\s*(?:m|m\s*n\.?\s*m\.?)?/i.exec(hike.peakCoords.name);
+                      if (match) return `${match[1]} m`;
+                    }
+                    if (hike.title) {
+                      const match = /(\d{3,4})\s*(?:m|m\s*n\.?\s*m\.?)?/i.exec(hike.title);
+                      if (match) return `${match[1]} m`;
+                    }
+                    if (hike.elevationGainM && hike.elevationGainM > 0) {
+                      return `+${hike.elevationGainM} m`;
+                    }
+                    return '—';
+                  })()}
                 </span>
               </div>
 
@@ -551,27 +587,58 @@ export const HikeDetailModal: React.FC<HikeDetailModalProps> = ({
                       <span>Otevřít na celou obrazovku</span>
                     </div>
                   </div>
-                  <div className="absolute bottom-3 left-3 px-3 py-1 rounded-lg bg-stone-900/80 backdrop-blur-md text-xs text-stone-200">
-                    Fotografie {activePhotoIdx + 1} z {hike.photos.length}
+                  <div className="absolute bottom-3 left-3 px-3 py-1 rounded-lg bg-stone-900/80 backdrop-blur-md text-xs text-stone-200 flex items-center gap-2 shadow">
+                    <span>Fotografie {activePhotoIdx + 1} z {hike.photos.length}</span>
+                    {activePhotoIdx === 0 && (
+                      <span className="px-2 py-0.5 rounded-md bg-amber-500 text-stone-950 font-bold text-[10px] flex items-center gap-1 shadow">
+                        <Star className="w-3 h-3 fill-stone-950" />
+                        <span>Úvodní fotka</span>
+                      </span>
+                    )}
                   </div>
+
+                  {/* Admin action: Set this photo as default cover */}
+                  {isAdmin && activePhotoIdx !== 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSetCoverPhoto(activePhotoIdx);
+                      }}
+                      className="absolute top-3 left-3 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs flex items-center gap-1.5 shadow-lg border border-amber-300 transition-all cursor-pointer z-10 hover:scale-105"
+                      title="Nastaví tuto fotografii jako úvodní fotku zobrazovanou na úvodní kartě trasy"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-stone-950" />
+                      <span>Nastavit jako úvodní fotku</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Thumbnails row */}
                 {hike.photos.length > 1 && (
                   <div className="flex items-center gap-2 overflow-x-auto pb-2">
                     {hike.photos.map((photo, index) => (
-                      <button
-                        key={index}
-                        type="button"
-                        onClick={() => setActivePhotoIdx(index)}
-                        className={`relative w-20 h-16 rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer ${
-                          activePhotoIdx === index
-                            ? 'border-emerald-500 shadow-md scale-95'
-                            : 'border-transparent opacity-60 hover:opacity-100'
-                        }`}
-                      >
-                        <img src={photo} alt="" className="w-full h-full object-cover" />
-                      </button>
+                      <div key={index} className="relative shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setActivePhotoIdx(index)}
+                          className={`relative w-20 h-16 rounded-xl overflow-hidden border-2 transition-all cursor-pointer block ${
+                            activePhotoIdx === index
+                              ? 'border-emerald-500 shadow-md scale-95'
+                              : 'border-transparent opacity-60 hover:opacity-100'
+                          }`}
+                        >
+                          <img src={photo} alt="" className="w-full h-full object-cover" />
+                        </button>
+                        {index === 0 && (
+                          <div
+                            className="absolute -top-1 -right-1 p-1 rounded-full bg-amber-500 text-stone-950 shadow"
+                            title="Tato fotka je nastavena jako úvodní"
+                          >
+                            <Star className="w-2.5 h-2.5 fill-stone-950" />
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}

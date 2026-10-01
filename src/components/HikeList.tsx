@@ -46,8 +46,17 @@ export const HikeList: React.FC<HikeListProps> = ({
     hikes.forEach((h) => {
       totalDist += h.distanceKm;
       totalEle += h.elevationGainM;
-      if (h.highestPointM && h.highestPointM > highest) {
-        highest = h.highestPointM;
+      let hPeak = 0;
+      if (typeof h.highestPointM === 'number' && h.highestPointM > 0) {
+        hPeak = h.highestPointM;
+      } else if (h.trackPoints && h.trackPoints.length > 0) {
+        const eles = h.trackPoints.map((p) => p.ele).filter((e): e is number => typeof e === 'number' && e > 0);
+        if (eles.length > 0) {
+          hPeak = Math.max(...eles);
+        }
+      }
+      if (hPeak > highest) {
+        highest = hPeak;
       }
     });
 

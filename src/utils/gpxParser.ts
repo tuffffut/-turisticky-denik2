@@ -141,8 +141,11 @@ export function parseGPX(xmlString: string): ParsedGPXResult {
         continue;
       }
 
-      const eleNode = pt.getElementsByTagName('ele')[0];
-      const ele = eleNode ? parseFloat(eleNode.textContent || '0') : undefined;
+      const eleNode =
+        pt.getElementsByTagName('ele')[0] ||
+        (pt.getElementsByTagNameNS ? pt.getElementsByTagNameNS('*', 'ele')[0] : null) ||
+        pt.getElementsByTagName('gpx:ele')[0];
+      const ele = eleNode && eleNode.textContent ? parseFloat(eleNode.textContent.trim()) : undefined;
 
       const timeNode = pt.getElementsByTagName('time')[0];
       const time = timeNode ? timeNode.textContent?.trim() || undefined : undefined;

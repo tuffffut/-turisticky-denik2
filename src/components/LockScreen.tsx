@@ -46,9 +46,10 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     if (pin.length < 32) {
       const next = pin + val;
       setPin(next);
-      // Auto submit if typed code matches admin or reader password exactly
-      if (next === pinConfig.adminPin || next === pinConfig.readerPin) {
-        handleAttemptUnlock(next);
+      // Auto submit immediately if typed code matches any valid admin or reader PIN
+      const matchedRole = authenticatePin(next, pinConfig);
+      if (matchedRole) {
+        onUnlock(matchedRole);
       }
     }
   };

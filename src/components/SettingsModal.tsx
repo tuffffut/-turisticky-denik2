@@ -29,6 +29,7 @@ interface SettingsModalProps {
   currentRole: UserRole;
   onPinsUpdated: (newConfig: PinConfig) => void;
   onResetData: () => void;
+  onRepairData?: () => void;
   onClearAllHikes?: () => void;
   onOpenImportHistory?: () => void;
   onOpenRangeManager?: () => void;
@@ -41,6 +42,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   currentRole,
   onPinsUpdated,
   onResetData,
+  onRepairData,
   onClearAllHikes,
   onOpenImportHistory,
   onOpenRangeManager,
@@ -125,7 +127,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setConfirmAction({
       isOpen: true,
       title: 'Obnovit výchozí hesla',
-      message: 'Opravdu chcete obnovit výchozí hesla (Admin: 1234, Čtenář: 0000)?',
+      message: 'Opravdu chcete obnovit výchozí hesla (Správce: 0303, Čtenář: 9999)?',
       confirmLabel: 'Obnovit hesla',
       isDestructive: false,
       onConfirm: async () => {
@@ -137,7 +139,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         try {
           await savePinsToFirestore(def);
         } catch {}
-        setSaveMessage('Hesla byla resetována na výchozí hodnoty (1234 a 0000).');
+        setSaveMessage('Hesla byla resetována na výchozí hodnoty (Správce: 0303 a Čtenář: 9999).');
         setTimeout(() => setSaveMessage(null), 3000);
       },
     });
@@ -453,13 +455,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
+              {onRepairData && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-stone-950/60 border border-stone-800">
+                  <div>
+                    <h4 className="text-xs font-semibold text-emerald-300">
+                      Opravit názvy a pohoří u tras
+                    </h4>
+                    <p className="text-[11px] text-stone-500">
+                      Automaticky doplní původní názvy z Garminu, správné pohoří i GPS profily.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRepairData();
+                      onClose();
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 text-xs font-medium border border-emerald-800/60 transition-colors cursor-pointer shrink-0"
+                  >
+                    Opravit trasy
+                  </button>
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-stone-950/60 border border-stone-800">
                 <div>
                   <h4 className="text-xs font-semibold text-stone-300">
                     Obnovit ukázková data túr
                   </h4>
                   <p className="text-[11px] text-stone-500">
-                    Vrátí 4 ukázkové výpravy (Sněžka, Rysy, Praděd, Martinské hole).
+                    Vrátí 4 ukázkové výpravy (Sněžka, Rysy, Praděd, Martinské hole) a přepíše databázi.
                   </p>
                 </div>
                 <button

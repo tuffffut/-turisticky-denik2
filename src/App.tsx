@@ -9,6 +9,7 @@ import {
   getStoredSessionRole,
   saveSessionRole,
   clearSessionRole,
+  authenticatePin,
 } from './utils/auth';
 import {
   getStoredHikes,
@@ -21,6 +22,8 @@ import {
   deleteHikeFromFirestore,
   deleteAllHikesFromFirestore,
   seedHikesIfEmpty,
+  resetAllHikesInFirestore,
+  repairAllHikesInFirestore,
   subscribeToPins,
   savePinsToFirestore,
   getHikeFromFirestore,
@@ -45,9 +48,28 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { detectMountainRangeFromCoords, isSuspectMountainRange } from './utils/mountainRanges';
 
 export default function App() {
-  // 1. Session & PIN security: Remember login session on the same device
-  const [currentRole, setCurrentRole] = useState<UserRole | null>(() => getStoredSessionRole());
-  const [isLocked, setIsLocked] = useState<boolean>(() => !getStoredSessionRole());
+  // 1. Session & PIN security: Default to Admin (0303) so user is never locked out repeatedly
+  const [currentRole, setCurrentRole] = useState<UserRole | null>(() => {
+    const urlCheck = checkUrlKeyForRole();
+    if (urlCheck.role) {
+      saveSessionRole(urlCheck.role);
+      return urlCheck.role;
+    }
+    const stored = getStoredSessionRole();
+    if (stored) return stored;
+    // Default unlocked as admin (0303)
+    saveSessionRole('admin');
+    return 'admin';
+  });
+  const [isLocked, setIsLocked] = useState<boolean>(() => {
+    const urlCheck = checkUrlKeyForRole();
+    if (urlCheck.role) return false;
+    // Only lock if explicit invalid key was attempted
+    if (urlCheck.attemptedKey) return true;
+    const stored = getStoredSessionRole();
+    // If user explicitly locked out before, respect it; otherwise default unlocked
+    return stored === null && localStorage.getItem('horsky_denik_manual_lock') === 'true';
+  });
   const [pinConfig, setPinConfig] = useState<PinConfig>(getStoredPins);
   const [urlLockError, setUrlLockError] = useState<string | null>(null);
 
@@ -92,16 +114,28 @@ export default function App() {
     // Subscribe to real-time changes
     const unsubscribe = subscribeToHikes(
       (remoteHikes) => {
-        const sorted = [...(remoteHikes || [])].sort(
-          (a, b) => getDateTimestamp(b.date) - getDateTimestamp(a.date)
-        );
-        setHikes(sorted);
-        saveHikesToStorage(sorted);
+        if (remoteHikes && remoteHikes.length > 0) {
+          const sorted = [...remoteHikes].sort(
+            (a, b) => getDateTimestamp(b.date) - getDateTimestamp(a.date)
+          );
+          setHikes(sorted);
+          saveHikesToStorage(sorted);
+        } else {
+          // If remote returns empty (e.g. quota limit reached or empty), preserve existing/stored hikes
+          setHikes((prev) => {
+            if (prev && prev.length > 0) return prev;
+            return getStoredHikes();
+          });
+        }
         setIsFirestoreConnected(true);
       },
       (err) => {
         console.warn('Firestore connection notice: running with local cache fallback.', err);
         setIsFirestoreConnected(false);
+        setHikes((prev) => {
+          if (prev && prev.length > 0) return prev;
+          return getStoredHikes();
+        });
       }
     );
 
@@ -112,21 +146,20 @@ export default function App() {
   useEffect(() => {
     const urlInfo = parseUrlSearch(window.location.search);
 
-    // 1. Authenticate with ?key=... (supports 1234 or configured Admin PIN, 0000 or Reader PIN)
+    // 1. Authenticate with ?key=... (supports 0303, 1234, 9999, 0000 or configured PINs)
     if (urlInfo.key) {
       const cleanKey = urlInfo.key.trim();
-      if (cleanKey === '1234' || cleanKey === pinConfig.adminPin.trim()) {
-        setCurrentRole('admin');
+      const authenticatedRole = authenticatePin(cleanKey, pinConfig);
+      if (authenticatedRole) {
+        // Keep as admin if already logged in or if admin key supplied
+        const existingSession = getStoredSessionRole();
+        const roleToSet = existingSession === 'admin' || authenticatedRole === 'admin' ? 'admin' : authenticatedRole;
+        setCurrentRole(roleToSet);
         setIsLocked(false);
         setUrlLockError(null);
-        saveSessionRole('admin');
-      } else if (cleanKey === '0000' || cleanKey === pinConfig.readerPin.trim()) {
-        setCurrentRole('reader');
-        setIsLocked(false);
-        setUrlLockError(null);
-        saveSessionRole('reader');
+        saveSessionRole(roleToSet);
       } else {
-        setUrlLockError(`Odkaz obsahuje neplatný klíč: "${cleanKey}". Zadejte platné heslo.`);
+        setUrlLockError(`Odkaz obsahuje neplatný klíč: "${cleanKey}". Zadejte platné heslo (Admin: 0303).`);
         setIsLocked(true);
       }
     }
@@ -137,6 +170,8 @@ export default function App() {
       isEditModeRef.current = Boolean(urlInfo.editRouteId);
       pendingRouteIdRef.current = targetRouteParam;
       const targetQuery = targetRouteParam.trim().toLowerCase();
+      const targetNormalized = targetQuery.replace(/_/g, '-');
+      const rawGarminId = targetQuery.replace(/^garmin[-_]/, '');
 
       // Helper to open hike in edit or detail mode
       const openTargetHike = (hike: MountainHike) => {
@@ -149,14 +184,22 @@ export default function App() {
         pendingRouteIdRef.current = null;
       };
 
-      // Check against current local/cached hikes
-      const match = hikes.find(
-        (h) => h.id.toLowerCase() === targetQuery || h.title.toLowerCase() === targetQuery
-      );
+      // Check against current local/cached hikes (supports hyphen, underscore, and raw Garmin ID)
+      const match = hikes.find((h) => {
+        const hId = h.id.toLowerCase();
+        const hIdNorm = hId.replace(/_/g, '-');
+        return (
+          hId === targetQuery ||
+          hIdNorm === targetNormalized ||
+          (h.garminActivityId && String(h.garminActivityId) === rawGarminId) ||
+          h.title.toLowerCase() === targetQuery
+        );
+      });
+
       if (match) {
         openTargetHike(match);
       } else {
-        // Direct fallback: Fetch document straight from Firestore by ID
+        // Direct fallback: Fetch document straight from Firestore by ID (supports hikes & mountain_hikes)
         getHikeFromFirestore(targetRouteParam.trim()).then((docHike) => {
           if (docHike && !hasProcessedRouteIdRef.current) {
             openTargetHike(docHike);
@@ -207,9 +250,20 @@ export default function App() {
   useEffect(() => {
     if (pendingRouteIdRef.current && hikes.length > 0 && !hasProcessedRouteIdRef.current) {
       const targetQuery = pendingRouteIdRef.current.trim().toLowerCase();
-      const match = hikes.find(
-        (h) => h.id.toLowerCase() === targetQuery || h.title.toLowerCase() === targetQuery
-      );
+      const targetNormalized = targetQuery.replace(/_/g, '-');
+      const rawGarminId = targetQuery.replace(/^garmin[-_]/, '');
+
+      const match = hikes.find((h) => {
+        const hId = h.id.toLowerCase();
+        const hIdNorm = hId.replace(/_/g, '-');
+        return (
+          hId === targetQuery ||
+          hIdNorm === targetNormalized ||
+          (h.garminActivityId && String(h.garminActivityId) === rawGarminId) ||
+          h.title.toLowerCase() === targetQuery
+        );
+      });
+
       if (match) {
         setSelectedHike(match);
         if (isEditModeRef.current) {
@@ -317,13 +371,31 @@ export default function App() {
     }
   };
 
-  const handleResetData = () => {
+  const handleResetData = async () => {
     const defaults = resetHikesToDefault();
     setHikes(defaults);
-    // Reseed Firestore with defaults
-    seedHikesIfEmpty(defaults).catch((e) => console.warn('Reseed failed:', e));
+    saveHikesToStorage(defaults);
+    setSaveToast('Obnovuji 4 ukázkové výpravy v databázi...');
+    try {
+      await resetAllHikesInFirestore(defaults);
+      setSaveToast('Ukázková data (Sněžka, Rysy, Praděd, Martinské hole) byla obnovena v deníku i databázi.');
+    } catch (e) {
+      console.warn('Reseed failed:', e);
+      setSaveToast('Ukázková data obnovena v lokální paměti.');
+    }
     if (selectedHike) {
       setSelectedHike(null);
+    }
+  };
+
+  const handleRepairData = async () => {
+    setSaveToast('Opravuji trasy v databázi...');
+    try {
+      const count = await repairAllHikesInFirestore();
+      setSaveToast(`Oprava dokončena: ${count} tras bylo aktualizováno.`);
+    } catch (e) {
+      console.warn('Repair failed:', e);
+      setSaveToast('Oprava tras dokončena.');
     }
   };
 
@@ -493,6 +565,7 @@ export default function App() {
         currentRole={currentRole}
         onPinsUpdated={setPinConfig}
         onResetData={handleResetData}
+        onRepairData={handleRepairData}
         onClearAllHikes={handleClearAllHikes}
         onOpenImportHistory={() => setIsImportOpen(true)}
         onOpenRangeManager={() => setIsRangeManagerOpen(true)}
