@@ -106,3 +106,28 @@ export async function processMultipleImageFiles(
 
   return results;
 }
+
+/**
+ * Stores hike photos under dedicated per-hike key to avoid hitting single-key localStorage 5MB limit.
+ */
+export function saveHikePhotosToLocal(hikeId: string, photos: string[]): void {
+  if (!hikeId || !photos) return;
+  try {
+    localStorage.setItem(`hike_photos_${hikeId}`, JSON.stringify(photos));
+  } catch (e) {
+    console.warn('Nelze uložit fotky trasy do lokální paměti:', e);
+  }
+}
+
+/**
+ * Retrieves locally cached hike photos if available.
+ */
+export function getHikePhotosFromLocal(hikeId: string): string[] | null {
+  if (!hikeId) return null;
+  try {
+    const raw = localStorage.getItem(`hike_photos_${hikeId}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}

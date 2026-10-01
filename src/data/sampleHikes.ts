@@ -1,6 +1,7 @@
 import { MountainHike, GPXTrackPoint } from '../types';
 import { calculateDistanceKm, buildGPXXml } from '../utils/gpxParser';
 import { parseValidDate } from '../utils/dateUtils';
+import { saveHikePhotosToLocal, getHikePhotosFromLocal } from '../utils/imageUtils';
 
 // Helper to interpolate realistic waypoints along a mountain route
 function generateRoutePoints(
@@ -355,12 +356,17 @@ export function getStoredHikes(): MountainHike[] {
       // Clean corrupt/test items and ensure valid ids and dates
       const valid = parsed
         .filter((h: any) => h && !h.test && (h.id || h.title || h.name))
-        .map((h: any) => ({
-          ...h,
-          id: (h.id && String(h.id).trim()) || `hike-${Math.random().toString(36).substring(2, 9)}`,
-          title: (h.title && String(h.title).trim()) || (h.name && String(h.name).trim()) || 'Aktivita v terénu',
-          date: parseValidDate(h.date || h.time),
-        }));
+        .map((h: any) => {
+          const hikeId = (h.id && String(h.id).trim()) || `hike-${Math.random().toString(36).substring(2, 9)}`;
+          const localPhotos = getHikePhotosFromLocal(hikeId);
+          return {
+            ...h,
+            id: hikeId,
+            title: (h.title && String(h.title).trim()) || (h.name && String(h.name).trim()) || 'Aktivita v terénu',
+            date: parseValidDate(h.date || h.time),
+            photos: (localPhotos && localPhotos.length > 0) ? localPhotos : (Array.isArray(h.photos) ? h.photos : []),
+          };
+        });
       return valid.length > 0 ? valid : SAMPLE_HIKES;
     }
 
@@ -374,6 +380,13 @@ export function getStoredHikes(): MountainHike[] {
 }
 
 export function saveHikesToStorage(hikes: MountainHike[]): void {
+  // Always persist photos to dedicated keys first so photos are never lost if the full array hits quota
+  hikes.forEach((h) => {
+    if (h.id && Array.isArray(h.photos) && h.photos.length > 0) {
+      saveHikePhotosToLocal(h.id, h.photos);
+    }
+  });
+
   try {
     localStorage.setItem(LOCAL_STORAGE_INITIALIZED_KEY, 'true');
     localStorage.setItem(LOCAL_STORAGE_HIKES_KEY, JSON.stringify(hikes));
@@ -384,6 +397,7 @@ export function saveHikesToStorage(hikes: MountainHike[]): void {
       const lightweight = hikes.map((h) => ({
         ...h,
         gpxRawXml: undefined,
+        photos: undefined, // Cached separately via saveHikePhotosToLocal
         trackPoints: h.trackPoints && h.trackPoints.length > 200 ? h.trackPoints.slice(0, 200) : h.trackPoints,
       }));
       localStorage.setItem(LOCAL_STORAGE_HIKES_KEY, JSON.stringify(lightweight));

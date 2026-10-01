@@ -177,16 +177,6 @@ export function subscribeToHikes(
             } else {
               cleanRange = detectMountainRangeFromTitle(cleanTitle) || 'Česká republika (výlet)';
             }
-
-            // Self-heal document in Firestore if it was stored with generic 'České hory'
-            if (
-              raw.mountainRange &&
-              (raw.mountainRange.toLowerCase() === 'české hory' || raw.mountainRange.toLowerCase() === 'ceske hory') &&
-              cleanRange &&
-              cleanRange !== raw.mountainRange
-            ) {
-              setDoc(docSnap.ref, { mountainRange: cleanRange }, { merge: true }).catch(() => {});
-            }
           }
 
           // Elevation extremes fallback

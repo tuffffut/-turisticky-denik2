@@ -16,6 +16,7 @@ import {
   saveHikesToStorage,
   resetHikesToDefault,
 } from './data/sampleHikes';
+import { saveHikePhotosToLocal, getHikePhotosFromLocal } from './utils/imageUtils';
 import {
   subscribeToHikes,
   saveHikeToFirestore,
@@ -120,8 +121,15 @@ export default function App() {
           const sorted = [...remoteHikes].sort(
             (a, b) => getDateTimestamp(b.date) - getDateTimestamp(a.date)
           );
-          setHikes(sorted);
-          saveHikesToStorage(sorted);
+          const withLocalPhotos = sorted.map((h) => {
+            const localPhotos = getHikePhotosFromLocal(h.id);
+            if (localPhotos && localPhotos.length > 0 && (!h.photos || h.photos.length === 0)) {
+              return { ...h, photos: localPhotos };
+            }
+            return h;
+          });
+          setHikes(withLocalPhotos);
+          saveHikesToStorage(withLocalPhotos);
         } else {
           // If remote returns empty (e.g. quota limit reached or empty), preserve existing/stored hikes
           setHikes((prev) => {
@@ -317,6 +325,10 @@ export default function App() {
       if (detected) {
         cleanHike = { ...cleanHike, mountainRange: detected };
       }
+    }
+
+    if (cleanHike.photos && cleanHike.photos.length > 0) {
+      saveHikePhotosToLocal(cleanHike.id, cleanHike.photos);
     }
 
     setHikes((prevHikes) => {
