@@ -935,8 +935,9 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     }
   });
 
-  // Vite middleware for dev or static serving for production
-  if (process.env.NODE_ENV !== 'production') {
+  // Vite middleware for dev or static serving for production / dist fallback
+  const hasSrcApp = fs.existsSync(path.join(process.cwd(), 'src', 'App.tsx'));
+  if (process.env.NODE_ENV !== 'production' && hasSrcApp) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
