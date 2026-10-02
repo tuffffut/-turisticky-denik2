@@ -121,15 +121,24 @@ export default function App() {
           const sorted = [...remoteHikes].sort(
             (a, b) => getDateTimestamp(b.date) - getDateTimestamp(a.date)
           );
-          const withLocalPhotos = sorted.map((h) => {
-            const localPhotos = getHikePhotosFromLocal(h.id);
-            if (localPhotos && localPhotos.length > 0 && (!h.photos || h.photos.length === 0)) {
-              return { ...h, photos: localPhotos };
-            }
-            return h;
+          setHikes((prev) => {
+            const withLocalPhotos = sorted.map((h) => {
+              const prevMatch = prev.find((p) => p.id === h.id);
+              const localPhotos = getHikePhotosFromLocal(h.id);
+
+              let finalPhotos = h.photos;
+              if (!finalPhotos || finalPhotos.length === 0) {
+                if (localPhotos && localPhotos.length > 0) {
+                  finalPhotos = localPhotos;
+                } else if (prevMatch && prevMatch.photos && prevMatch.photos.length > 0) {
+                  finalPhotos = prevMatch.photos;
+                }
+              }
+              return { ...h, photos: finalPhotos || [] };
+            });
+            saveHikesToStorage(withLocalPhotos);
+            return withLocalPhotos;
           });
-          setHikes(withLocalPhotos);
-          saveHikesToStorage(withLocalPhotos);
         } else {
           // If remote returns empty (e.g. quota limit reached or empty), preserve existing/stored hikes
           setHikes((prev) => {

@@ -682,9 +682,47 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }
       }
 
-      // Save to Firestore
+      // Save to Firestore (Preserve existing photos and user notes so Garmin re-sync never wipes them)
       if (db) {
         try {
+          const existingDocSnap = await getDoc(doc(db, 'hikes', routeId));
+          if (existingDocSnap.exists()) {
+            const existingData = existingDocSnap.data();
+
+            // 1. Preserve photos if existing has photos and incoming is empty
+            if (
+              Array.isArray(existingData.photos) &&
+              existingData.photos.length > 0 &&
+              (!cleanHikeForDb.photos || cleanHikeForDb.photos.length === 0)
+            ) {
+              cleanHikeForDb.photos = existingData.photos;
+              console.log(`[API /api/routes] Zachovány existující fotky (${existingData.photos.length}) pro trasu ${routeId}`);
+            }
+
+            // 2. Preserve user's custom notes/description
+            const isIncomingGeneric =
+              !description ||
+              description.includes('Automaticky synchronizováno') ||
+              description.includes('Nová aktivita z Garminu');
+            if (existingData.description && isIncomingGeneric) {
+              cleanHikeForDb.description = existingData.description;
+              console.log(`[API /api/routes] Zachovány uživatelské poznámky pro trasu ${routeId}`);
+            }
+
+            // 3. Preserve user rating, weather, stops/waypoints, and videos if set
+            if (existingData.rating && !cleanHikeForDb.rating) {
+              cleanHikeForDb.rating = existingData.rating;
+            }
+            if (existingData.weather && !cleanHikeForDb.weather) {
+              cleanHikeForDb.weather = existingData.weather;
+            }
+            if (Array.isArray(existingData.hutsAndWaypoints) && existingData.hutsAndWaypoints.length > 0 && (!cleanHikeForDb.hutsAndWaypoints || cleanHikeForDb.hutsAndWaypoints.length === 0)) {
+              cleanHikeForDb.hutsAndWaypoints = existingData.hutsAndWaypoints;
+            }
+            if (Array.isArray(existingData.videos) && existingData.videos.length > 0 && (!cleanHikeForDb.videos || cleanHikeForDb.videos.length === 0)) {
+              cleanHikeForDb.videos = existingData.videos;
+            }
+          }
           await setDoc(doc(db, 'hikes', routeId), cleanHikeForDb, { merge: true });
           console.log(`[API /api/routes] Trasa ${routeId} úspěšně uložena do Firestore.`);
         } catch (dbErr) {
