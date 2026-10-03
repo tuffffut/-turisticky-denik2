@@ -935,6 +935,82 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     }
   });
 
+  // --- Photo storage endpoints (Dedicated Firestore collection 'hike_photos' for high-resolution Full HD photos) ---
+  // POST /api/photos/upload: Upload high quality photo
+  app.post('/api/photos/upload', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(500).json({ error: 'Firestore není připojen' });
+      }
+      const { hikeId, dataUrl, name, caption } = req.body;
+      if (!dataUrl) {
+        return res.status(400).json({ error: 'Chybí dataUrl fotografie' });
+      }
+      const photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      const photoRef = doc(db, 'hike_photos', photoId);
+      await setDoc(photoRef, {
+        id: photoId,
+        hikeId: hikeId || '',
+        dataUrl,
+        name: name || 'foto.webp',
+        caption: caption || '',
+        createdAt: new Date().toISOString(),
+      });
+      console.log(`[API /api/photos] Fotografie ${photoId} uložena do Firestore pro trasu ${hikeId || 'nová'}`);
+      return res.json({
+        id: photoId,
+        url: `/api/photos/${photoId}`,
+        rawUrl: `/api/photos/${photoId}?raw=1`,
+        hikeId: hikeId || '',
+      });
+    } catch (err: any) {
+      console.error('[API /api/photos] Chyba při ukládání fotky:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/photos/:id: Get photo by id
+  app.get('/api/photos/:id', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(500).json({ error: 'Firestore není připojen' });
+      }
+      const { id } = req.params;
+      const photoSnap = await getDoc(doc(db, 'hike_photos', id));
+      if (!photoSnap.exists()) {
+        return res.status(404).json({ error: 'Fotografie nenalezena' });
+      }
+      const photoData = photoSnap.data();
+      if (req.query.raw === '1' && typeof photoData.dataUrl === 'string') {
+        const matches = photoData.dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const contentType = matches[1];
+          const buffer = Buffer.from(matches[2], 'base64');
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          return res.send(buffer);
+        }
+      }
+      return res.json(photoData);
+    } catch (err: any) {
+      console.error('[API /api/photos/:id] Chyba:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/photos/:id: Delete photo
+  app.delete('/api/photos/:id', async (req, res) => {
+    try {
+      if (!db) {
+        return res.status(500).json({ error: 'Firestore není připojen' });
+      }
+      await deleteDoc(doc(db, 'hike_photos', req.params.id));
+      return res.json({ success: true, message: 'Fotografie smazána' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // Vite middleware for dev or static serving for production / dist fallback
   const hasSrcApp = fs.existsSync(path.join(process.cwd(), 'src', 'App.tsx'));
   if (process.env.NODE_ENV !== 'production' && hasSrcApp) {
