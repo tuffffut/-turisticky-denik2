@@ -6,68 +6,131 @@ export interface OptimizedPhotoResult {
   height: number;
   sizeKb: number;
   name: string;
+  wasDownscaled: boolean;
 }
 
 /**
- * Optimizes an image to high resolution (max 2560px 2K Quad HD) with high quality WebP/JPEG encoding.
- * Ensures razor-sharp clarity on 4K PC monitors, Retina displays, and high-DPI mobile phones.
+ * Downscales an image using HTML5 Canvas to 4K Ultra HD (max 3840px) with 0.95 visually lossless quality.
+ */
+function downscaleCanvas(
+  dataUrl: string,
+  origWidth: number,
+  origHeight: number,
+  maxDimension = 3840,
+  quality = 0.95,
+  fileName = 'photo.webp'
+): Promise<OptimizedPhotoResult> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let width = img.naturalWidth || origWidth;
+      let height = img.naturalHeight || origHeight;
+
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Chyba inicializace grafického plátna'));
+        return;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Prefer WebP 0.95, fallback to JPEG 0.95
+      let resultDataUrl = canvas.toDataURL('image/webp', quality);
+      if (!resultDataUrl.startsWith('data:image/webp')) {
+        resultDataUrl = canvas.toDataURL('image/jpeg', quality);
+      }
+
+      const base64Length = resultDataUrl.length - (resultDataUrl.indexOf(',') + 1);
+      const sizeKb = Math.round(((base64Length * 3) / 4) / 1024);
+
+      resolve({
+        dataUrl: resultDataUrl,
+        width,
+        height,
+        sizeKb,
+        name: fileName,
+        wasDownscaled: true,
+      });
+    };
+    img.onerror = () => reject(new Error('Chyba při dekódování obrázku'));
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Optimizes photos with extreme fidelity:
+ * 1. If file is under 1.8 MB (standard photo), keeps 100% of original camera pixels and colors!
+ * 2. If file is over 1.8 MB, converts to 4K Ultra HD (3840px) at 0.95 quality (visually lossless).
  */
 export async function optimizePhoto(
   file: File,
-  maxDimension = 2560,
-  quality = 0.88
+  maxDimension = 3840,
+  quality = 0.95
 ): Promise<OptimizedPhotoResult> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
+      const dataUrl = event.target?.result as string;
+      const isStandardWebFormat =
+        file.type === 'image/jpeg' ||
+        file.type === 'image/webp' ||
+        file.type === 'image/png';
 
-        if (width > maxDimension || height > maxDimension) {
-          if (width > height) {
-            height = Math.round((height * maxDimension) / width);
-            width = maxDimension;
-          } else {
-            width = Math.round((width * maxDimension) / height);
-            height = maxDimension;
-          }
+      const testImg = new Image();
+      testImg.onload = () => {
+        const width = testImg.naturalWidth || testImg.width;
+        const height = testImg.naturalHeight || testImg.height;
+
+        // If file is under 1.8 MB and dimensions fit within 4K, keep 100% original camera bytes!
+        if (
+          isStandardWebFormat &&
+          file.size <= 1.8 * 1024 * 1024 &&
+          width <= maxDimension &&
+          height <= maxDimension
+        ) {
+          return resolve({
+            dataUrl,
+            width,
+            height,
+            sizeKb: Math.round(file.size / 1024),
+            name: file.name,
+            wasDownscaled: false,
+          });
         }
 
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Chyba inicializace canvas'));
-          return;
-        }
-
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, width, height);
-
-        let dataUrl = canvas.toDataURL('image/webp', quality);
-        if (!dataUrl.startsWith('data:image/webp')) {
-          dataUrl = canvas.toDataURL('image/jpeg', quality);
-        }
-
-        const base64Length = dataUrl.length - (dataUrl.indexOf(',') + 1);
-        const sizeKb = Math.round(((base64Length * 3) / 4) / 1024);
-
-        resolve({
-          dataUrl,
-          width,
-          height,
-          sizeKb,
-          name: file.name,
-        });
+        // Otherwise scale to 4K Ultra HD with 0.95 quality
+        downscaleCanvas(dataUrl, width, height, maxDimension, quality, file.name)
+          .then(resolve)
+          .catch(reject);
       };
-      img.onerror = () => reject(new Error('Nepodařilo se načíst obrázek'));
-      img.src = event.target?.result as string;
+
+      testImg.onerror = () => {
+        downscaleCanvas(dataUrl, 3840, 2160, maxDimension, quality, file.name)
+          .then(resolve)
+          .catch(reject);
+      };
+
+      testImg.src = dataUrl;
     };
-    reader.onerror = () => reject(new Error('Nepodařilo se přečíst soubor'));
+
+    reader.onerror = () => reject(new Error('Nepodařilo se načíst soubor z disku'));
     reader.readAsDataURL(file);
   });
 }
@@ -80,7 +143,7 @@ export async function uploadPhotoToStorage(
   hikeId?: string,
   caption?: string
 ): Promise<HikePhotoItem> {
-  const optimized = await optimizePhoto(file, 2560, 0.88);
+  const optimized = await optimizePhoto(file, 3840, 0.95);
 
   const res = await fetch('/api/photos/upload', {
     method: 'POST',

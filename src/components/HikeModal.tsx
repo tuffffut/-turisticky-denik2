@@ -261,7 +261,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       }
       return photo;
     }
-    return photo.rawUrl || photo.url || photo.dataUrl || '';
+    // Prioritize direct 4K dataUrl, then rawUrl, then url
+    return photo.dataUrl || photo.rawUrl || photo.url || '';
   };
 
   return (

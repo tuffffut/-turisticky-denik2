@@ -446,7 +446,7 @@ export const App: React.FC = () => {
                         ? firstPhoto.startsWith('/api/photos/')
                           ? `${firstPhoto}?raw=1`
                           : firstPhoto
-                        : firstPhoto?.rawUrl || firstPhoto?.url || firstPhoto?.dataUrl || '';
+                        : firstPhoto?.dataUrl || firstPhoto?.rawUrl || firstPhoto?.url || '';
 
                     return (
                       <div

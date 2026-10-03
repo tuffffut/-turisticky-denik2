@@ -558,6 +558,37 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     });
   });
 
+  // Local storage paths for instant caching and quota resilience
+  const dataDir = path.join(process.cwd(), 'data');
+  const photosDir = path.join(dataDir, 'photos');
+  const routesCachePath = path.join(dataDir, 'routes-cache.json');
+  if (!fs.existsSync(photosDir)) {
+    fs.mkdirSync(photosDir, { recursive: true });
+  }
+
+  function getLocalRoutes(): any[] {
+    try {
+      if (fs.existsSync(routesCachePath)) {
+        const text = fs.readFileSync(routesCachePath, 'utf8');
+        return JSON.parse(text);
+      }
+    } catch (e) {
+      console.warn('Nelze přečíst routes-cache.json:', e);
+    }
+    return [];
+  }
+
+  function saveLocalRoutes(routes: any[]) {
+    try {
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      fs.writeFileSync(routesCachePath, JSON.stringify(routes, null, 2));
+    } catch (e) {
+      console.warn('Nelze uložit routes-cache.json:', e);
+    }
+  }
+
   // 5. Garmin Integration API: Receive uploaded routes from Python script
   // Handles requests from upload_to_hiking_diary:
   // POST /api/routes or /api/hikes { title, date, distanceKm, elevationGainM, elevationLossM, durationMinutes, gpxXml, description, ... }
@@ -730,6 +761,20 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }
       }
 
+      // Always update local disk cache so routes are never lost even if Firestore is rate-limited
+      try {
+        const currentRoutes = getLocalRoutes();
+        const existingIdx = currentRoutes.findIndex((r: any) => r.id === routeId);
+        if (existingIdx >= 0) {
+          currentRoutes[existingIdx] = { ...currentRoutes[existingIdx], ...cleanHikeForDb };
+        } else {
+          currentRoutes.unshift(cleanHikeForDb);
+        }
+        saveLocalRoutes(currentRoutes);
+      } catch (cacheErr) {
+        console.warn('Chyba při ukládání do lokální mezipaměti:', cacheErr);
+      }
+
       // Return structure expected by Garmin python script: r.json().get("route", {}).get("id")
       return res.status(201).json({
         success: true,
@@ -751,20 +796,30 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
   // GET /api/routes: List all routes
   app.get('/api/routes', async (req, res) => {
     try {
-      if (!db) {
-        return res.json({ routes: [] });
+      if (db) {
+        try {
+          const snapshot = await getDocs(collection(db, 'hikes'));
+          const routes: any[] = [];
+          snapshot.forEach((d) => {
+            const data = d.data() as any;
+            routes.push({
+              ...data,
+              id: (data.id && String(data.id).trim()) || d.id,
+            });
+          });
+          saveLocalRoutes(routes);
+          return res.json({ routes });
+        } catch (dbErr: any) {
+          console.warn('[API /api/routes] Firestore chyba (' + dbErr.message + '), vracím trasy z lokálního disku.');
+        }
       }
-      const snapshot = await getDocs(collection(db, 'hikes'));
-      const routes: any[] = [];
-      snapshot.forEach((d) => {
-        const data = d.data() as any;
-        routes.push({
-          ...data,
-          id: (data.id && String(data.id).trim()) || d.id,
-        });
-      });
-      return res.json({ routes });
+      const local = getLocalRoutes();
+      return res.json({ routes: local });
     } catch (err: any) {
+      const local = getLocalRoutes();
+      if (local.length > 0) {
+        return res.json({ routes: local });
+      }
       return res.status(500).json({ error: err.message });
     }
   });
@@ -935,28 +990,54 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     }
   });
 
-  // --- Photo storage endpoints (Dedicated Firestore collection 'hike_photos' for high-resolution Full HD photos) ---
+  // --- Photo storage endpoints (Dedicated local disk storage & Firestore collection 'hike_photos') ---
   // POST /api/photos/upload: Upload high quality photo
   app.post('/api/photos/upload', async (req, res) => {
     try {
-      if (!db) {
-        return res.status(500).json({ error: 'Firestore není připojen' });
-      }
       const { hikeId, dataUrl, name, caption } = req.body;
       if (!dataUrl) {
         return res.status(400).json({ error: 'Chybí dataUrl fotografie' });
       }
       const photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-      const photoRef = doc(db, 'hike_photos', photoId);
-      await setDoc(photoRef, {
-        id: photoId,
-        hikeId: hikeId || '',
-        dataUrl,
-        name: name || 'foto.webp',
-        caption: caption || '',
-        createdAt: new Date().toISOString(),
-      });
-      console.log(`[API /api/photos] Fotografie ${photoId} uložena do Firestore pro trasu ${hikeId || 'nová'}`);
+
+      // 1. Save binary file and json metadata directly to disk for 0ms retrieval and quota resilience
+      try {
+        const matches = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const buffer = Buffer.from(matches[2], 'base64');
+          fs.writeFileSync(path.join(photosDir, `${photoId}.bin`), buffer);
+        }
+        fs.writeFileSync(
+          path.join(photosDir, `${photoId}.json`),
+          JSON.stringify({
+            id: photoId,
+            hikeId: hikeId || '',
+            dataUrl,
+            name: name || 'foto.webp',
+            caption: caption || '',
+            createdAt: new Date().toISOString(),
+          })
+        );
+        console.log(`[API /api/photos] Fotografie ${photoId} uložena na disk.`);
+      } catch (fsErr) {
+        console.warn('Nelze uložit fotku na disk:', fsErr);
+      }
+
+      // 2. Also save to Firestore in background
+      if (db) {
+        const photoRef = doc(db, 'hike_photos', photoId);
+        setDoc(photoRef, {
+          id: photoId,
+          hikeId: hikeId || '',
+          dataUrl,
+          name: name || 'foto.webp',
+          caption: caption || '',
+          createdAt: new Date().toISOString(),
+        }).catch((err) => {
+          console.warn('[API /api/photos] Firestore synchronizace fotky selhala (uloženo na disku):', err.message);
+        });
+      }
+
       return res.json({
         id: photoId,
         url: `/api/photos/${photoId}`,
@@ -972,26 +1053,56 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
   // GET /api/photos/:id: Get photo by id
   app.get('/api/photos/:id', async (req, res) => {
     try {
-      if (!db) {
-        return res.status(500).json({ error: 'Firestore není připojen' });
-      }
       const { id } = req.params;
-      const photoSnap = await getDoc(doc(db, 'hike_photos', id));
-      if (!photoSnap.exists()) {
-        return res.status(404).json({ error: 'Fotografie nenalezena' });
+      const binPath = path.join(photosDir, `${id}.bin`);
+      const jsonPath = path.join(photosDir, `${id}.json`);
+
+      // 1. If raw requested and binary exists on disk, stream directly with long cache headers
+      if (req.query.raw === '1' && fs.existsSync(binPath)) {
+        res.setHeader('Content-Type', 'image/webp');
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.sendFile(binPath);
       }
-      const photoData = photoSnap.data();
-      if (req.query.raw === '1' && typeof photoData.dataUrl === 'string') {
-        const matches = photoData.dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-        if (matches && matches.length === 3) {
-          const contentType = matches[1];
-          const buffer = Buffer.from(matches[2], 'base64');
-          res.setHeader('Content-Type', contentType);
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-          return res.send(buffer);
+
+      // 2. If json exists on disk, return it directly
+      if (fs.existsSync(jsonPath)) {
+        const photoData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        if (req.query.raw === '1' && typeof photoData.dataUrl === 'string') {
+          const matches = photoData.dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          if (matches && matches.length === 3) {
+            const buffer = Buffer.from(matches[2], 'base64');
+            res.setHeader('Content-Type', matches[1]);
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            return res.send(buffer);
+          }
+        }
+        return res.json(photoData);
+      }
+
+      // 3. Fallback to Firestore
+      if (db) {
+        try {
+          const photoSnap = await getDoc(doc(db, 'hike_photos', id));
+          if (photoSnap.exists()) {
+            const photoData = photoSnap.data();
+            if (req.query.raw === '1' && typeof photoData.dataUrl === 'string') {
+              const matches = photoData.dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+              if (matches && matches.length === 3) {
+                const contentType = matches[1];
+                const buffer = Buffer.from(matches[2], 'base64');
+                res.setHeader('Content-Type', contentType);
+                res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+                return res.send(buffer);
+              }
+            }
+            return res.json(photoData);
+          }
+        } catch (dbErr: any) {
+          console.warn('[API /api/photos/:id] Firestore chyba:', dbErr.message);
         }
       }
-      return res.json(photoData);
+
+      return res.status(404).json({ error: 'Fotografie nenalezena' });
     } catch (err: any) {
       console.error('[API /api/photos/:id] Chyba:', err);
       return res.status(500).json({ error: err.message });
@@ -1001,10 +1112,15 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
   // DELETE /api/photos/:id: Delete photo
   app.delete('/api/photos/:id', async (req, res) => {
     try {
-      if (!db) {
-        return res.status(500).json({ error: 'Firestore není připojen' });
+      const { id } = req.params;
+      const binPath = path.join(photosDir, `${id}.bin`);
+      const jsonPath = path.join(photosDir, `${id}.json`);
+      if (fs.existsSync(binPath)) fs.unlinkSync(binPath);
+      if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
+
+      if (db) {
+        deleteDoc(doc(db, 'hike_photos', id)).catch(() => {});
       }
-      await deleteDoc(doc(db, 'hike_photos', req.params.id));
       return res.json({ success: true, message: 'Fotografie smazána' });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
