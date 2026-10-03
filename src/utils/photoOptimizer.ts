@@ -9,13 +9,13 @@ export interface OptimizedPhotoResult {
 }
 
 /**
- * Optimizes an image to Full HD (max 1920px) with high quality WebP/JPEG encoding.
- * Keeps file size tiny (~120-180 KB) while ensuring razor-sharp clarity on retina & 4K displays.
+ * Optimizes an image to high resolution (max 2560px 2K Quad HD) with high quality WebP/JPEG encoding.
+ * Ensures razor-sharp clarity on 4K PC monitors, Retina displays, and high-DPI mobile phones.
  */
 export async function optimizePhoto(
   file: File,
-  maxDimension = 1920,
-  quality = 0.85
+  maxDimension = 2560,
+  quality = 0.88
 ): Promise<OptimizedPhotoResult> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -80,7 +80,7 @@ export async function uploadPhotoToStorage(
   hikeId?: string,
   caption?: string
 ): Promise<HikePhotoItem> {
-  const optimized = await optimizePhoto(file, 1920, 0.85);
+  const optimized = await optimizePhoto(file, 2560, 0.88);
 
   const res = await fetch('/api/photos/upload', {
     method: 'POST',

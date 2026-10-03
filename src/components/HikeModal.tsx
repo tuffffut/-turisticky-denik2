@@ -17,6 +17,11 @@ import {
   AlertCircle,
   Check,
   Plus,
+  Maximize2,
+  ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { HikeRoute, HikePhotoItem, ActivityType } from '../types';
 import { POPULAR_MOUNTAIN_RANGES, detectMountainRangeFromCoords } from '../utils/mountainRanges';
@@ -65,6 +70,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const [photoViewMode, setPhotoViewMode] = useState<'featured' | 'grid'>('featured');
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
@@ -259,8 +266,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto">
-        <div className="bg-stone-900 border border-stone-800 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-fadeIn my-auto">
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 md:p-6 overflow-y-auto">
+        <div className="bg-stone-900 border border-stone-800 rounded-3xl w-full max-w-5xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-fadeIn my-auto">
           {/* Header */}
           <div className="px-6 py-4 border-b border-stone-800 flex items-center justify-between bg-stone-900/90 sticky top-0 z-10">
             <div className="flex items-center gap-3">
@@ -369,19 +376,50 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                 )}
 
                 {/* Photo Gallery Section */}
-                <div className="bg-stone-950/50 border border-stone-800 rounded-2xl p-5 space-y-4">
-                  <div className="flex items-center justify-between">
+                <div className="bg-stone-950/50 border border-stone-800 rounded-2xl p-4 sm:p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Camera className="w-4 h-4 text-emerald-400" />
                       <h4 className="text-sm font-bold text-white uppercase tracking-wider">
                         Fotogalerie ({currentPhotos.length})
                       </h4>
-                      <span className="text-[10px] bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded border border-emerald-800/40">
-                        Full HD Storage
+                      <span className="text-[10px] bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded border border-emerald-800/40 font-medium">
+                        2K / QHD kvalita
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {currentPhotos.length > 1 && (
+                        <div className="bg-stone-900 border border-stone-800 p-0.5 rounded-lg flex items-center">
+                          <button
+                            type="button"
+                            onClick={() => setPhotoViewMode('featured')}
+                            className={`p-1.5 rounded-md text-xs transition flex items-center gap-1 ${
+                              photoViewMode === 'featured'
+                                ? 'bg-stone-800 text-emerald-400 font-semibold shadow'
+                                : 'text-stone-400 hover:text-white'
+                            }`}
+                            title="Velký náhled"
+                          >
+                            <ImageIcon className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Velký náhled</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPhotoViewMode('grid')}
+                            className={`p-1.5 rounded-md text-xs transition flex items-center gap-1 ${
+                              photoViewMode === 'grid'
+                                ? 'bg-stone-800 text-emerald-400 font-semibold shadow'
+                                : 'text-stone-400 hover:text-white'
+                            }`}
+                            title="Mřížka všech fotek"
+                          >
+                            <LayoutGrid className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Mřížka</span>
+                          </button>
+                        </div>
+                      )}
+
                       <input
                         ref={fileInputRef}
                         type="file"
@@ -416,43 +454,157 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                   )}
 
                   {currentPhotos.length > 0 ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
-                      {currentPhotos.map((photo, idx) => (
+                    photoViewMode === 'featured' ? (
+                      /* Featured Large Photo View with Thumbnail Strip */
+                      <div className="space-y-3">
+                        {/* Large Main Photo */}
                         <div
-                          key={idx}
                           onClick={() => {
-                            setLightboxIndex(idx);
+                            setLightboxIndex(activePhotoIndex);
                             setLightboxOpen(true);
                           }}
-                          className="group relative aspect-square rounded-xl overflow-hidden bg-stone-900 border border-stone-800/80 cursor-pointer hover:border-emerald-500 transition shadow"
+                          className="group relative w-full h-72 sm:h-96 md:h-[460px] bg-black/80 rounded-2xl overflow-hidden border border-stone-800 flex items-center justify-center cursor-pointer shadow-xl transition hover:border-emerald-500/80"
                         >
                           <img
-                            src={getPhotoThumbnail(photo)}
-                            alt={`Fotografie ${idx + 1}`}
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                            loading="lazy"
+                            src={getPhotoThumbnail(currentPhotos[activePhotoIndex] || currentPhotos[0])}
+                            alt={`Fotografie ${activePhotoIndex + 1}`}
+                            className="w-full h-full object-contain select-none transition-transform duration-300 group-hover:scale-[1.01]"
                           />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                            <span className="text-xs text-white font-medium bg-black/60 px-2 py-1 rounded-md backdrop-blur">
-                              Zvětšit
+
+                          {/* Floating Top Controls */}
+                          <div className="absolute top-3 left-3 bg-black/75 backdrop-blur px-3 py-1 rounded-full text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 shadow">
+                            <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>
+                              {activePhotoIndex + 1} / {currentPhotos.length}
                             </span>
                           </div>
-                          {canEdit && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeletePhoto(idx);
-                              }}
-                              className="absolute top-1.5 right-1.5 p-1 bg-black/70 hover:bg-red-600 text-stone-300 hover:text-white rounded-lg opacity-0 group-hover:opacity-100 transition shadow"
-                              title="Smazat fotku"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+
+                          <div className="absolute top-3 right-3 bg-black/75 backdrop-blur px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">
+                            <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Celá obrazovka</span>
+                          </div>
+
+                          {/* Navigation arrows directly on the large hero image */}
+                          {currentPhotos.length > 1 && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActivePhotoIndex((prev) =>
+                                    (prev - 1 + currentPhotos.length) % currentPhotos.length
+                                  );
+                                }}
+                                className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 rounded-full bg-black/60 hover:bg-black/90 text-stone-200 hover:text-white border border-stone-700/80 transition shadow-lg opacity-80 group-hover:opacity-100"
+                                title="Předchozí fotografie"
+                              >
+                                <ChevronLeft className="w-5 h-5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActivePhotoIndex((prev) =>
+                                    (prev + 1) % currentPhotos.length
+                                  );
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 rounded-full bg-black/60 hover:bg-black/90 text-stone-200 hover:text-white border border-stone-700/80 transition shadow-lg opacity-80 group-hover:opacity-100"
+                                title="Další fotografie"
+                              >
+                                <ChevronRight className="w-5 h-5" />
+                              </button>
+                            </>
                           )}
+
+                          {/* Bottom instruction hint */}
+                          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur px-3 py-1 rounded-full text-[11px] text-stone-300 border border-stone-800 opacity-0 group-hover:opacity-100 transition pointer-events-none">
+                            Kliknutím otevřete v maximálním rozlišení
+                          </div>
                         </div>
-                      ))}
-                    </div>
+
+                        {/* Interactive Thumbnails Strip */}
+                        {currentPhotos.length > 1 && (
+                          <div className="flex items-center gap-2 overflow-x-auto py-1 px-1 custom-scrollbar">
+                            {currentPhotos.map((photo, idx) => {
+                              const isActive = idx === activePhotoIndex;
+                              return (
+                                <div
+                                  key={idx}
+                                  onClick={() => setActivePhotoIndex(idx)}
+                                  className={`relative flex-shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden cursor-pointer border-2 transition ${
+                                    isActive
+                                      ? 'border-emerald-500 scale-105 shadow-md shadow-emerald-950'
+                                      : 'border-stone-800 opacity-60 hover:opacity-100'
+                                  }`}
+                                >
+                                  <img
+                                    src={getPhotoThumbnail(photo)}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                  />
+                                  {canEdit && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeletePhoto(idx);
+                                        if (activePhotoIndex >= currentPhotos.length - 1) {
+                                          setActivePhotoIndex(Math.max(0, currentPhotos.length - 2));
+                                        }
+                                      }}
+                                      className="absolute top-1 right-1 p-1 bg-black/75 hover:bg-red-600 text-stone-300 hover:text-white rounded-md transition shadow"
+                                      title="Smazat fotku"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* Spacious Grid View */
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        {currentPhotos.map((photo, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() => {
+                              setLightboxIndex(idx);
+                              setLightboxOpen(true);
+                            }}
+                            className="group relative aspect-[4/3] rounded-2xl overflow-hidden bg-black/80 border border-stone-800 cursor-pointer hover:border-emerald-500 transition shadow-lg"
+                          >
+                            <img
+                              src={getPhotoThumbnail(photo)}
+                              alt={`Fotografie ${idx + 1}`}
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                              loading="lazy"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                              <span className="text-xs text-white font-semibold bg-black/75 px-3 py-1.5 rounded-xl backdrop-blur border border-stone-700 flex items-center gap-1.5">
+                                <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+                                Zvětšit
+                              </span>
+                            </div>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePhoto(idx);
+                                }}
+                                className="absolute top-2 right-2 p-1.5 bg-black/70 hover:bg-red-600 text-stone-300 hover:text-white rounded-xl opacity-0 group-hover:opacity-100 transition shadow"
+                                title="Smazat fotku"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )
                   ) : (
                     <div className="text-center py-8 border border-dashed border-stone-800 rounded-xl">
                       <Camera className="w-8 h-8 text-stone-600 mx-auto mb-2" />
@@ -464,7 +616,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                         onClick={() => fileInputRef.current?.click()}
                         className="mt-3 text-xs text-emerald-400 hover:text-emerald-300 font-semibold underline"
                       >
-                        Nahrát první fotky ve Full HD
+                        Nahrát první fotky ve vysokém rozlišení
                       </button>
                     </div>
                   )}
