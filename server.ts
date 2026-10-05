@@ -1034,19 +1034,46 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         console.warn('Nelze uložit fotku na disk:', fsErr);
       }
 
-      // 2. Also save to Firestore in background
+      // 2. Also save to Firestore in background (with automatic chunking if > 700KB so it never exceeds 1MB limit)
       if (db) {
-        const photoRef = doc(db, 'hike_photos', photoId);
-        setDoc(photoRef, {
-          id: photoId,
-          hikeId: hikeId || '',
-          dataUrl,
-          name: name || 'foto.webp',
-          caption: caption || '',
-          createdAt: new Date().toISOString(),
-        }).catch((err) => {
-          console.warn('[API /api/photos] Firestore synchronizace fotky selhala (uloženo na disku):', err.message);
-        });
+        (async () => {
+          try {
+            const CHUNK_SIZE = 700 * 1024;
+            if (dataUrl.length <= CHUNK_SIZE) {
+              await setDoc(doc(db, 'hike_photos', photoId), {
+                id: photoId,
+                hikeId: hikeId || '',
+                dataUrl,
+                name: name || 'foto.webp',
+                caption: caption || '',
+                isChunked: false,
+                createdAt: new Date().toISOString(),
+              });
+            } else {
+              const totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
+              await setDoc(doc(db, 'hike_photos', photoId), {
+                id: photoId,
+                hikeId: hikeId || '',
+                dataUrlChunk0: dataUrl.substring(0, CHUNK_SIZE),
+                totalChunks,
+                isChunked: true,
+                name: name || 'foto.webp',
+                caption: caption || '',
+                createdAt: new Date().toISOString(),
+              });
+              for (let i = 1; i < totalChunks; i++) {
+                const chunkStr = dataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+                await setDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`), {
+                  chunkIndex: i,
+                  data: chunkStr,
+                });
+              }
+            }
+            console.log(`[API /api/photos] Fotografie ${photoId} trvale uložena do Firestore.`);
+          } catch (err: any) {
+            console.warn('[API /api/photos] Firestore synchronizace fotky selhala:', err.message);
+          }
+        })();
       }
 
       return res.json({
@@ -1100,14 +1127,26 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         return res.json(photoData);
       }
 
-      // 3. Fallback to Firestore
+      // 3. Fallback to Firestore (with chunk reassembly)
       if (db) {
         try {
           const photoSnap = await getDoc(doc(db, 'hike_photos', id));
           if (photoSnap.exists()) {
             const photoData = photoSnap.data();
-            if (req.query.raw === '1' && typeof photoData.dataUrl === 'string') {
-              const matches = photoData.dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            let fullDataUrl = photoData.dataUrl || '';
+            if (photoData.isChunked) {
+              fullDataUrl = photoData.dataUrlChunk0 || '';
+              const total = photoData.totalChunks || 1;
+              for (let i = 1; i < total; i++) {
+                const chunkSnap = await getDoc(doc(db, `hike_photos/${id}/chunks`, `chunk_${i}`));
+                if (chunkSnap.exists()) {
+                  fullDataUrl += chunkSnap.data().data || '';
+                }
+              }
+            }
+
+            if (req.query.raw === '1' && typeof fullDataUrl === 'string') {
+              const matches = fullDataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
               if (matches && matches.length === 3) {
                 const contentType = matches[1];
                 const buffer = Buffer.from(matches[2], 'base64');
@@ -1116,7 +1155,10 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
                 return res.send(buffer);
               }
             }
-            return res.json(photoData);
+            return res.json({
+              ...photoData,
+              dataUrl: fullDataUrl,
+            });
           }
         } catch (dbErr: any) {
           console.warn('[API /api/photos/:id] Firestore chyba:', dbErr.message);

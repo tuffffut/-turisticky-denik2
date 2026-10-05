@@ -132,16 +132,54 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
     setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!resolvedSrc) return;
-    const a = document.createElement('a');
-    a.href = resolvedSrc;
-    const dimSuffix = realDimensions ? `-${realDimensions.width}x${realDimensions.height}` : '';
-    const ext = resolvedSrc.startsWith('data:image/jpeg') ? 'jpg' : 'webp';
-    a.download = `horsky-denik-foto-${currentIndex + 1}${dimSuffix}.${ext}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      let downloadUrl = resolvedSrc;
+      if (downloadUrl.startsWith('/api/photos/')) {
+        if (!downloadUrl.includes('raw=1')) {
+          downloadUrl += (downloadUrl.includes('?') ? '&' : '?') + 'raw=1';
+        }
+      }
+
+      if (downloadUrl.startsWith('/') || downloadUrl.startsWith('http')) {
+        const resp = await fetch(downloadUrl);
+        if (!resp.ok) {
+          alert('Fotografie nebyla nalezena na serveru.');
+          return;
+        }
+        const contentType = resp.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const errJson = await resp.json().catch(() => ({}));
+          alert('Fotografii se nepodařilo stáhnout: ' + (errJson.error || 'Soubor není platný obrázek'));
+          return;
+        }
+        const blob = await resp.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        const isJpeg = contentType.includes('jpeg') || contentType.includes('jpg');
+        const ext = isJpeg ? 'jpg' : 'webp';
+        const dimSuffix = realDimensions ? `-${realDimensions.width}x${realDimensions.height}` : '';
+        a.download = `horsky-denik-foto-${currentIndex + 1}${dimSuffix}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
+
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const dimSuffix = realDimensions ? `-${realDimensions.width}x${realDimensions.height}` : '';
+      const ext = downloadUrl.startsWith('data:image/jpeg') ? 'jpg' : 'webp';
+      a.download = `horsky-denik-foto-${currentIndex + 1}${dimSuffix}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert('Chyba při stahování: ' + err.message);
+    }
   };
 
   const handleToggleZoom = () => {
@@ -182,6 +220,11 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
                   ? '• Full HD'
                   : ''}
               </span>
+              {typeof currentItem === 'object' && currentItem?.sizeKb ? (
+                <span className="opacity-80 text-emerald-400 font-semibold">
+                  • {currentItem.sizeKb > 1024 ? (currentItem.sizeKb / 1024).toFixed(1) + ' MB' : currentItem.sizeKb + ' KB'}
+                </span>
+              ) : null}
             </span>
           ) : (
             <span className="text-[11px] text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-md border border-emerald-800/50 font-medium">

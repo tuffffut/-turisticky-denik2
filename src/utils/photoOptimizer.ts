@@ -10,14 +10,14 @@ export interface OptimizedPhotoResult {
 }
 
 /**
- * Downscales an image using HTML5 Canvas to 4K Ultra HD (max 3840px) with 0.95 visually lossless quality.
+ * Downscales an image using HTML5 Canvas to 2K QHD (max 2560px) with 0.90 high fidelity quality.
  */
 function downscaleCanvas(
   sourceUrl: string,
   origWidth: number,
   origHeight: number,
-  maxDimension = 3840,
-  quality = 0.95,
+  maxDimension = 2560,
+  quality = 0.90,
   fileName = 'photo.webp'
 ): Promise<OptimizedPhotoResult> {
   return new Promise((resolve, reject) => {
@@ -75,13 +75,13 @@ function downscaleCanvas(
 
 /**
  * Optimizes photos with extreme fidelity:
- * 1. If file is under 3.5 MB (standard phone camera photo), keeps 100% of original camera pixels and colors!
- * 2. If file is over 3.5 MB (large RAW / 48-108Mpx), converts to 4K Ultra HD (3840px) at 0.95 quality.
+ * 1. If file is under 800 KB, keeps 100% of original camera pixels and colors!
+ * 2. If file is over 800 KB, converts to 2K QHD (2560px) at 0.90 quality so it fits perfectly in Firestore and displays crystal clear.
  */
 export async function optimizePhoto(
   file: File,
-  maxDimension = 3840,
-  quality = 0.95
+  maxDimension = 2560,
+  quality = 0.90
 ): Promise<OptimizedPhotoResult> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
@@ -95,9 +95,9 @@ export async function optimizePhoto(
         `[PhotoOptimizer] Soubor: ${file.name}, velikost: ${(file.size / 1024 / 1024).toFixed(2)} MB, detekované rozlišení: ${origWidth}x${origHeight} px`
       );
 
-      // If file is under 3.5 MB and already fits within 4K Ultra HD, preserve 100% original bytes!
+      // If file is under 800 KB and already fits within 2560px, preserve 100% original bytes!
       if (
-        file.size <= 3.5 * 1024 * 1024 &&
+        file.size <= 800 * 1024 &&
         origWidth <= maxDimension &&
         origHeight <= maxDimension
       ) {
@@ -121,7 +121,7 @@ export async function optimizePhoto(
         return;
       }
 
-      // If larger than 3.5 MB or larger than 4K, scale to 4K Ultra HD (3840px) with 0.95 quality
+      // If larger than 800 KB or larger than 2560px, scale to 2K QHD (2560px) with 0.90 quality
       downscaleCanvas(objectUrl, origWidth, origHeight, maxDimension, quality, file.name)
         .then((res) => {
           URL.revokeObjectURL(objectUrl);
@@ -138,7 +138,7 @@ export async function optimizePhoto(
       const reader = new FileReader();
       reader.onload = (e) => {
         const dataUrl = e.target?.result as string;
-        downscaleCanvas(dataUrl, 3840, 2160, maxDimension, quality, file.name)
+        downscaleCanvas(dataUrl, 2560, 1440, maxDimension, quality, file.name)
           .then(resolve)
           .catch(reject);
       };
@@ -158,7 +158,7 @@ export async function uploadPhotoToStorage(
   hikeId?: string,
   caption?: string
 ): Promise<HikePhotoItem> {
-  const optimized = await optimizePhoto(file, 3840, 0.95);
+  const optimized = await optimizePhoto(file, 2560, 0.90);
 
   const res = await fetch('/api/photos/upload', {
     method: 'POST',

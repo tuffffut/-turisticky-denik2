@@ -539,9 +539,18 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                   ? ' (Náhled Garmin)'
                                   : activePhotoDimensions.width >= 3800
                                   ? ' (4K Ultra HD)'
+                                  : activePhotoDimensions.width >= 2400
+                                  ? ' (2K QHD)'
                                   : activePhotoDimensions.width >= 1920
                                   ? ' (Full HD)'
                                   : ''}
+                                {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb ? (
+                                  <span className="text-emerald-400 font-semibold ml-1">
+                                    • {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
+                                      ? ((currentPhotos[activePhotoIndex] as any).sizeKb / 1024).toFixed(1) + ' MB'
+                                      : (currentPhotos[activePhotoIndex] as any).sizeKb + ' KB'}
+                                  </span>
+                                ) : null}
                               </div>
                             )}
                           </div>
