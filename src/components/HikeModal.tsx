@@ -118,6 +118,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
     if (!canEdit) {
       onRequestUnlock();
+      alert('Pro nahrávání fotografií musíte nejprve odemknout režim úprav (zadat PIN 1234).');
       return;
     }
 
@@ -128,7 +129,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     try {
       for (let i = 0; i < total; i++) {
         const file = files[i];
-        setUploadStatus(`Zpracovávám fotografii ${i + 1} z ${total}...`);
+        setUploadStatus(`Optimalizuji a nahrávám fotografii ${i + 1} z ${total}...`);
         const photoItem = await uploadPhotoToStorage(file, formData.id || route?.id);
         uploadedPhotos.push(photoItem);
 
@@ -139,24 +140,37 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         }
       }
 
+      const newPhotosList = [...(formData.photos || route?.photos || []), ...uploadedPhotos];
       setFormData((prev) => ({
         ...prev,
-        photos: [...(prev.photos || []), ...uploadedPhotos],
+        photos: newPhotosList,
       }));
 
-      // If we are just viewing, save changes immediately to persist photos
-      if (!isEditing && route?.id) {
-        setUploadStatus('Ukládám trvalý odkaz k výpravě...');
+      // Always save changes immediately to persist photos so they are never lost
+      if (route?.id) {
+        setUploadStatus('Ukládám trvalý odkaz k výpravě do databáze...');
         await onSave({
           ...route,
-          photos: [...(route.photos || []), ...uploadedPhotos],
+          ...formData,
+          photos: newPhotosList,
         });
       }
 
       setUploadStatus('');
+      alert(
+        `✅ ${
+          total === 1
+            ? 'Fotografie byla úspěšně nahrána a uložena'
+            : `${total} fotografií bylo úspěšně nahráno a uloženo`
+        } do cloudové databáze v plné 2K kvalitě!`
+      );
     } catch (err: any) {
       console.error('Chyba při nahrávání fotky:', err);
-      alert('Chyba při nahrávání fotografie: ' + err.message);
+      alert(
+        `❌ Chyba při nahrávání fotografie:\n\n${
+          err.message || 'Neznámá chyba'
+        }\n\nFotografie nebyla uložena. Zkontrolujte prosím připojení k internetu a zkuste to znovu.`
+      );
     } finally {
       setIsUploadingPhotos(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -166,27 +180,32 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   const handleDeletePhoto = async (index: number) => {
     if (!canEdit) {
       onRequestUnlock();
+      alert('Pro mazání fotografií musíte nejprve odemknout režim úprav (zadat PIN 1234).');
       return;
     }
     if (!confirm('Opravdu chcete tuto fotografii odebrat?')) return;
 
-    const updated = [...currentPhotos];
-    const removed = updated.splice(index, 1)[0];
+    try {
+      const updated = [...currentPhotos];
+      const removed = updated.splice(index, 1)[0];
 
-    // If removed photo has an ID on server, delete from /api/photos/:id
-    if (typeof removed === 'object' && removed.id) {
-      fetch(`/api/photos/${removed.id}`, { method: 'DELETE' }).catch(() => {});
-    }
+      // If removed photo has an ID on server, delete from /api/photos/:id
+      if (typeof removed === 'object' && removed.id) {
+        fetch(`/api/photos/${removed.id}`, { method: 'DELETE' }).catch(() => {});
+      }
 
-    setFormData((prev) => ({ ...prev, photos: updated }));
-    if (!isEditing && route?.id) {
-      await onSave({ ...route, photos: updated });
-    }
-    if (lightboxIndex >= updated.length) {
-      setLightboxIndex(Math.max(0, updated.length - 1));
-    }
-    if (updated.length === 0) {
-      setLightboxOpen(false);
+      setFormData((prev) => ({ ...prev, photos: updated }));
+      if (route?.id) {
+        await onSave({ ...route, ...formData, photos: updated });
+      }
+      if (lightboxIndex >= updated.length) {
+        setLightboxIndex(Math.max(0, updated.length - 1));
+      }
+      if (updated.length === 0) {
+        setLightboxOpen(false);
+      }
+    } catch (err: any) {
+      alert('Chyba při odebírání fotografie: ' + err.message);
     }
   };
 

@@ -53,7 +53,13 @@ export const App: React.FC = () => {
   const fetchRoutes = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/routes');
+      const res = await fetch(`/api/routes?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+      });
       if (res.ok) {
         const data = await res.json();
         const loadedRoutes = (data.routes || []).map((r: any) => ({
@@ -144,7 +150,8 @@ export const App: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Chyba při ukládání trasy:', err);
-      alert('Chyba při ukládání: ' + err.message);
+      alert('Chyba při ukládání do databáze: ' + err.message);
+      throw err;
     }
   };
 

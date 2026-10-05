@@ -731,11 +731,12 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           if (existingDocSnap.exists()) {
             const existingData = existingDocSnap.data();
 
-            // 1. Preserve photos if existing has photos and incoming is empty
+            // 1. Preserve photos ONLY if req.body.photos was NOT supplied at all (e.g. background Garmin sync script)
+            // If user explicitly provided photos (even an empty array []), respect the user's intent!
             if (
+              req.body.photos === undefined &&
               Array.isArray(existingData.photos) &&
-              existingData.photos.length > 0 &&
-              (!cleanHikeForDb.photos || cleanHikeForDb.photos.length === 0)
+              existingData.photos.length > 0
             ) {
               cleanHikeForDb.photos = existingData.photos;
               console.log(`[API /api/routes] Zachovány existující fotky (${existingData.photos.length}) pro trasu ${routeId}`);
@@ -806,6 +807,13 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
 
   // GET /api/routes: List all routes
   app.get('/api/routes', async (req, res) => {
+    // Prevent stale caching across browsers, proxies, and PWAs
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store',
+    });
     try {
       if (db) {
         try {
@@ -1034,46 +1042,47 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         console.warn('Nelze uložit fotku na disk:', fsErr);
       }
 
-      // 2. Also save to Firestore in background (with automatic chunking if > 700KB so it never exceeds 1MB limit)
+      // 2. Save to Firestore (with automatic chunking if > 700KB so it never exceeds 1MB limit)
       if (db) {
-        (async () => {
-          try {
-            const CHUNK_SIZE = 700 * 1024;
-            if (dataUrl.length <= CHUNK_SIZE) {
-              await setDoc(doc(db, 'hike_photos', photoId), {
-                id: photoId,
-                hikeId: hikeId || '',
-                dataUrl,
-                name: name || 'foto.webp',
-                caption: caption || '',
-                isChunked: false,
-                createdAt: new Date().toISOString(),
+        try {
+          const CHUNK_SIZE = 700 * 1024;
+          if (dataUrl.length <= CHUNK_SIZE) {
+            await setDoc(doc(db, 'hike_photos', photoId), {
+              id: photoId,
+              hikeId: hikeId || '',
+              dataUrl,
+              name: name || 'foto.webp',
+              caption: caption || '',
+              isChunked: false,
+              createdAt: new Date().toISOString(),
+            });
+          } else {
+            const totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
+            await setDoc(doc(db, 'hike_photos', photoId), {
+              id: photoId,
+              hikeId: hikeId || '',
+              dataUrlChunk0: dataUrl.substring(0, CHUNK_SIZE),
+              totalChunks,
+              isChunked: true,
+              name: name || 'foto.webp',
+              caption: caption || '',
+              createdAt: new Date().toISOString(),
+            });
+            for (let i = 1; i < totalChunks; i++) {
+              const chunkStr = dataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+              await setDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`), {
+                chunkIndex: i,
+                data: chunkStr,
               });
-            } else {
-              const totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
-              await setDoc(doc(db, 'hike_photos', photoId), {
-                id: photoId,
-                hikeId: hikeId || '',
-                dataUrlChunk0: dataUrl.substring(0, CHUNK_SIZE),
-                totalChunks,
-                isChunked: true,
-                name: name || 'foto.webp',
-                caption: caption || '',
-                createdAt: new Date().toISOString(),
-              });
-              for (let i = 1; i < totalChunks; i++) {
-                const chunkStr = dataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-                await setDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`), {
-                  chunkIndex: i,
-                  data: chunkStr,
-                });
-              }
             }
-            console.log(`[API /api/photos] Fotografie ${photoId} trvale uložena do Firestore.`);
-          } catch (err: any) {
-            console.warn('[API /api/photos] Firestore synchronizace fotky selhala:', err.message);
           }
-        })();
+          console.log(`[API /api/photos] Fotografie ${photoId} trvale uložena do Firestore.`);
+        } catch (dbErr: any) {
+          console.error('[API /api/photos] Chyba při zápisu do Firestore:', dbErr);
+          return res.status(500).json({
+            error: `Uložení fotografie do cloudové databáze selhalo: ${dbErr.message}`,
+          });
+        }
       }
 
       return res.json({
