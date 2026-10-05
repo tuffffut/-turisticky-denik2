@@ -13,7 +13,7 @@ export interface OptimizedPhotoResult {
  * Downscales an image using HTML5 Canvas to 4K Ultra HD (max 3840px) with 0.95 visually lossless quality.
  */
 function downscaleCanvas(
-  dataUrl: string,
+  sourceUrl: string,
   origWidth: number,
   origHeight: number,
   maxDimension = 3840,
@@ -69,14 +69,14 @@ function downscaleCanvas(
       });
     };
     img.onerror = () => reject(new Error('Chyba při dekódování obrázku'));
-    img.src = dataUrl;
+    img.src = sourceUrl;
   });
 }
 
 /**
  * Optimizes photos with extreme fidelity:
- * 1. If file is under 1.8 MB (standard photo), keeps 100% of original camera pixels and colors!
- * 2. If file is over 1.8 MB, converts to 4K Ultra HD (3840px) at 0.95 quality (visually lossless).
+ * 1. If file is under 3.5 MB (standard phone camera photo), keeps 100% of original camera pixels and colors!
+ * 2. If file is over 3.5 MB (large RAW / 48-108Mpx), converts to 4K Ultra HD (3840px) at 0.95 quality.
  */
 export async function optimizePhoto(
   file: File,
@@ -84,54 +84,69 @@ export async function optimizePhoto(
   quality = 0.95
 ): Promise<OptimizedPhotoResult> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+    const objectUrl = URL.createObjectURL(file);
+    const testImg = new Image();
 
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      const isStandardWebFormat =
-        file.type === 'image/jpeg' ||
-        file.type === 'image/webp' ||
-        file.type === 'image/png';
+    testImg.onload = () => {
+      const origWidth = testImg.naturalWidth;
+      const origHeight = testImg.naturalHeight;
 
-      const testImg = new Image();
-      testImg.onload = () => {
-        const width = testImg.naturalWidth || testImg.width;
-        const height = testImg.naturalHeight || testImg.height;
+      console.log(
+        `[PhotoOptimizer] Soubor: ${file.name}, velikost: ${(file.size / 1024 / 1024).toFixed(2)} MB, detekované rozlišení: ${origWidth}x${origHeight} px`
+      );
 
-        // If file is under 1.8 MB and dimensions fit within 4K, keep 100% original camera bytes!
-        if (
-          isStandardWebFormat &&
-          file.size <= 1.8 * 1024 * 1024 &&
-          width <= maxDimension &&
-          height <= maxDimension
-        ) {
-          return resolve({
-            dataUrl,
-            width,
-            height,
+      // If file is under 3.5 MB and already fits within 4K Ultra HD, preserve 100% original bytes!
+      if (
+        file.size <= 3.5 * 1024 * 1024 &&
+        origWidth <= maxDimension &&
+        origHeight <= maxDimension
+      ) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          URL.revokeObjectURL(objectUrl);
+          resolve({
+            dataUrl: e.target?.result as string,
+            width: origWidth,
+            height: origHeight,
             sizeKb: Math.round(file.size / 1024),
             name: file.name,
             wasDownscaled: false,
           });
-        }
+        };
+        reader.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('Chyba čtení souboru'));
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
 
-        // Otherwise scale to 4K Ultra HD with 0.95 quality
-        downscaleCanvas(dataUrl, width, height, maxDimension, quality, file.name)
-          .then(resolve)
-          .catch(reject);
-      };
+      // If larger than 3.5 MB or larger than 4K, scale to 4K Ultra HD (3840px) with 0.95 quality
+      downscaleCanvas(objectUrl, origWidth, origHeight, maxDimension, quality, file.name)
+        .then((res) => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(res);
+        })
+        .catch((err) => {
+          URL.revokeObjectURL(objectUrl);
+          reject(err);
+        });
+    };
 
-      testImg.onerror = () => {
+    testImg.onerror = () => {
+      // Fallback: read via FileReader if objectUrl failed
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
         downscaleCanvas(dataUrl, 3840, 2160, maxDimension, quality, file.name)
           .then(resolve)
           .catch(reject);
       };
-
-      testImg.src = dataUrl;
+      reader.onerror = () => reject(new Error('Nepodařilo se načíst soubor z disku'));
+      reader.readAsDataURL(file);
     };
 
-    reader.onerror = () => reject(new Error('Nepodařilo se načíst soubor z disku'));
-    reader.readAsDataURL(file);
+    testImg.src = objectUrl;
   });
 }
 

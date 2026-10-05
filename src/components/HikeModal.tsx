@@ -84,6 +84,34 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
   const currentPhotos = formData.photos || route?.photos || [];
 
+  // Intrinsic dimension resolver: immune to container CSS layout (like w-full h-72 = 624x288)
+  useEffect(() => {
+    const currentPhoto = currentPhotos[activePhotoIndex] || currentPhotos[0];
+    if (!currentPhoto) {
+      setActivePhotoDimensions(null);
+      return;
+    }
+
+    if (typeof currentPhoto === 'object' && currentPhoto.width && currentPhoto.height) {
+      setActivePhotoDimensions({ width: currentPhoto.width, height: currentPhoto.height });
+      return;
+    }
+
+    const src = getPhotoThumbnail(currentPhoto);
+    if (!src) {
+      setActivePhotoDimensions(null);
+      return;
+    }
+
+    const probe = new Image();
+    probe.onload = () => {
+      if (probe.naturalWidth && probe.naturalHeight) {
+        setActivePhotoDimensions({ width: probe.naturalWidth, height: probe.naturalHeight });
+      }
+    };
+    probe.src = src;
+  }, [activePhotoIndex, currentPhotos]);
+
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -100,9 +128,15 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     try {
       for (let i = 0; i < total; i++) {
         const file = files[i];
-        setUploadStatus(`Optimalizuji a ukládám fotografii ${i + 1} z ${total}...`);
+        setUploadStatus(`Zpracovávám fotografii ${i + 1} z ${total}...`);
         const photoItem = await uploadPhotoToStorage(file, formData.id || route?.id);
         uploadedPhotos.push(photoItem);
+
+        if (photoItem.width && photoItem.width < 1000) {
+          alert(
+            `Upozornění: Telefon předal zmenšený náhled (${photoItem.width} × ${photoItem.height} px, ${photoItem.sizeKb} KB) namísto plného originálu.\n\nTip pro Android: Při výběru souboru v mobilu neklikejte na „Nedávné / Poslední“ (kde bývají zmenšené náhledy), ale otevřete „Procházet / Soubory / DCIM / Fotoaparát“, kde je uložen skutečný plný originál.`
+          );
+        }
       }
 
       setFormData((prev) => ({
@@ -425,7 +459,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       <input
                         ref={fileInputRef}
                         type="file"
-                        accept="image/*"
+                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
                         multiple
                         className="hidden"
                         onChange={handlePhotoUpload}

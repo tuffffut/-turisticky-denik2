@@ -97,6 +97,18 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
     }
   }, [isOpen, currentIndex, loadPhotoSrc]);
 
+  // Unconstrained offscreen probe to guarantee measurement is immune to CSS container scaling
+  useEffect(() => {
+    if (!resolvedSrc) return;
+    const probe = new Image();
+    probe.onload = () => {
+      if (probe.naturalWidth && probe.naturalHeight) {
+        setRealDimensions({ width: probe.naturalWidth, height: probe.naturalHeight });
+      }
+    };
+    probe.src = resolvedSrc;
+  }, [resolvedSrc]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;

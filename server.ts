@@ -1070,7 +1070,17 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
 
       // 1. If raw requested and binary exists on disk, stream directly with long cache headers
       if (req.query.raw === '1' && fs.existsSync(binPath)) {
-        res.setHeader('Content-Type', 'image/webp');
+        let mimeType = 'image/webp';
+        try {
+          const fd = fs.openSync(binPath, 'r');
+          const head = Buffer.alloc(16);
+          fs.readSync(fd, head, 0, 16, 0);
+          fs.closeSync(fd);
+          if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) mimeType = 'image/jpeg';
+          else if (head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP') mimeType = 'image/webp';
+          else if (head[0] === 0x89 && head.toString('ascii', 1, 4) === 'PNG') mimeType = 'image/png';
+        } catch {}
+        res.setHeader('Content-Type', mimeType);
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         return res.sendFile(binPath);
       }
