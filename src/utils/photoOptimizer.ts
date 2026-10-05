@@ -153,6 +153,9 @@ export async function uploadPhotoToStorage(
       dataUrl: optimized.dataUrl,
       name: optimized.name,
       caption: caption || '',
+      width: optimized.width,
+      height: optimized.height,
+      sizeKb: optimized.sizeKb,
     }),
   });
 
@@ -169,6 +172,9 @@ export async function uploadPhotoToStorage(
     dataUrl: optimized.dataUrl,
     name: optimized.name,
     caption: caption || '',
+    width: optimized.width,
+    height: optimized.height,
+    sizeKb: optimized.sizeKb,
     createdAt: new Date().toISOString(),
   };
 }

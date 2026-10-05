@@ -13,6 +13,9 @@ export interface HikePhotoItem {
   dataUrl?: string;
   name?: string;
   caption?: string;
+  width?: number;
+  height?: number;
+  sizeKb?: number;
   createdAt?: string;
 }
 

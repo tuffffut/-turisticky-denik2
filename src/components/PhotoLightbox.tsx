@@ -35,11 +35,13 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
   const [resolvedSrc, setResolvedSrc] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [realDimensions, setRealDimensions] = useState<{ width: number; height: number } | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
     setCurrentIndex(initialIndex);
     setZoomLevel(1);
+    setRealDimensions(null);
   }, [initialIndex, isOpen]);
 
   const currentItem = photos[currentIndex];
@@ -122,7 +124,9 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
     if (!resolvedSrc) return;
     const a = document.createElement('a');
     a.href = resolvedSrc;
-    a.download = `horsky-denik-foto-${currentIndex + 1}.webp`;
+    const dimSuffix = realDimensions ? `-${realDimensions.width}x${realDimensions.height}` : '';
+    const ext = resolvedSrc.startsWith('data:image/jpeg') ? 'jpg' : 'webp';
+    a.download = `horsky-denik-foto-${currentIndex + 1}${dimSuffix}.${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -142,9 +146,36 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
           <span className="text-xs sm:text-sm font-semibold text-stone-200 bg-stone-900/90 px-3 py-1 rounded-full border border-stone-700">
             {currentIndex + 1} / {photos.length}
           </span>
-          <span className="text-[11px] text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-md border border-emerald-800/50 font-medium">
-            2K / QHD kvalita
-          </span>
+          {realDimensions ? (
+            <span
+              className={`text-[11px] px-2.5 py-1 rounded-md border font-medium flex items-center gap-1.5 ${
+                realDimensions.width === 800 && realDimensions.height === 369
+                  ? 'bg-amber-950/80 text-amber-300 border-amber-800/60'
+                  : realDimensions.width >= 3000
+                  ? 'bg-emerald-950/90 text-emerald-400 border-emerald-800/60'
+                  : 'bg-stone-900 text-stone-300 border-stone-700'
+              }`}
+            >
+              <span>
+                {realDimensions.width} × {realDimensions.height} px
+              </span>
+              <span className="opacity-75">
+                {realDimensions.width === 800 && realDimensions.height === 369
+                  ? '• Náhled z Garminu'
+                  : realDimensions.width >= 3800
+                  ? '• 4K Ultra HD'
+                  : realDimensions.width >= 2560
+                  ? '• 2K QHD'
+                  : realDimensions.width >= 1920
+                  ? '• Full HD'
+                  : ''}
+              </span>
+            </span>
+          ) : (
+            <span className="text-[11px] text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-md border border-emerald-800/50 font-medium">
+              Zjišťuji rozlišení...
+            </span>
+          )}
           {zoomLevel > 1 && (
             <span className="text-[11px] text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/40">
               Přiblíženo {Math.round(zoomLevel * 100)}%
@@ -226,6 +257,12 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
               ref={imgRef}
               src={resolvedSrc}
               alt={`Fotografie ${currentIndex + 1}`}
+              onLoad={(e) => {
+                const el = e.currentTarget;
+                if (el.naturalWidth && el.naturalHeight) {
+                  setRealDimensions({ width: el.naturalWidth, height: el.naturalHeight });
+                }
+              }}
               className="w-auto h-auto max-h-[82vh] max-w-[96vw] md:max-w-[90vw] object-contain rounded-xl shadow-2xl transition-all select-none"
               draggable={false}
             />

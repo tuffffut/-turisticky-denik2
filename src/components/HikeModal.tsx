@@ -71,6 +71,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const [activePhotoDimensions, setActivePhotoDimensions] = useState<{ width: number; height: number } | null>(null);
   const [photoViewMode, setPhotoViewMode] = useState<'featured' | 'grid'>('featured');
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
@@ -385,7 +386,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                         Fotogalerie ({currentPhotos.length})
                       </h4>
                       <span className="text-[10px] bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded border border-emerald-800/40 font-medium">
-                        2K / QHD kvalita
+                        Originál / 4K kvalita
                       </span>
                     </div>
 
@@ -469,15 +470,46 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           <img
                             src={getPhotoThumbnail(currentPhotos[activePhotoIndex] || currentPhotos[0])}
                             alt={`Fotografie ${activePhotoIndex + 1}`}
+                            onLoad={(e) => {
+                              const el = e.currentTarget;
+                              if (el.naturalWidth) {
+                                setActivePhotoDimensions({
+                                  width: el.naturalWidth,
+                                  height: el.naturalHeight,
+                                });
+                              }
+                            }}
                             className="w-full h-full object-contain select-none transition-transform duration-300 group-hover:scale-[1.01]"
                           />
 
                           {/* Floating Top Controls */}
-                          <div className="absolute top-3 left-3 bg-black/75 backdrop-blur px-3 py-1 rounded-full text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 shadow">
-                            <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>
-                              {activePhotoIndex + 1} / {currentPhotos.length}
-                            </span>
+                          <div className="absolute top-3 left-3 flex items-center gap-2">
+                            <div className="bg-black/75 backdrop-blur px-3 py-1 rounded-full text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 shadow">
+                              <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>
+                                {activePhotoIndex + 1} / {currentPhotos.length}
+                              </span>
+                            </div>
+                            {activePhotoDimensions && (
+                              <div
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium border shadow backdrop-blur ${
+                                  activePhotoDimensions.width === 800 && activePhotoDimensions.height === 369
+                                    ? 'bg-amber-950/85 text-amber-300 border-amber-800/80'
+                                    : activePhotoDimensions.width >= 3000
+                                    ? 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
+                                    : 'bg-black/75 text-stone-300 border-stone-700/80'
+                                }`}
+                              >
+                                {activePhotoDimensions.width} × {activePhotoDimensions.height} px
+                                {activePhotoDimensions.width === 800 && activePhotoDimensions.height === 369
+                                  ? ' (Náhled Garmin)'
+                                  : activePhotoDimensions.width >= 3800
+                                  ? ' (4K Ultra HD)'
+                                  : activePhotoDimensions.width >= 1920
+                                  ? ' (Full HD)'
+                                  : ''}
+                              </div>
+                            )}
                           </div>
 
                           <div className="absolute top-3 right-3 bg-black/75 backdrop-blur px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">
@@ -850,7 +882,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                         Fotografie k výpravě ({currentPhotos.length})
                       </span>
                       <span className="text-[11px] text-emerald-400">
-                        Ukládá se v ostré Full HD kvalitě
+                        Ukládá se v originální / 4K Ultra HD kvalitě
                       </span>
                     </div>
                     <button
