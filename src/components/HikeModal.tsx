@@ -80,12 +80,37 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gpxInputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
+  // Synchronize formData whenever selected route or modal state changes
+  useEffect(() => {
+    if (route) {
+      setFormData(route);
+      setActivePhotoIndex(0);
+      setIsEditing(isNew);
+    } else {
+      setFormData({
+        title: '',
+        mountainRange: 'Krkonoše',
+        date: new Date().toISOString().split('T')[0],
+        activityType: 'hiking',
+        distanceKm: 0,
+        elevationGainM: 0,
+        elevationLossM: 0,
+        highestPointM: 0,
+        duration: '',
+        description: '',
+        externalAlbumUrl: '',
+        photos: [],
+      });
+      setActivePhotoIndex(0);
+      setIsEditing(isNew);
+    }
+  }, [route, isOpen, isNew]);
 
   const currentPhotos = formData.photos || route?.photos || [];
 
   // Intrinsic dimension resolver: immune to container CSS layout (like w-full h-72 = 624x288)
   useEffect(() => {
+    if (!isOpen) return;
     const currentPhoto = currentPhotos[activePhotoIndex] || currentPhotos[0];
     if (!currentPhoto) {
       setActivePhotoDimensions(null);
@@ -110,7 +135,9 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       }
     };
     probe.src = src;
-  }, [activePhotoIndex, currentPhotos]);
+  }, [activePhotoIndex, currentPhotos, isOpen]);
+
+  if (!isOpen) return null;
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -131,13 +158,24 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         const file = files[i];
         setUploadStatus(`Optimalizuji a nahrávám fotografii ${i + 1} z ${total}...`);
         const photoItem = await uploadPhotoToStorage(file, formData.id || route?.id);
-        uploadedPhotos.push(photoItem);
 
-        if (photoItem.width && photoItem.width < 1000) {
-          alert(
-            `Upozornění: Telefon předal zmenšený náhled (${photoItem.width} × ${photoItem.height} px, ${photoItem.sizeKb} KB) namísto plného originálu.\n\nTip pro Android: Při výběru souboru v mobilu neklikejte na „Nedávné / Poslední“ (kde bývají zmenšené náhledy), ale otevřete „Procházet / Soubory / DCIM / Fotoaparát“, kde je uložen skutečný plný originál.`
+        if (photoItem.width && photoItem.width < 1200) {
+          const keep = confirm(
+            `⚠️ Pozor: Vybraný soubor má rozlišení pouze ${photoItem.width} × ${photoItem.height} px (${photoItem.sizeKb} KB).\n\nTento rozměr přesně odpovídá náhledovému banneru z Garmin Connect nebo zmenšené mezipaměti v mobilu, nikoliv originální fotce z fotoaparátu.\n\nChcete tento náhled přesto uložit? (Pokud kliknete na Zrušit / Storno, soubor se neuloží a můžete vybrat skutečnou fotografii).`
           );
+          if (!keep) {
+            if (photoItem.id) {
+              fetch(`/api/photos/${photoItem.id}`, { method: 'DELETE' }).catch(() => {});
+            }
+            continue;
+          }
         }
+        uploadedPhotos.push(photoItem);
+      }
+
+      if (uploadedPhotos.length === 0) {
+        setUploadStatus('');
+        return;
       }
 
       const newPhotosList = [...(formData.photos || route?.photos || []), ...uploadedPhotos];
