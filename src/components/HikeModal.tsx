@@ -77,6 +77,17 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
 
+  const [feedbackDialog, setFeedbackDialog] = useState<{
+    type: 'warning' | 'error' | 'success';
+    title: string;
+    message: string;
+    details?: string;
+    confirmLabel?: string;
+    onConfirm?: () => void;
+    cancelLabel?: string;
+    onCancel?: () => void;
+  } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gpxInputRef = useRef<HTMLInputElement>(null);
 
@@ -145,7 +156,16 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
     if (!canEdit) {
       onRequestUnlock();
-      alert('Pro nahrávání fotografií musíte nejprve odemknout režim úprav (zadat PIN 1234).');
+      setFeedbackDialog({
+        type: 'warning',
+        title: '🔒 Režim úprav je uzamčen',
+        message: 'Pro nahrávání fotografií musíte nejprve odemknout režim úprav (zadat PIN 1234).',
+        confirmLabel: 'Zadat PIN',
+        onConfirm: () => {
+          setFeedbackDialog(null);
+          onRequestUnlock();
+        },
+      });
       return;
     }
 
@@ -158,18 +178,6 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         const file = files[i];
         setUploadStatus(`Optimalizuji a nahrávám fotografii ${i + 1} z ${total}...`);
         const photoItem = await uploadPhotoToStorage(file, formData.id || route?.id);
-
-        if (photoItem.width && photoItem.width < 1200) {
-          const keep = confirm(
-            `⚠️ Pozor: Vybraný soubor má rozlišení pouze ${photoItem.width} × ${photoItem.height} px (${photoItem.sizeKb} KB).\n\nTento rozměr přesně odpovídá náhledovému banneru z Garmin Connect nebo zmenšené mezipaměti v mobilu, nikoliv originální fotce z fotoaparátu.\n\nChcete tento náhled přesto uložit? (Pokud kliknete na Zrušit / Storno, soubor se neuloží a můžete vybrat skutečnou fotografii).`
-          );
-          if (!keep) {
-            if (photoItem.id) {
-              fetch(`/api/photos/${photoItem.id}`, { method: 'DELETE' }).catch(() => {});
-            }
-            continue;
-          }
-        }
         uploadedPhotos.push(photoItem);
       }
 
@@ -195,20 +203,43 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       }
 
       setUploadStatus('');
-      alert(
-        `✅ ${
-          total === 1
-            ? 'Fotografie byla úspěšně nahrána a uložena'
-            : `${total} fotografií bylo úspěšně nahráno a uloženo`
-        } do cloudové databáze v plné 2K kvalitě!`
-      );
+
+      const firstUploaded = uploadedPhotos[0];
+      const isSmallBanner = firstUploaded && firstUploaded.width && firstUploaded.width < 1200;
+
+      if (isSmallBanner) {
+        setFeedbackDialog({
+          type: 'warning',
+          title: '⚠️ Upozornění: Zjištěn malý náhled z Garminu',
+          message: `Nahraný soubor má rozlišení pouze ${firstUploaded.width} × ${firstUploaded.height} px (${firstUploaded.sizeKb} KB).`,
+          details:
+            'Tento rozměr přesně odpovídá grafické kartičce / mapovému banneru z aplikace Garmin Connect, nikoliv originální fotce z fotoaparátu. Pokud chcete nahrát skutečnou fotografii v plné kvalitě, v mobilu při výběru otevřete Správce souborů nebo složku DCIM / Fotoaparát.',
+          confirmLabel: 'Rozumím, ponechat',
+          onConfirm: () => setFeedbackDialog(null),
+        });
+      } else {
+        setFeedbackDialog({
+          type: 'success',
+          title: '✅ Fotografie úspěšně uložena',
+          message: `${
+            total === 1
+              ? `Fotografie (${firstUploaded.width} × ${firstUploaded.height} px, ${firstUploaded.sizeKb} KB)`
+              : `${total} fotografií`
+          } byla úspěšně uložena do cloudové databáze v plné kvalitě!`,
+          confirmLabel: 'Skvělé',
+          onConfirm: () => setFeedbackDialog(null),
+        });
+      }
     } catch (err: any) {
       console.error('Chyba při nahrávání fotky:', err);
-      alert(
-        `❌ Chyba při nahrávání fotografie:\n\n${
-          err.message || 'Neznámá chyba'
-        }\n\nFotografie nebyla uložena. Zkontrolujte prosím připojení k internetu a zkuste to znovu.`
-      );
+      setFeedbackDialog({
+        type: 'error',
+        title: '❌ Chyba při ukládání fotografie',
+        message: err.message || 'Neznámá chyba při komunikaci se serverem',
+        details: 'Fotografie nebyla do databáze uložena. Zkontrolujte prosím připojení k internetu a zkuste to znovu.',
+        confirmLabel: 'Zavřít',
+        onConfirm: () => setFeedbackDialog(null),
+      });
     } finally {
       setIsUploadingPhotos(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -218,33 +249,57 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   const handleDeletePhoto = async (index: number) => {
     if (!canEdit) {
       onRequestUnlock();
-      alert('Pro mazání fotografií musíte nejprve odemknout režim úprav (zadat PIN 1234).');
+      setFeedbackDialog({
+        type: 'warning',
+        title: '🔒 Režim úprav je uzamčen',
+        message: 'Pro mazání fotografií musíte nejprve odemknout režim úprav (zadat PIN 1234).',
+        confirmLabel: 'Zadat PIN',
+        onConfirm: () => {
+          setFeedbackDialog(null);
+          onRequestUnlock();
+        },
+      });
       return;
     }
-    if (!confirm('Opravdu chcete tuto fotografii odebrat?')) return;
 
-    try {
-      const updated = [...currentPhotos];
-      const removed = updated.splice(index, 1)[0];
+    setFeedbackDialog({
+      type: 'warning',
+      title: '🗑️ Odebrání fotografie',
+      message: 'Opravdu chcete tuto fotografii z výpravy trvale smazat?',
+      confirmLabel: 'Ano, smazat',
+      onConfirm: async () => {
+        setFeedbackDialog(null);
+        try {
+          const updated = [...currentPhotos];
+          const removed = updated.splice(index, 1)[0];
 
-      // If removed photo has an ID on server, delete from /api/photos/:id
-      if (typeof removed === 'object' && removed.id) {
-        fetch(`/api/photos/${removed.id}`, { method: 'DELETE' }).catch(() => {});
-      }
+          if (typeof removed === 'object' && removed.id) {
+            fetch(`/api/photos/${removed.id}`, { method: 'DELETE' }).catch(() => {});
+          }
 
-      setFormData((prev) => ({ ...prev, photos: updated }));
-      if (route?.id) {
-        await onSave({ ...route, ...formData, photos: updated });
-      }
-      if (lightboxIndex >= updated.length) {
-        setLightboxIndex(Math.max(0, updated.length - 1));
-      }
-      if (updated.length === 0) {
-        setLightboxOpen(false);
-      }
-    } catch (err: any) {
-      alert('Chyba při odebírání fotografie: ' + err.message);
-    }
+          setFormData((prev) => ({ ...prev, photos: updated }));
+          if (route?.id) {
+            await onSave({ ...route, ...formData, photos: updated });
+          }
+          if (lightboxIndex >= updated.length) {
+            setLightboxIndex(Math.max(0, updated.length - 1));
+          }
+          if (updated.length === 0) {
+            setLightboxOpen(false);
+          }
+        } catch (err: any) {
+          setFeedbackDialog({
+            type: 'error',
+            title: 'Chyba při mazání',
+            message: err.message,
+            confirmLabel: 'Zavřít',
+            onConfirm: () => setFeedbackDialog(null),
+          });
+        }
+      },
+      cancelLabel: 'Zrušit',
+      onCancel: () => setFeedbackDialog(null),
+    });
   };
 
   const handleGpxFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -338,9 +393,24 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         id: formData.id || route?.id || 'route_' + Date.now(),
       });
       setIsEditing(false);
-      if (isNew) onClose();
+      setFeedbackDialog({
+        type: 'success',
+        title: '✅ Výprava uložena',
+        message: 'Veškeré změny a data byla úspěšně zapsána do cloudové databáze.',
+        confirmLabel: 'OK',
+        onConfirm: () => {
+          setFeedbackDialog(null);
+          if (isNew) onClose();
+        },
+      });
     } catch (err: any) {
-      alert('Chyba při ukládání: ' + err.message);
+      setFeedbackDialog({
+        type: 'error',
+        title: '❌ Chyba při ukládání',
+        message: err.message || 'Nepodařilo se uložit data výpravy.',
+        confirmLabel: 'Zavřít',
+        onConfirm: () => setFeedbackDialog(null),
+      });
     } finally {
       setIsSaving(false);
     }
@@ -359,6 +429,72 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
   return (
     <>
+      {/* Hidden file input unconditionally present in DOM */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+        multiple
+        className="hidden"
+        onChange={handlePhotoUpload}
+      />
+
+      {/* In-app custom feedback modal */}
+      {feedbackDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-stone-900 border border-stone-700/80 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-start gap-3">
+              <div
+                className={`p-2.5 rounded-xl text-lg ${
+                  feedbackDialog.type === 'error'
+                    ? 'bg-red-950/80 text-red-400 border border-red-800/60'
+                    : feedbackDialog.type === 'warning'
+                    ? 'bg-amber-950/80 text-amber-400 border border-amber-800/60'
+                    : 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60'
+                }`}
+              >
+                {feedbackDialog.type === 'error' ? '❌' : feedbackDialog.type === 'warning' ? '⚠️' : '✅'}
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-white mb-1">{feedbackDialog.title}</h3>
+                <p className="text-xs text-stone-300 leading-relaxed whitespace-pre-wrap">{feedbackDialog.message}</p>
+                {feedbackDialog.details && (
+                  <p className="text-[11px] text-stone-400 mt-2 bg-stone-950/60 border border-stone-800/80 p-2.5 rounded-xl leading-relaxed">
+                    {feedbackDialog.details}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-800/80">
+              {feedbackDialog.cancelLabel && feedbackDialog.onCancel && (
+                <button
+                  type="button"
+                  onClick={feedbackDialog.onCancel}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-300 hover:text-white bg-stone-800 hover:bg-stone-700 transition"
+                >
+                  {feedbackDialog.cancelLabel}
+                </button>
+              )}
+              {feedbackDialog.confirmLabel && feedbackDialog.onConfirm && (
+                <button
+                  type="button"
+                  onClick={feedbackDialog.onConfirm}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold text-white transition shadow ${
+                    feedbackDialog.type === 'error'
+                      ? 'bg-red-600 hover:bg-red-500'
+                      : feedbackDialog.type === 'warning'
+                      ? 'bg-amber-600 hover:bg-amber-500'
+                      : 'bg-emerald-600 hover:bg-emerald-500'
+                  }`}
+                >
+                  {feedbackDialog.confirmLabel}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 md:p-6 overflow-y-auto">
         <div className="bg-stone-900 border border-stone-800 rounded-3xl w-full max-w-5xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-fadeIn my-auto">
           {/* Header */}
@@ -513,14 +649,6 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                         </div>
                       )}
 
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
-                        multiple
-                        className="hidden"
-                        onChange={handlePhotoUpload}
-                      />
                       <button
                         type="button"
                         onClick={() => {
@@ -989,12 +1117,19 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={isUploadingPhotos}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      Přidat fotky
+                      {isUploadingPhotos ? 'Nahrávám...' : 'Přidat fotky'}
                     </button>
                   </div>
+
+                  {uploadStatus && (
+                    <div className="p-3 bg-emerald-950/50 border border-emerald-800/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2 animate-pulse">
+                      <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
+                      <span>{uploadStatus}</span>
+                    </div>
+                  )}
 
                   {currentPhotos.length > 0 && (
                     <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 pt-2">

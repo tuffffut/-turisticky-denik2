@@ -240,6 +240,19 @@ async function startServer() {
     next();
   });
 
+  // Strict anti-caching middleware for dynamic API routes and HTML documents
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path === '/' || req.path.endsWith('.html')) {
+      res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store',
+      });
+    }
+    next();
+  });
+
   // Initialize Firestore database on server
   let db: any = null;
   try {
@@ -1117,7 +1130,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           else if (head[0] === 0x89 && head.toString('ascii', 1, 4) === 'PNG') mimeType = 'image/png';
         } catch {}
         res.setHeader('Content-Type', mimeType);
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
         return res.sendFile(binPath);
       }
 
@@ -1129,7 +1142,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           if (matches && matches.length === 3) {
             const buffer = Buffer.from(matches[2], 'base64');
             res.setHeader('Content-Type', matches[1]);
-            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            res.setHeader('Cache-Control', 'no-cache, must-revalidate');
             return res.send(buffer);
           }
         }

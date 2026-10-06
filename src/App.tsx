@@ -50,13 +50,13 @@ export const App: React.FC = () => {
   });
 
   // Fetch routes from server/Firestore
-  const fetchRoutes = async () => {
+  const fetchRoutes = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const res = await fetch(`/api/routes?_t=${Date.now()}`, {
         cache: 'no-store',
         headers: {
-          'Cache-Control': 'no-cache',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
         },
       });
@@ -72,12 +72,38 @@ export const App: React.FC = () => {
     } catch (err) {
       console.error('Chyba při načítání tras:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchRoutes();
+    fetchRoutes(false);
+
+    // Live multi-device sync: auto-refresh when tab gains focus or screen turns on
+    const handleFocus = () => {
+      fetchRoutes(true);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchRoutes(true);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Periodic live sync every 15 seconds when active
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchRoutes(true);
+      }
+    }, 15000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(pollInterval);
+    };
   }, []);
 
   const handleUpdatePin = (newPin: string) => {
