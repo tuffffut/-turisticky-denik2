@@ -90,6 +90,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gpxInputRef = useRef<HTMLInputElement>(null);
+  const [isReplacingActivePhoto, setIsReplacingActivePhoto] = useState(false);
 
   // Synchronize formData whenever selected route or modal state changes
   useEffect(() => {
@@ -186,7 +187,22 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         return;
       }
 
-      const newPhotosList = [...(formData.photos || route?.photos || []), ...uploadedPhotos];
+      const existingPhotos = formData.photos || route?.photos || [];
+      let newPhotosList: (string | HikePhotoItem)[];
+
+      if (isReplacingActivePhoto && existingPhotos.length > 0 && activePhotoIndex < existingPhotos.length) {
+        const copy = [...existingPhotos];
+        copy[activePhotoIndex] = uploadedPhotos[0];
+        if (uploadedPhotos.length > 1) {
+          copy.push(...uploadedPhotos.slice(1));
+        }
+        newPhotosList = copy;
+      } else {
+        newPhotosList = [...existingPhotos, ...uploadedPhotos];
+        setActivePhotoIndex(existingPhotos.length);
+      }
+      setIsReplacingActivePhoto(false);
+
       setFormData((prev) => ({
         ...prev,
         photos: newPhotosList,
@@ -652,6 +668,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       <button
                         type="button"
                         onClick={() => {
+                          setIsReplacingActivePhoto(false);
                           if (canEdit) {
                             fileInputRef.current?.click();
                           } else {
@@ -746,6 +763,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  setIsReplacingActivePhoto(true);
                                   if (canEdit) {
                                     fileInputRef.current?.click();
                                   } else {
@@ -753,10 +771,10 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                   }
                                 }}
                                 className="bg-emerald-600/90 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
-                                title="Nahrát fotografii v plném originálním rozlišení (2K/4K)"
+                                title="Nahradit tento malý náhled novou fotografií v plném rozlišení (2K/4K)"
                               >
                                 <Upload className="w-3.5 h-3.5" />
-                                <span className="hidden sm:inline">Nahrát plnou kvalitu</span>
+                                <span className="hidden sm:inline">Nahradit plnou kvalitou</span>
                               </button>
                             )}
                             <div className="bg-black/75 backdrop-blur px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">
@@ -1135,7 +1153,10 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={() => {
+                        setIsReplacingActivePhoto(false);
+                        fileInputRef.current?.click();
+                      }}
                       disabled={isUploadingPhotos}
                       className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5"
                     >

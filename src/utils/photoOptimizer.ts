@@ -151,7 +151,7 @@ export async function optimizePhoto(
 }
 
 /**
- * Uploads an optimized photo to the dedicated backend storage endpoint.
+ * Uploads an optimized photo to the dedicated backend storage endpoint, with automatic inline fallback.
  */
 export async function uploadPhotoToStorage(
   file: File,
@@ -160,30 +160,39 @@ export async function uploadPhotoToStorage(
 ): Promise<HikePhotoItem> {
   const optimized = await optimizePhoto(file, 2880, 0.92);
 
-  const res = await fetch('/api/photos/upload', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      hikeId: hikeId || '',
-      dataUrl: optimized.dataUrl,
-      name: optimized.name,
-      caption: caption || '',
-      width: optimized.width,
-      height: optimized.height,
-      sizeKb: optimized.sizeKb,
-    }),
-  });
+  let photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+  let photoUrl = optimized.dataUrl;
 
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || `Nahrávání selhalo (${res.status})`);
+  try {
+    const res = await fetch('/api/photos/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hikeId: hikeId || '',
+        dataUrl: optimized.dataUrl,
+        name: optimized.name,
+        caption: caption || '',
+        width: optimized.width,
+        height: optimized.height,
+        sizeKb: optimized.sizeKb,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.id) photoId = data.id;
+      if (data.url) photoUrl = data.url;
+    } else {
+      console.warn(`[uploadPhotoToStorage] /api/photos/upload vrátil ${res.status}, používám přímé uložení.`);
+    }
+  } catch (netErr) {
+    console.warn('[uploadPhotoToStorage] Síťová chyba při volání /api/photos/upload, ukládám jako dataUrl:', netErr);
   }
 
-  const data = await res.json();
   return {
-    id: data.id,
-    url: data.url,
-    rawUrl: data.url,
+    id: photoId,
+    url: photoUrl,
+    rawUrl: photoUrl,
     dataUrl: optimized.dataUrl,
     name: optimized.name,
     caption: caption || '',

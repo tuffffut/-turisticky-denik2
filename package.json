@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "node -e 'if (require(\"fs\").existsSync(\"src/App.tsx\")) require(\"child_process\").execSync(\"vite build\", {stdio: \"inherit\"})' && esbuild server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:vite --external:esbuild --external:fsevents --sourcemap",
-    "start": "node dist/server.cjs",
+    "start": "tsx server.ts",
     "preview": "vite preview"
   },
   "dependencies": {

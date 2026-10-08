@@ -726,15 +726,27 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }
       }
 
-      // Ensure photos array in main hike document does NOT contain massive inline dataUrls (prevents Firestore 1MB document limit error)
+      // Ensure photos array in main hike document does not exceed Firestore 1MB document limit
       if (Array.isArray(cleanHikeForDb.photos)) {
-        cleanHikeForDb.photos = cleanHikeForDb.photos.map((p: any) => {
-          if (typeof p === 'object' && p !== null) {
-            const { dataUrl, ...rest } = p;
-            return rest;
+        let totalDataUrlBytes = 0;
+        cleanHikeForDb.photos.forEach((p: any) => {
+          if (typeof p === 'object' && p?.dataUrl) {
+            totalDataUrlBytes += p.dataUrl.length;
+          } else if (typeof p === 'string' && p.startsWith('data:')) {
+            totalDataUrlBytes += p.length;
           }
-          return p;
         });
+
+        // Only strip dataUrl if total photos exceed 750KB (to prevent Firestore 1MB document limit)
+        if (totalDataUrlBytes > 750 * 1024) {
+          cleanHikeForDb.photos = cleanHikeForDb.photos.map((p: any) => {
+            if (typeof p === 'object' && p !== null) {
+              const { dataUrl, ...rest } = p;
+              return rest;
+            }
+            return p;
+          });
+        }
       }
 
       // Save to Firestore (Preserve existing photos and user notes so Garmin re-sync never wipes them)
