@@ -276128,19 +276128,29 @@
   },
   {
     "title": "Dolní Morava Turistika",
-    "duration": "2h 45m",
+    "duration": "1h 30m",
     "name": "Dolní Morava Turistika",
     "highestPointM": 1145,
-    "photos": [],
+    "photos": [
+      {
+        "id": "photo_test_123",
+        "url": "/api/photos/photo_test_123",
+        "rawUrl": "/api/photos/photo_test_123?raw=1",
+        "width": 2560,
+        "height": 1440,
+        "sizeKb": 650,
+        "name": "test.jpg"
+      }
+    ],
     "id": "garmin-24554674219",
     "lowestPointM": 733,
-    "mountainRange": "Králický Sněžník",
+    "mountainRange": "Krkonoše",
     "peakCoords": {
-      "lng": 16.828660648316145,
-      "name": "Dolní Morava Turistika",
-      "lat": 50.149457920342684
+      "lat": 50.736,
+      "lng": 15.74,
+      "name": "Dolní Morava Turistika"
     },
-    "distanceKm": 9.41,
+    "distanceKm": 5,
     "trackPoints": [
       {
         "ele": 734,
@@ -279136,9 +279146,12 @@
       }
     ],
     "createdAt": "2026-10-06T02:43:25.373838Z",
-    "date": "2026-09-30",
+    "date": "2026-10-08",
     "description": "Automaticky synchronizováno z Garmin Connect.",
-    "elevationGainM": 513
+    "elevationGainM": 100,
+    "elevationLossM": 100,
+    "difficulty": "easy",
+    "source": "garmin"
   },
   {
     "title": "Valtice Turistika",
