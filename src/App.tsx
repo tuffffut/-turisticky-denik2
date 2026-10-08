@@ -162,7 +162,11 @@ export const App: React.FC = () => {
       const res = await fetch('/api/routes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedRoute),
+        body: JSON.stringify({
+          ...updatedRoute,
+          fromUserModal: true,
+          source: 'user',
+        }),
       });
 
       if (!res.ok) {

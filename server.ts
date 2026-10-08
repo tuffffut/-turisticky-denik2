@@ -744,9 +744,22 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           if (existingDocSnap.exists()) {
             const existingData = existingDocSnap.data();
 
-            // 1. Preserve photos ONLY if req.body.photos was NOT supplied at all (e.g. background Garmin sync script)
-            // If user explicitly provided photos (even an empty array []), respect the user's intent!
-            if (
+            // 1. Preserve photos if:
+            // a) req.body.photos was NOT supplied at all, OR
+            // b) incoming request is an automated Garmin sync script and existing hike has user-uploaded/curated photos
+            const existingHasUserPhotos =
+              Array.isArray(existingData.photos) &&
+              existingData.photos.length > 0 &&
+              existingData.photos.some((p: any) =>
+                typeof p === 'object' && (p.url || p.id || p.source === 'user' || (p.width && p.width > 800))
+              );
+
+            const isAutomatedGarminSync = req.body.source === 'garmin' && !req.body.fromUserModal;
+
+            if (isAutomatedGarminSync && existingHasUserPhotos) {
+              cleanHikeForDb.photos = existingData.photos;
+              console.log(`[API /api/routes] Chráněny uživatelské fotografie v plné kvalitě (${existingData.photos.length}) pro trasu ${routeId}`);
+            } else if (
               req.body.photos === undefined &&
               Array.isArray(existingData.photos) &&
               existingData.photos.length > 0

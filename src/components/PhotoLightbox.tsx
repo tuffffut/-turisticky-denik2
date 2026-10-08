@@ -199,9 +199,9 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
           {realDimensions ? (
             <span
               className={`text-[11px] px-2.5 py-1 rounded-md border font-medium flex items-center gap-1.5 ${
-                realDimensions.width === 800 && realDimensions.height === 369
+                realDimensions.width <= 800 || realDimensions.height <= 800
                   ? 'bg-amber-950/80 text-amber-300 border-amber-800/60'
-                  : realDimensions.width >= 3000
+                  : realDimensions.width >= 1920
                   ? 'bg-emerald-950/90 text-emerald-400 border-emerald-800/60'
                   : 'bg-stone-900 text-stone-300 border-stone-700'
               }`}
@@ -210,11 +210,11 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
                 {realDimensions.width} × {realDimensions.height} px
               </span>
               <span className="opacity-75">
-                {realDimensions.width === 800 && realDimensions.height === 369
-                  ? '• Náhled z Garminu'
+                {realDimensions.width <= 800 || realDimensions.height <= 800
+                  ? '• Zmenšený náhled z Garminu (800px)'
                   : realDimensions.width >= 3800
                   ? '• 4K Ultra HD'
-                  : realDimensions.width >= 2560
+                  : realDimensions.width >= 2400
                   ? '• 2K QHD'
                   : realDimensions.width >= 1920
                   ? '• Full HD'

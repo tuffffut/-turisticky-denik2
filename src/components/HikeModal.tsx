@@ -684,7 +684,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                             setLightboxIndex(activePhotoIndex);
                             setLightboxOpen(true);
                           }}
-                          className="group relative w-full h-72 sm:h-96 md:h-[460px] bg-black/80 rounded-2xl overflow-hidden border border-stone-800 flex items-center justify-center cursor-pointer shadow-xl transition hover:border-emerald-500/80"
+                          className="group relative w-full h-80 sm:h-[480px] md:h-[560px] bg-black/90 rounded-2xl overflow-hidden border border-stone-800 flex items-center justify-center cursor-pointer shadow-xl transition hover:border-emerald-500/80"
                         >
                           <img
                             src={getPhotoThumbnail(currentPhotos[activePhotoIndex] || currentPhotos[0])}
@@ -702,7 +702,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           />
 
                           {/* Floating Top Controls */}
-                          <div className="absolute top-3 left-3 flex items-center gap-2">
+                          <div className="absolute top-3 left-3 flex flex-wrap items-center gap-2 max-w-[70%]">
                             <div className="bg-black/75 backdrop-blur px-3 py-1 rounded-full text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 shadow">
                               <Camera className="w-3.5 h-3.5 text-emerald-400" />
                               <span>
@@ -712,7 +712,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                             {activePhotoDimensions && (
                               <div
                                 className={`px-2.5 py-1 rounded-full text-xs font-medium border shadow backdrop-blur ${
-                                  activePhotoDimensions.width === 800 && activePhotoDimensions.height === 369
+                                  activePhotoDimensions.width <= 800 || activePhotoDimensions.height <= 800
                                     ? 'bg-amber-950/85 text-amber-300 border-amber-800/80'
                                     : activePhotoDimensions.width >= 3000
                                     ? 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
@@ -720,8 +720,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                 }`}
                               >
                                 {activePhotoDimensions.width} × {activePhotoDimensions.height} px
-                                {activePhotoDimensions.width === 800 && activePhotoDimensions.height === 369
-                                  ? ' (Náhled Garmin)'
+                                {activePhotoDimensions.width <= 800 && activePhotoDimensions.height <= 800
+                                  ? ' (Náhled Garmin 800px)'
                                   : activePhotoDimensions.width >= 3800
                                   ? ' (4K Ultra HD)'
                                   : activePhotoDimensions.width >= 2400
@@ -740,9 +740,29 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                             )}
                           </div>
 
-                          <div className="absolute top-3 right-3 bg-black/75 backdrop-blur px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">
-                            <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>Celá obrazovka</span>
+                          <div className="absolute top-3 right-3 flex items-center gap-2">
+                            {activePhotoDimensions && (activePhotoDimensions.width <= 800 || activePhotoDimensions.height <= 800) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (canEdit) {
+                                    fileInputRef.current?.click();
+                                  } else {
+                                    onRequestUnlock();
+                                  }
+                                }}
+                                className="bg-emerald-600/90 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
+                                title="Nahrát originální fotografii z fotoaparátu v plné 2K/4K kvalitě"
+                              >
+                                <Upload className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Nahrát originál (2K/4K)</span>
+                              </button>
+                            )}
+                            <div className="bg-black/75 backdrop-blur px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">
+                              <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Celá obrazovka</span>
+                            </div>
                           </div>
 
                           {/* Navigation arrows directly on the large hero image */}
