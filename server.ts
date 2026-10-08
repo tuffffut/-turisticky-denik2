@@ -715,7 +715,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         trackPoints: finalTrackPoints,
         gpxRawXml: gpxXml || undefined,
         garminActivityId: req.body.garminActivityId || req.body.activityId,
-        source: 'garmin',
+        source: req.body.source || 'garmin',
       };
 
       // Sanitize: Firestore throws on undefined, so omit any undefined values
@@ -1123,15 +1123,30 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     }
   });
 
-  // GET /api/photos/:id: Get photo by id
+  // GET /api/photos/:id: Get photo by id (default: streams binary image for img tags; ?meta=1 returns JSON metadata)
   app.get('/api/photos/:id', async (req, res) => {
     try {
       const { id } = req.params;
       const binPath = path.join(photosDir, `${id}.bin`);
       const jsonPath = path.join(photosDir, `${id}.json`);
 
-      // 1. If raw requested and binary exists on disk, stream directly with long cache headers
-      if (req.query.raw === '1' && fs.existsSync(binPath)) {
+      // 1. If metadata specifically requested:
+      if (req.query.meta === '1') {
+        if (fs.existsSync(jsonPath)) {
+          const photoData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+          return res.json(photoData);
+        }
+        if (db) {
+          const photoSnap = await getDoc(doc(db, 'hike_photos', id));
+          if (photoSnap.exists()) {
+            return res.json(photoSnap.data());
+          }
+        }
+        return res.status(404).json({ error: 'Metadata fotografie nenalezena' });
+      }
+
+      // 2. Default: Stream binary image directly (compatible with all <img> tags and lightboxes)
+      if (fs.existsSync(binPath)) {
         let mimeType = 'image/webp';
         try {
           const fd = fs.openSync(binPath, 'r');
@@ -1143,23 +1158,21 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           else if (head[0] === 0x89 && head.toString('ascii', 1, 4) === 'PNG') mimeType = 'image/png';
         } catch {}
         res.setHeader('Content-Type', mimeType);
-        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+        res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
         return res.sendFile(binPath);
       }
 
-      // 2. If json exists on disk, return it directly
       if (fs.existsSync(jsonPath)) {
         const photoData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-        if (req.query.raw === '1' && typeof photoData.dataUrl === 'string') {
+        if (typeof photoData.dataUrl === 'string') {
           const matches = photoData.dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
           if (matches && matches.length === 3) {
             const buffer = Buffer.from(matches[2], 'base64');
             res.setHeader('Content-Type', matches[1]);
-            res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+            res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
             return res.send(buffer);
           }
         }
-        return res.json(photoData);
       }
 
       // 3. Fallback to Firestore (with chunk reassembly)
@@ -1180,20 +1193,20 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
               }
             }
 
-            if (req.query.raw === '1' && typeof fullDataUrl === 'string') {
+            if (typeof fullDataUrl === 'string') {
               const matches = fullDataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
               if (matches && matches.length === 3) {
                 const contentType = matches[1];
                 const buffer = Buffer.from(matches[2], 'base64');
+                // Cache to disk so subsequent reads are 0ms
+                try {
+                  fs.writeFileSync(binPath, buffer);
+                } catch {}
                 res.setHeader('Content-Type', contentType);
-                res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+                res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
                 return res.send(buffer);
               }
             }
-            return res.json({
-              ...photoData,
-              dataUrl: fullDataUrl,
-            });
           }
         } catch (dbErr: any) {
           console.warn('[API /api/photos/:id] Firestore chyba:', dbErr.message);

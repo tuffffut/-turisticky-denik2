@@ -46,48 +46,12 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
 
   const currentItem = photos[currentIndex];
 
-  const loadPhotoSrc = useCallback(async () => {
+  const loadPhotoSrc = useCallback(() => {
     if (!currentItem) return;
     if (typeof currentItem === 'string') {
-      if (currentItem.startsWith('data:') || currentItem.startsWith('http')) {
-        setResolvedSrc(currentItem);
-      } else if (currentItem.startsWith('/api/photos/')) {
-        setIsLoading(true);
-        try {
-          const res = await fetch(currentItem);
-          if (res.ok) {
-            const json = await res.json();
-            setResolvedSrc(json.dataUrl || currentItem);
-          } else {
-            setResolvedSrc(currentItem);
-          }
-        } catch {
-          setResolvedSrc(currentItem);
-        } finally {
-          setIsLoading(false);
-        }
-      } else {
-        setResolvedSrc(currentItem);
-      }
+      setResolvedSrc(currentItem);
     } else {
-      if (currentItem.dataUrl) {
-        setResolvedSrc(currentItem.dataUrl);
-      } else if (currentItem.url) {
-        setIsLoading(true);
-        try {
-          const res = await fetch(currentItem.url);
-          if (res.ok) {
-            const json = await res.json();
-            setResolvedSrc(json.dataUrl || currentItem.url);
-          } else {
-            setResolvedSrc(currentItem.url);
-          }
-        } catch {
-          setResolvedSrc(currentItem.url);
-        } finally {
-          setIsLoading(false);
-        }
-      }
+      setResolvedSrc(currentItem.url || currentItem.rawUrl || currentItem.dataUrl || '');
     }
   }, [currentItem]);
 

@@ -205,16 +205,16 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       setUploadStatus('');
 
       const firstUploaded = uploadedPhotos[0];
-      const isSmallBanner = firstUploaded && firstUploaded.width && firstUploaded.width < 1200;
+      const isSmallPreview = firstUploaded && firstUploaded.width && firstUploaded.width <= 1000 && firstUploaded.sizeKb && firstUploaded.sizeKb < 150;
 
-      if (isSmallBanner) {
+      if (isSmallPreview) {
         setFeedbackDialog({
-          type: 'warning',
-          title: '⚠️ Upozornění: Zjištěn malý náhled z Garminu',
-          message: `Nahraný soubor má rozlišení pouze ${firstUploaded.width} × ${firstUploaded.height} px (${firstUploaded.sizeKb} KB).`,
+          type: 'info',
+          title: 'ℹ️ Fotografie úspěšně uložena',
+          message: `Fotografie byla uložena v rozlišení ${firstUploaded.width} × ${firstUploaded.height} px (${firstUploaded.sizeKb} KB).`,
           details:
-            'Tento rozměr přesně odpovídá grafické kartičce / mapovému banneru z aplikace Garmin Connect, nikoliv originální fotce z fotoaparátu. Pokud chcete nahrát skutečnou fotografii v plné kvalitě, v mobilu při výběru otevřete Správce souborů nebo složku DCIM / Fotoaparát.',
-          confirmLabel: 'Rozumím, ponechat',
+            'Aplikace uložila přesně soubor, který jste vybrali. Tento rozměr (kolem 800 px) typicky vznikne, pokud se fotka stáhne z webu Google Fotek pravým tlačítkem myši jako náhled, namísto stažení originálu. Pokud chcete do deníku nahrát původní snímek z fotoaparátu v plné kvalitě (2–5 MB), v Google Fotkách otevřete snímek a stáhněte jej klávesou Shift + D (nebo přes tři tečky ⋮ -> Stáhnout).',
+          confirmLabel: 'Rozumím',
           onConfirm: () => setFeedbackDialog(null),
         });
       } else {
@@ -721,7 +721,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                               >
                                 {activePhotoDimensions.width} × {activePhotoDimensions.height} px
                                 {activePhotoDimensions.width <= 800 && activePhotoDimensions.height <= 800
-                                  ? ' (Náhled Garmin 800px)'
+                                  ? ' (Náhled 800px)'
                                   : activePhotoDimensions.width >= 3800
                                   ? ' (4K Ultra HD)'
                                   : activePhotoDimensions.width >= 2400
@@ -753,10 +753,10 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                   }
                                 }}
                                 className="bg-emerald-600/90 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
-                                title="Nahrát originální fotografii z fotoaparátu v plné 2K/4K kvalitě"
+                                title="Nahrát fotografii v plném originálním rozlišení (2K/4K)"
                               >
                                 <Upload className="w-3.5 h-3.5" />
-                                <span className="hidden sm:inline">Nahrát originál (2K/4K)</span>
+                                <span className="hidden sm:inline">Nahrát plnou kvalitu</span>
                               </button>
                             )}
                             <div className="bg-black/75 backdrop-blur px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">

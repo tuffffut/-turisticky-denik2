@@ -480,10 +480,8 @@ export const App: React.FC = () => {
                     const firstPhoto = photoCount > 0 ? route.photos![0] : null;
                     const firstPhotoSrc =
                       typeof firstPhoto === 'string'
-                        ? firstPhoto.startsWith('/api/photos/')
-                          ? `${firstPhoto}?raw=1`
-                          : firstPhoto
-                        : firstPhoto?.dataUrl || firstPhoto?.rawUrl || firstPhoto?.url || '';
+                        ? firstPhoto
+                        : firstPhoto?.url || firstPhoto?.rawUrl || firstPhoto?.dataUrl || '';
 
                     return (
                       <div
