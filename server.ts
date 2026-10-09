@@ -602,6 +602,189 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     }
   }
 
+  // Robust photo storage helper: Saves photo dataUrl to disk and Firestore hike_photos
+  // Returns lean HikePhotoItem metadata object with permanent /api/photos/:id URL
+  async function savePhotoDataUrl(
+    dataUrl: string,
+    hikeId = '',
+    meta: { name?: string; caption?: string; width?: number; height?: number; sizeKb?: number } = {}
+  ): Promise<any> {
+    const photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+    const name = meta.name || 'foto.jpg';
+    const caption = meta.caption || '';
+    let width = meta.width;
+    let height = meta.height;
+    let sizeKb = meta.sizeKb;
+
+    // 1. Save binary file and json metadata directly to disk for 0ms local retrieval
+    try {
+      const matches = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const buffer = Buffer.from(matches[2], 'base64');
+        fs.writeFileSync(path.join(photosDir, `${photoId}.bin`), buffer);
+        if (!sizeKb) {
+          sizeKb = Math.round(buffer.length / 1024);
+        }
+      }
+      fs.writeFileSync(
+        path.join(photosDir, `${photoId}.json`),
+        JSON.stringify({
+          id: photoId,
+          hikeId: hikeId || '',
+          dataUrl,
+          name,
+          caption,
+          width: width || null,
+          height: height || null,
+          sizeKb: sizeKb || null,
+          createdAt: new Date().toISOString(),
+        })
+      );
+      console.log(`[savePhotoDataUrl] Fotografie ${photoId} uložena na disk (${sizeKb} KB).`);
+    } catch (fsErr) {
+      console.warn('Nelze uložit fotku na disk:', fsErr);
+    }
+
+    // 2. Save to Firestore hike_photos collection (with chunking if needed)
+    if (db) {
+      try {
+        const CHUNK_SIZE = 700 * 1024;
+        if (dataUrl.length <= CHUNK_SIZE) {
+          await setDoc(doc(db, 'hike_photos', photoId), {
+            id: photoId,
+            hikeId: hikeId || '',
+            dataUrl,
+            name,
+            caption,
+            width: width || null,
+            height: height || null,
+            sizeKb: sizeKb || null,
+            isChunked: false,
+            createdAt: new Date().toISOString(),
+          });
+        } else {
+          const totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
+          await setDoc(doc(db, 'hike_photos', photoId), {
+            id: photoId,
+            hikeId: hikeId || '',
+            dataUrlChunk0: dataUrl.substring(0, CHUNK_SIZE),
+            totalChunks,
+            isChunked: true,
+            name,
+            caption,
+            width: width || null,
+            height: height || null,
+            sizeKb: sizeKb || null,
+            createdAt: new Date().toISOString(),
+          });
+          for (let i = 1; i < totalChunks; i++) {
+            const chunkStr = dataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+            await setDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`), {
+              chunkIndex: i,
+              data: chunkStr,
+            });
+          }
+        }
+        console.log(`[savePhotoDataUrl] Fotografie ${photoId} uložena do Firestore.`);
+      } catch (dbErr: any) {
+        console.warn('[savePhotoDataUrl] Chyba při zápisu do Firestore:', dbErr.message);
+      }
+    }
+
+    return {
+      id: photoId,
+      url: `/api/photos/${photoId}`,
+      rawUrl: `/api/photos/${photoId}?raw=1`,
+      name,
+      caption,
+      width: width || null,
+      height: height || null,
+      sizeKb: sizeKb || null,
+      source: 'user',
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  // Helper to migrate legacy inline base64 photos in Firestore to standalone /api/photos/:id
+  async function migrateLegacyPhotos() {
+    if (!db) return;
+    try {
+      const snap = await getDocs(collection(db, 'hikes'));
+      let migratedCount = 0;
+      for (const d of snap.docs) {
+        const data = d.data();
+        if (Array.isArray(data.photos) && data.photos.length > 0) {
+          let hasBase64 = false;
+          for (const p of data.photos) {
+            if (typeof p === 'string' && p.startsWith('data:')) {
+              hasBase64 = true;
+              break;
+            }
+            if (typeof p === 'object' && p !== null) {
+              if ((p.dataUrl && p.dataUrl.startsWith('data:')) || (p.url && p.url.startsWith('data:'))) {
+                hasBase64 = true;
+                break;
+              }
+            }
+          }
+          if (hasBase64) {
+            console.log(`[Migrace fotek] Migruji inline fotky pro trasu ${d.id} ("${data.title}")...`);
+            const cleanPhotos: any[] = [];
+            for (let i = 0; i < data.photos.length; i++) {
+              const p = data.photos[i];
+              if (typeof p === 'string') {
+                if (p.startsWith('data:')) {
+                  const saved = await savePhotoDataUrl(p, d.id, { name: `foto_${i + 1}.jpg` });
+                  cleanPhotos.push(saved);
+                } else {
+                  cleanPhotos.push(p);
+                }
+              } else if (typeof p === 'object' && p !== null) {
+                const pObj = { ...p };
+                const b64 = (pObj.dataUrl && pObj.dataUrl.startsWith('data:'))
+                  ? pObj.dataUrl
+                  : (pObj.url && pObj.url.startsWith('data:'))
+                  ? pObj.url
+                  : null;
+                if (b64) {
+                  const saved = await savePhotoDataUrl(b64, d.id, {
+                    name: pObj.name || `foto_${i + 1}.jpg`,
+                    caption: pObj.caption || '',
+                    width: pObj.width,
+                    height: pObj.height,
+                    sizeKb: pObj.sizeKb,
+                  });
+                  cleanPhotos.push({
+                    ...pObj,
+                    id: pObj.id || saved.id,
+                    url: saved.url,
+                    rawUrl: saved.rawUrl,
+                    dataUrl: undefined,
+                  });
+                } else {
+                  const { dataUrl, ...rest } = pObj;
+                  cleanPhotos.push(rest);
+                }
+              }
+            }
+            await updateDoc(doc(db, 'hikes', d.id), { photos: cleanPhotos });
+            migratedCount++;
+          }
+        }
+      }
+      if (migratedCount > 0) {
+        console.log(`[Migrace fotek] Úspěšně zmigrováno ${migratedCount} tras s inline fotkami do /api/photos/`);
+      }
+    } catch (err: any) {
+      console.warn('[Migrace fotek] Chyba při migraci:', err.message);
+    }
+  }
+
+  // Trigger migration in background
+  setTimeout(() => {
+    migrateLegacyPhotos().catch(err => console.warn('Migrace fotek selhala:', err));
+  }, 1000);
+
   // 5. Garmin Integration API: Receive uploaded routes from Python script
   // Handles requests from upload_to_hiking_diary:
   // POST /api/routes or /api/hikes { title, date, distanceKm, elevationGainM, elevationLossM, durationMinutes, gpxXml, description, ... }
@@ -726,27 +909,48 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }
       }
 
-      // Ensure photos array in main hike document does not exceed Firestore 1MB document limit
+      // Normalize photos: If any photo has inline base64 string or dataUrl, extract to /api/photos/:id
       if (Array.isArray(cleanHikeForDb.photos)) {
-        let totalDataUrlBytes = 0;
-        cleanHikeForDb.photos.forEach((p: any) => {
-          if (typeof p === 'object' && p?.dataUrl) {
-            totalDataUrlBytes += p.dataUrl.length;
-          } else if (typeof p === 'string' && p.startsWith('data:')) {
-            totalDataUrlBytes += p.length;
-          }
-        });
-
-        // Only strip dataUrl if total photos exceed 750KB (to prevent Firestore 1MB document limit)
-        if (totalDataUrlBytes > 750 * 1024) {
-          cleanHikeForDb.photos = cleanHikeForDb.photos.map((p: any) => {
-            if (typeof p === 'object' && p !== null) {
-              const { dataUrl, ...rest } = p;
-              return rest;
+        const normalizedPhotos: any[] = [];
+        for (let i = 0; i < cleanHikeForDb.photos.length; i++) {
+          const p = cleanHikeForDb.photos[i];
+          if (typeof p === 'string') {
+            if (p.startsWith('data:')) {
+              const saved = await savePhotoDataUrl(p, routeId, { name: `foto_${i + 1}.jpg` });
+              normalizedPhotos.push(saved);
+            } else {
+              normalizedPhotos.push(p);
             }
-            return p;
-          });
+          } else if (typeof p === 'object' && p !== null) {
+            const pObj = { ...p };
+            const b64 = (pObj.dataUrl && typeof pObj.dataUrl === 'string' && pObj.dataUrl.startsWith('data:'))
+              ? pObj.dataUrl
+              : (pObj.url && typeof pObj.url === 'string' && pObj.url.startsWith('data:'))
+              ? pObj.url
+              : null;
+
+            if (b64) {
+              const saved = await savePhotoDataUrl(b64, routeId, {
+                name: pObj.name || `foto_${i + 1}.jpg`,
+                caption: pObj.caption || '',
+                width: pObj.width,
+                height: pObj.height,
+                sizeKb: pObj.sizeKb,
+              });
+              normalizedPhotos.push({
+                ...pObj,
+                id: pObj.id || saved.id,
+                url: saved.url,
+                rawUrl: saved.rawUrl,
+                dataUrl: undefined,
+              });
+            } else {
+              const { dataUrl, ...rest } = pObj;
+              normalizedPhotos.push(rest);
+            }
+          }
         }
+        cleanHikeForDb.photos = normalizedPhotos;
       }
 
       // Save to Firestore (Preserve existing photos and user notes so Garmin re-sync never wipes them)
@@ -1051,86 +1255,22 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
   // POST /api/photos/upload: Upload high quality photo
   app.post('/api/photos/upload', async (req, res) => {
     try {
-      const { hikeId, dataUrl, name, caption } = req.body;
+      const { hikeId, dataUrl, name, caption, width, height, sizeKb } = req.body;
       if (!dataUrl) {
         return res.status(400).json({ error: 'Chybí dataUrl fotografie' });
       }
-      const photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
 
-      // 1. Save binary file and json metadata directly to disk for 0ms retrieval and quota resilience
-      try {
-        const matches = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-        if (matches && matches.length === 3) {
-          const buffer = Buffer.from(matches[2], 'base64');
-          fs.writeFileSync(path.join(photosDir, `${photoId}.bin`), buffer);
-        }
-        fs.writeFileSync(
-          path.join(photosDir, `${photoId}.json`),
-          JSON.stringify({
-            id: photoId,
-            hikeId: hikeId || '',
-            dataUrl,
-            name: name || 'foto.webp',
-            caption: caption || '',
-            createdAt: new Date().toISOString(),
-          })
-        );
-        console.log(`[API /api/photos] Fotografie ${photoId} uložena na disk.`);
-      } catch (fsErr) {
-        console.warn('Nelze uložit fotku na disk:', fsErr);
-      }
-
-      // 2. Save to Firestore (with automatic chunking if > 700KB so it never exceeds 1MB limit)
-      if (db) {
-        try {
-          const CHUNK_SIZE = 700 * 1024;
-          if (dataUrl.length <= CHUNK_SIZE) {
-            await setDoc(doc(db, 'hike_photos', photoId), {
-              id: photoId,
-              hikeId: hikeId || '',
-              dataUrl,
-              name: name || 'foto.webp',
-              caption: caption || '',
-              isChunked: false,
-              createdAt: new Date().toISOString(),
-            });
-          } else {
-            const totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
-            await setDoc(doc(db, 'hike_photos', photoId), {
-              id: photoId,
-              hikeId: hikeId || '',
-              dataUrlChunk0: dataUrl.substring(0, CHUNK_SIZE),
-              totalChunks,
-              isChunked: true,
-              name: name || 'foto.webp',
-              caption: caption || '',
-              createdAt: new Date().toISOString(),
-            });
-            for (let i = 1; i < totalChunks; i++) {
-              const chunkStr = dataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-              await setDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`), {
-                chunkIndex: i,
-                data: chunkStr,
-              });
-            }
-          }
-          console.log(`[API /api/photos] Fotografie ${photoId} trvale uložena do Firestore.`);
-        } catch (dbErr: any) {
-          console.error('[API /api/photos] Chyba při zápisu do Firestore:', dbErr);
-          return res.status(500).json({
-            error: `Uložení fotografie do cloudové databáze selhalo: ${dbErr.message}`,
-          });
-        }
-      }
-
-      return res.json({
-        id: photoId,
-        url: `/api/photos/${photoId}`,
-        rawUrl: `/api/photos/${photoId}?raw=1`,
-        hikeId: hikeId || '',
+      const savedPhoto = await savePhotoDataUrl(dataUrl, hikeId || '', {
+        name,
+        caption,
+        width,
+        height,
+        sizeKb,
       });
+
+      return res.json(savedPhoto);
     } catch (err: any) {
-      console.error('[API /api/photos] Chyba při ukládání fotky:', err);
+      console.error('[API /api/photos/upload] Chyba při ukládání fotky:', err);
       return res.status(500).json({ error: err.message });
     }
   });

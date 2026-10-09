@@ -481,7 +481,7 @@ export const App: React.FC = () => {
                     const firstPhotoSrc =
                       typeof firstPhoto === 'string'
                         ? firstPhoto
-                        : firstPhoto?.url || firstPhoto?.rawUrl || firstPhoto?.dataUrl || '';
+                        : firstPhoto?.dataUrl || firstPhoto?.url || firstPhoto?.rawUrl || '';
 
                     return (
                       <div

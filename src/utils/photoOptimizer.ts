@@ -10,15 +10,15 @@ export interface OptimizedPhotoResult {
 }
 
 /**
- * Downscales an image using HTML5 Canvas to 2K/3K QHD (max 2880px) with 0.92 high fidelity quality.
+ * Downscales an image using HTML5 Canvas to Full HD (max 1920px) with 0.84 high fidelity quality.
  */
 function downscaleCanvas(
   sourceUrl: string,
   origWidth: number,
   origHeight: number,
-  maxDimension = 2880,
-  quality = 0.92,
-  fileName = 'photo.webp'
+  maxDimension = 1920,
+  quality = 0.84,
+  fileName = 'photo.jpg'
 ): Promise<OptimizedPhotoResult> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -50,10 +50,10 @@ function downscaleCanvas(
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, 0, 0, width, height);
 
-      // Prefer WebP 0.92, fallback to JPEG 0.92
-      let resultDataUrl = canvas.toDataURL('image/webp', quality);
-      if (!resultDataUrl.startsWith('data:image/webp')) {
-        resultDataUrl = canvas.toDataURL('image/jpeg', quality);
+      // Prefer JPEG 0.84 for broad compatibility across all devices, fallback to WebP
+      let resultDataUrl = canvas.toDataURL('image/jpeg', quality);
+      if (!resultDataUrl.startsWith('data:image/jpeg')) {
+        resultDataUrl = canvas.toDataURL('image/webp', quality);
       }
 
       const base64Length = resultDataUrl.length - (resultDataUrl.indexOf(',') + 1);
@@ -74,14 +74,14 @@ function downscaleCanvas(
 }
 
 /**
- * Optimizes photos with extreme fidelity:
- * 1. If file is under 1.5 MB and under 2880px, keeps 100% of original camera pixels and colors!
- * 2. If file is larger, converts to 2K/3K QHD (2880px) at 0.92 quality so it displays crystal clear.
+ * Optimizes photos to crisp Full HD (max 1920px) at 0.84 quality:
+ * This ensures photos look razor sharp on any screen while fitting safely
+ * inside Firestore document limits with instant 0ms inline loading.
  */
 export async function optimizePhoto(
   file: File,
-  maxDimension = 2880,
-  quality = 0.92
+  maxDimension = 1920,
+  quality = 0.84
 ): Promise<OptimizedPhotoResult> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
@@ -95,9 +95,9 @@ export async function optimizePhoto(
         `[PhotoOptimizer] Soubor: ${file.name}, velikost: ${(file.size / 1024 / 1024).toFixed(2)} MB, detekované rozlišení: ${origWidth}x${origHeight} px`
       );
 
-      // If file is under 1.5 MB and already fits within 2880px, preserve 100% original bytes!
+      // If file is already under 450 KB and fits within 1920px, keep 100% original bytes!
       if (
-        file.size <= 1500 * 1024 &&
+        file.size <= 450 * 1024 &&
         origWidth <= maxDimension &&
         origHeight <= maxDimension
       ) {
@@ -121,7 +121,7 @@ export async function optimizePhoto(
         return;
       }
 
-      // If larger than 1.5 MB or larger than 2880px, scale to high fidelity 2880px with 0.92 quality
+      // Scale to Full HD (1920px) with 0.84 quality
       downscaleCanvas(objectUrl, origWidth, origHeight, maxDimension, quality, file.name)
         .then((res) => {
           URL.revokeObjectURL(objectUrl);
@@ -138,7 +138,7 @@ export async function optimizePhoto(
       const reader = new FileReader();
       reader.onload = (e) => {
         const dataUrl = e.target?.result as string;
-        downscaleCanvas(dataUrl, 2880, 1620, maxDimension, quality, file.name)
+        downscaleCanvas(dataUrl, 1920, 1080, maxDimension, quality, file.name)
           .then(resolve)
           .catch(reject);
       };
@@ -151,17 +151,15 @@ export async function optimizePhoto(
 }
 
 /**
- * Uploads an optimized photo to the dedicated backend storage endpoint, with automatic inline fallback.
+ * Uploads/prepares an optimized photo for direct, robust storage.
  */
 export async function uploadPhotoToStorage(
   file: File,
   hikeId?: string,
   caption?: string
 ): Promise<HikePhotoItem> {
-  const optimized = await optimizePhoto(file, 2880, 0.92);
-
-  let photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
-  let photoUrl = optimized.dataUrl;
+  const optimized = await optimizePhoto(file, 2560, 0.88);
+  const photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
 
   try {
     const res = await fetch('/api/photos/upload', {
@@ -170,7 +168,7 @@ export async function uploadPhotoToStorage(
       body: JSON.stringify({
         hikeId: hikeId || '',
         dataUrl: optimized.dataUrl,
-        name: optimized.name,
+        name: file.name || 'foto.jpg',
         caption: caption || '',
         width: optimized.width,
         height: optimized.height,
@@ -179,20 +177,28 @@ export async function uploadPhotoToStorage(
     });
 
     if (res.ok) {
-      const data = await res.json();
-      if (data.id) photoId = data.id;
-      if (data.url) photoUrl = data.url;
-    } else {
-      console.warn(`[uploadPhotoToStorage] /api/photos/upload vrátil ${res.status}, používám přímé uložení.`);
+      const serverPhoto = await res.json();
+      return {
+        id: serverPhoto.id || photoId,
+        url: serverPhoto.url || `/api/photos/${photoId}`,
+        rawUrl: serverPhoto.rawUrl || `/api/photos/${photoId}?raw=1`,
+        name: serverPhoto.name || file.name,
+        caption: caption || '',
+        width: serverPhoto.width || optimized.width,
+        height: serverPhoto.height || optimized.height,
+        sizeKb: serverPhoto.sizeKb || optimized.sizeKb,
+        createdAt: new Date().toISOString(),
+      };
     }
-  } catch (netErr) {
-    console.warn('[uploadPhotoToStorage] Síťová chyba při volání /api/photos/upload, ukládám jako dataUrl:', netErr);
+  } catch (err) {
+    console.warn('Nepodařilo se nahrát fotografii přes API endpoint, použit přímý formát:', err);
   }
 
+  // Fallback with clean structure if network was temporarily unavailable
   return {
     id: photoId,
-    url: photoUrl,
-    rawUrl: photoUrl,
+    url: optimized.dataUrl,
+    rawUrl: optimized.dataUrl,
     dataUrl: optimized.dataUrl,
     name: optimized.name,
     caption: caption || '',

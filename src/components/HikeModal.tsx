@@ -221,31 +221,19 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       setUploadStatus('');
 
       const firstUploaded = uploadedPhotos[0];
-      const isSmallPreview = firstUploaded && firstUploaded.width && firstUploaded.width <= 1000 && firstUploaded.sizeKb && firstUploaded.sizeKb < 150;
+      const resText = firstUploaded?.width && firstUploaded?.height ? `${firstUploaded.width} × ${firstUploaded.height} px` : '';
+      const sizeText = firstUploaded?.sizeKb ? (firstUploaded.sizeKb > 1024 ? `${(firstUploaded.sizeKb / 1024).toFixed(1)} MB` : `${firstUploaded.sizeKb} KB`) : '';
+      const infoText = [resText, sizeText].filter(Boolean).join(', ');
 
-      if (isSmallPreview) {
-        setFeedbackDialog({
-          type: 'info',
-          title: 'ℹ️ Fotografie úspěšně uložena',
-          message: `Fotografie byla uložena v rozlišení ${firstUploaded.width} × ${firstUploaded.height} px (${firstUploaded.sizeKb} KB).`,
-          details:
-            'Aplikace uložila přesně soubor, který jste vybrali. Tento rozměr (kolem 800 px) typicky vznikne, pokud se fotka stáhne z webu Google Fotek pravým tlačítkem myši jako náhled, namísto stažení originálu. Pokud chcete do deníku nahrát původní snímek z fotoaparátu v plné kvalitě (2–5 MB), v Google Fotkách otevřete snímek a stáhněte jej klávesou Shift + D (nebo přes tři tečky ⋮ -> Stáhnout).',
-          confirmLabel: 'Rozumím',
-          onConfirm: () => setFeedbackDialog(null),
-        });
-      } else {
-        setFeedbackDialog({
-          type: 'success',
-          title: '✅ Fotografie úspěšně uložena',
-          message: `${
-            total === 1
-              ? `Fotografie (${firstUploaded.width} × ${firstUploaded.height} px, ${firstUploaded.sizeKb} KB)`
-              : `${total} fotografií`
-          } byla úspěšně uložena do cloudové databáze v plné kvalitě!`,
-          confirmLabel: 'Skvělé',
-          onConfirm: () => setFeedbackDialog(null),
-        });
-      }
+      setFeedbackDialog({
+        type: 'success',
+        title: '✅ Fotografie úspěšně uložena',
+        message: total === 1
+          ? `Fotografie ${infoText ? `(${infoText})` : ''} byla úspěšně uložena do cloudové databáze v plné kvalitě!`
+          : `${total} fotografií bylo úspěšně uloženo do cloudové databáze v plné kvalitě!`,
+        confirmLabel: 'Skvělé',
+        onConfirm: () => setFeedbackDialog(null),
+      });
     } catch (err: any) {
       console.error('Chyba při nahrávání fotky:', err);
       setFeedbackDialog({
@@ -729,21 +717,21 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                             {activePhotoDimensions && (
                               <div
                                 className={`px-2.5 py-1 rounded-full text-xs font-medium border shadow backdrop-blur ${
-                                  activePhotoDimensions.width <= 800 || activePhotoDimensions.height <= 800
+                                  Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
                                     ? 'bg-amber-950/85 text-amber-300 border-amber-800/80'
-                                    : activePhotoDimensions.width >= 3000
+                                    : Math.max(activePhotoDimensions.width, activePhotoDimensions.height) >= 1920
                                     ? 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
                                     : 'bg-black/75 text-stone-300 border-stone-700/80'
                                 }`}
                               >
                                 {activePhotoDimensions.width} × {activePhotoDimensions.height} px
-                                {activePhotoDimensions.width <= 800 && activePhotoDimensions.height <= 800
-                                  ? ' (Náhled 800px)'
-                                  : activePhotoDimensions.width >= 3800
+                                {Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
+                                  ? ' (Náhled Garmin 800px)'
+                                  : activePhotoDimensions.width >= 3800 || activePhotoDimensions.height >= 3800
                                   ? ' (4K Ultra HD)'
-                                  : activePhotoDimensions.width >= 2400
+                                  : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 2400
                                   ? ' (2K QHD)'
-                                  : activePhotoDimensions.width >= 1920
+                                  : activePhotoDimensions.width >= 1920 || activePhotoDimensions.height >= 1080
                                   ? ' (Full HD)'
                                   : ''}
                                 {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb ? (
@@ -758,7 +746,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           </div>
 
                           <div className="absolute top-3 right-3 flex items-center gap-2">
-                            {activePhotoDimensions && (activePhotoDimensions.width <= 800 || activePhotoDimensions.height <= 800) && (
+                            {activePhotoDimensions && Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800 && (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -771,7 +759,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                   }
                                 }}
                                 className="bg-emerald-600/90 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
-                                title="Nahradit tento malý náhled novou fotografií v plném rozlišení (2K/4K)"
+                                title="Nahradit tento náhled fotografií v plném rozlišení (Full HD / 2K / 4K)"
                               >
                                 <Upload className="w-3.5 h-3.5" />
                                 <span className="hidden sm:inline">Nahradit plnou kvalitou</span>
