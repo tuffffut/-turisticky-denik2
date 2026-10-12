@@ -43,7 +43,9 @@ export const App: React.FC = () => {
   const [isNewHikeModal, setIsNewHikeModal] = useState(false);
 
   // Security & PIN
-  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    return localStorage.getItem('horsky_denik_unlocked') === 'true';
+  });
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [storedPin, setStoredPin] = useState<string>(() => {
     return localStorage.getItem('horsky_denik_pin') || '1234';
@@ -293,6 +295,7 @@ export const App: React.FC = () => {
               onClick={() => {
                 if (isUnlocked) {
                   setIsUnlocked(false);
+                  localStorage.removeItem('horsky_denik_unlocked');
                 } else {
                   setIsPinModalOpen(true);
                 }
@@ -604,6 +607,7 @@ export const App: React.FC = () => {
         onClose={() => setIsPinModalOpen(false)}
         onSuccess={() => {
           setIsUnlocked(true);
+          localStorage.setItem('horsky_denik_unlocked', 'true');
           setIsPinModalOpen(false);
         }}
         storedPin={storedPin}

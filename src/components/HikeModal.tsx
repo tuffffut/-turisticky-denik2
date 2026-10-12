@@ -90,13 +90,18 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gpxInputRef = useRef<HTMLInputElement>(null);
+  const pendingFilesRef = useRef<FileList | null>(null);
   const [isReplacingActivePhoto, setIsReplacingActivePhoto] = useState(false);
 
   // Synchronize formData whenever selected route or modal state changes
   useEffect(() => {
     if (route) {
       setFormData(route);
-      setActivePhotoIndex(0);
+      setActivePhotoIndex((prev) => {
+        const photosLen = (route.photos || []).length;
+        if (photosLen === 0) return 0;
+        return prev < photosLen ? prev : 0;
+      });
       setIsEditing(isNew);
     } else {
       setFormData({
@@ -120,7 +125,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
   const currentPhotos = formData.photos || route?.photos || [];
 
-  // Intrinsic dimension resolver: immune to container CSS layout (like w-full h-72 = 624x288)
+  // Intrinsic dimension resolver: immune to container CSS layout
   useEffect(() => {
     if (!isOpen) return;
     const currentPhoto = currentPhotos[activePhotoIndex] || currentPhotos[0];
@@ -149,27 +154,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     probe.src = src;
   }, [activePhotoIndex, currentPhotos, isOpen]);
 
-  if (!isOpen) return null;
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    if (!canEdit) {
-      onRequestUnlock();
-      setFeedbackDialog({
-        type: 'warning',
-        title: '🔒 Režim úprav je uzamčen',
-        message: 'Pro nahrávání fotografií musíte nejprve odemknout režim úprav (zadat PIN 1234).',
-        confirmLabel: 'Zadat PIN',
-        onConfirm: () => {
-          setFeedbackDialog(null);
-          onRequestUnlock();
-        },
-      });
-      return;
-    }
-
+  // Shared function to optimize and upload files
+  const processFilesUpload = async (files: FileList) => {
     setIsUploadingPhotos(true);
     const total = files.length;
     const uploadedPhotos: HikePhotoItem[] = [];
@@ -189,6 +175,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
       const existingPhotos = formData.photos || route?.photos || [];
       let newPhotosList: (string | HikePhotoItem)[];
+      let newActiveIndex = activePhotoIndex;
 
       if (isReplacingActivePhoto && existingPhotos.length > 0 && activePhotoIndex < existingPhotos.length) {
         const copy = [...existingPhotos];
@@ -199,7 +186,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         newPhotosList = copy;
       } else {
         newPhotosList = [...existingPhotos, ...uploadedPhotos];
-        setActivePhotoIndex(existingPhotos.length);
+        newActiveIndex = existingPhotos.length;
       }
       setIsReplacingActivePhoto(false);
 
@@ -207,6 +194,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         ...prev,
         photos: newPhotosList,
       }));
+      setActivePhotoIndex(newActiveIndex);
 
       // Always save changes immediately to persist photos so they are never lost
       if (route?.id) {
@@ -218,6 +206,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         });
       }
 
+      // Ensure view stays on the newly uploaded photo
+      setActivePhotoIndex(newActiveIndex);
       setUploadStatus('');
 
       const firstUploaded = uploadedPhotos[0];
@@ -248,6 +238,40 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       setIsUploadingPhotos(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  // If user unlocked while files were pending, auto-upload immediately
+  useEffect(() => {
+    if (canEdit && pendingFilesRef.current && pendingFilesRef.current.length > 0) {
+      const filesToProcess = pendingFilesRef.current;
+      pendingFilesRef.current = null;
+      processFilesUpload(filesToProcess);
+    }
+  }, [canEdit]);
+
+  if (!isOpen) return null;
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (!canEdit) {
+      pendingFilesRef.current = files;
+      onRequestUnlock();
+      setFeedbackDialog({
+        type: 'warning',
+        title: '🔒 Režim úprav je uzamčen',
+        message: 'Pro uložení fotografie zadejte PIN 1234. Po zadání PINu se vybraná fotografie ihned automaticky nahraje v plné kvalitě.',
+        confirmLabel: 'Zadat PIN (1234)',
+        onConfirm: () => {
+          setFeedbackDialog(null);
+          onRequestUnlock();
+        },
+      });
+      return;
+    }
+
+    await processFilesUpload(files);
   };
 
   const handleDeletePhoto = async (index: number) => {
@@ -437,7 +461,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+        accept="image/jpeg,image/png,image/webp,image/*"
         multiple
         className="hidden"
         onChange={handlePhotoUpload}
@@ -719,21 +743,21 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                 className={`px-2.5 py-1 rounded-full text-xs font-medium border shadow backdrop-blur ${
                                   Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
                                     ? 'bg-amber-950/85 text-amber-300 border-amber-800/80'
-                                    : Math.max(activePhotoDimensions.width, activePhotoDimensions.height) >= 1920
-                                    ? 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
-                                    : 'bg-black/75 text-stone-300 border-stone-700/80'
+                                    : 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
                                 }`}
                               >
                                 {activePhotoDimensions.width} × {activePhotoDimensions.height} px
                                 {Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
-                                  ? ' (Náhled Garmin 800px)'
-                                  : activePhotoDimensions.width >= 3800 || activePhotoDimensions.height >= 3800
+                                  ? ' (Náhled 800px)'
+                                  : activePhotoDimensions.width >= 3800 || activePhotoDimensions.height >= 2100
                                   ? ' (4K Ultra HD)'
-                                  : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 2400
-                                  ? ' (2K QHD)'
-                                  : activePhotoDimensions.width >= 1920 || activePhotoDimensions.height >= 1080
+                                  : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 1400
+                                  ? ' (2.5K QHD)'
+                                  : activePhotoDimensions.width >= 1900 || activePhotoDimensions.height >= 1000
                                   ? ' (Full HD)'
-                                  : ''}
+                                  : activePhotoDimensions.width >= 1200 || activePhotoDimensions.height >= 700
+                                  ? ' (HD)'
+                                  : ' (Vysoká kvalita)'}
                                 {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb ? (
                                   <span className="text-emerald-400 font-semibold ml-1">
                                     • {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
@@ -746,25 +770,23 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           </div>
 
                           <div className="absolute top-3 right-3 flex items-center gap-2">
-                            {activePhotoDimensions && Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800 && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setIsReplacingActivePhoto(true);
-                                  if (canEdit) {
-                                    fileInputRef.current?.click();
-                                  } else {
-                                    onRequestUnlock();
-                                  }
-                                }}
-                                className="bg-emerald-600/90 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
-                                title="Nahradit tento náhled fotografií v plném rozlišení (Full HD / 2K / 4K)"
-                              >
-                                <Upload className="w-3.5 h-3.5" />
-                                <span className="hidden sm:inline">Nahradit plnou kvalitou</span>
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setIsReplacingActivePhoto(true);
+                                fileInputRef.current?.click();
+                              }}
+                              className="bg-emerald-600/90 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
+                              title="Nahrát novou fotografii z mobilu nebo disku"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">
+                                {Math.max(activePhotoDimensions?.width || 0, activePhotoDimensions?.height || 0) <= 800
+                                  ? 'Nahradit plnou kvalitou'
+                                  : 'Nahrát novou fotku'}
+                              </span>
+                            </button>
                             <div className="bg-black/75 backdrop-blur px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">
                               <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
                               <span>Celá obrazovka</span>

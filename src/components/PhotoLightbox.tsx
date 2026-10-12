@@ -175,14 +175,16 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
               </span>
               <span className="opacity-75">
                 {Math.max(realDimensions.width, realDimensions.height) <= 800
-                  ? '• Náhled z Garminu (800px)'
-                  : realDimensions.width >= 3800 || realDimensions.height >= 3800
+                  ? '• Náhled (800px)'
+                  : realDimensions.width >= 3800 || realDimensions.height >= 2100
                   ? '• 4K Ultra HD'
-                  : realDimensions.width >= 2400 || realDimensions.height >= 2400
-                  ? '• 2K QHD'
-                  : realDimensions.width >= 1920 || realDimensions.height >= 1080
+                  : realDimensions.width >= 2400 || realDimensions.height >= 1400
+                  ? '• 2.5K QHD'
+                  : realDimensions.width >= 1900 || realDimensions.height >= 1000
                   ? '• Full HD'
-                  : ''}
+                  : realDimensions.width >= 1200 || realDimensions.height >= 700
+                  ? '• HD'
+                  : '• Vysoká kvalita'}
               </span>
               {typeof currentItem === 'object' && currentItem?.sizeKb ? (
                 <span className="opacity-80 text-emerald-400 font-semibold">

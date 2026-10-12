@@ -6,6 +6,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, updateDoc, writeBatch } from 'firebase/firestore';
 import { detectMountainRangeFromCoords, isSuspectMountainRange } from './src/utils/mountainRanges';
+import ExifReader from 'exifreader';
 
 // Helper for distance calculation
 function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -624,6 +625,19 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         fs.writeFileSync(path.join(photosDir, `${photoId}.bin`), buffer);
         if (!sizeKb) {
           sizeKb = Math.round(buffer.length / 1024);
+        }
+        if (!width || !height) {
+          try {
+            const tags = ExifReader.load(buffer);
+            const w = tags['Image Width']?.value;
+            const h = tags['Image Height']?.value;
+            if (w && h) {
+              width = Number(w);
+              height = Number(h);
+            }
+          } catch (e) {
+            // Ignore if tags cannot be parsed
+          }
         }
       }
       fs.writeFileSync(
