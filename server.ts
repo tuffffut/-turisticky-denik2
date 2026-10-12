@@ -224,8 +224,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Middleware for parsing JSON (allow larger payloads for GPX XML data)
-  app.use(express.json({ limit: '25mb' }));
+  // Middleware for parsing JSON & URL-encoded (support 4K/high-res photo uploads and GPX data)
+  app.use(express.json({ limit: '100mb' }));
+  app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
   // URL normalization: if client script has APP_URL="https://.../?key=1234"
   // then requests to f"{APP_URL}/api/routes" become "/?key=1234/api/routes".

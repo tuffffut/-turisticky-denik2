@@ -90,7 +90,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gpxInputRef = useRef<HTMLInputElement>(null);
-  const pendingFilesRef = useRef<FileList | null>(null);
+  const pendingFilesRef = useRef<File[] | null>(null);
   const [isReplacingActivePhoto, setIsReplacingActivePhoto] = useState(false);
 
   // Synchronize formData whenever selected route or modal state changes
@@ -155,16 +155,19 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   }, [activePhotoIndex, currentPhotos, isOpen]);
 
   // Shared function to optimize and upload files
-  const processFilesUpload = async (files: FileList) => {
+  // Shared function to optimize and upload files
+  const processFilesUpload = async (files: FileList | File[]) => {
     setIsUploadingPhotos(true);
-    const total = files.length;
+    const filesArray = Array.from(files);
+    const total = filesArray.length;
     const uploadedPhotos: HikePhotoItem[] = [];
 
     try {
+      const targetHikeId = formData.id || route?.id;
       for (let i = 0; i < total; i++) {
-        const file = files[i];
-        setUploadStatus(`Optimalizuji a nahrávám fotografii ${i + 1} z ${total}...`);
-        const photoItem = await uploadPhotoToStorage(file, formData.id || route?.id);
+        const file = filesArray[i];
+        setUploadStatus(`Optimalizuji a nahrávám fotografii ${i + 1} z ${total} (plné 4K Ultra HD)...`);
+        const photoItem = await uploadPhotoToStorage(file, targetHikeId);
         uploadedPhotos.push(photoItem);
       }
 
@@ -197,11 +200,12 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       setActivePhotoIndex(newActiveIndex);
 
       // Always save changes immediately to persist photos so they are never lost
-      if (route?.id) {
-        setUploadStatus('Ukládám trvalý odkaz k výpravě do databáze...');
+      if (targetHikeId) {
+        setUploadStatus('Ukládám trvalý odkaz k výpravě do cloudové databáze...');
         await onSave({
           ...route,
           ...formData,
+          id: targetHikeId,
           photos: newPhotosList,
         });
       }
@@ -219,7 +223,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         type: 'success',
         title: '✅ Fotografie úspěšně uložena',
         message: total === 1
-          ? `Fotografie ${infoText ? `(${infoText})` : ''} byla úspěšně uložena do cloudové databáze v plné kvalitě!`
+          ? `Fotografie ${infoText ? `(${infoText})` : ''} byla úspěšně uložena do cloudové databáze v plné 4K Ultra HD kvalitě!`
           : `${total} fotografií bylo úspěšně uloženo do cloudové databáze v plné kvalitě!`,
         confirmLabel: 'Skvělé',
         onConfirm: () => setFeedbackDialog(null),
@@ -252,11 +256,15 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   if (!isOpen) return null;
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const rawFiles = e.target.files;
+    if (!rawFiles || rawFiles.length === 0) return;
+
+    // Snapshot files immediately into array so mobile browser sandboxes don't invalidate them
+    const filesArray = Array.from(rawFiles);
+    if (fileInputRef.current) fileInputRef.current.value = '';
 
     if (!canEdit) {
-      pendingFilesRef.current = files;
+      pendingFilesRef.current = filesArray;
       onRequestUnlock();
       setFeedbackDialog({
         type: 'warning',
@@ -271,7 +279,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       return;
     }
 
-    await processFilesUpload(files);
+    await processFilesUpload(filesArray);
   };
 
   const handleDeletePhoto = async (index: number) => {
@@ -523,26 +531,26 @@ export const HikeModal: React.FC<HikeModalProps> = ({
           </div>
         </div>
       )}
-      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 md:p-6 overflow-y-auto">
-        <div className="bg-stone-900 border border-stone-800 rounded-3xl w-full max-w-5xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-fadeIn my-auto">
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 md:p-6 overflow-y-auto overflow-x-hidden">
+        <div className="bg-stone-900 border border-stone-800 rounded-2xl sm:rounded-3xl w-full max-w-full sm:max-w-5xl max-h-[96vh] sm:max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-fadeIn my-auto">
           {/* Header */}
-          <div className="px-6 py-4 border-b border-stone-800 flex items-center justify-between bg-stone-900/90 sticky top-0 z-10">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-950/80 border border-emerald-800/60 rounded-xl text-emerald-400">
+          <div className="px-3.5 sm:px-6 py-3 sm:py-4 border-b border-stone-800 flex items-center justify-between bg-stone-900/95 sticky top-0 z-10 gap-2">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-1">
+              <div className="p-2 bg-emerald-950/80 border border-emerald-800/60 rounded-xl text-emerald-400 shrink-0">
                 <Mountain className="w-5 h-5" />
               </div>
-              <div>
-                <h2 className="text-lg font-bold text-white leading-tight">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base sm:text-lg font-bold text-white leading-tight truncate">
                   {isNew ? 'Nová horská výprava' : route?.title || 'Detail výpravy'}
                 </h2>
-                <div className="flex items-center gap-2 text-xs text-stone-400 mt-0.5">
-                  <span className="text-emerald-400 font-medium">{route?.mountainRange}</span>
-                  {route?.date && <span>• {new Date(route.date).toLocaleDateString('cs-CZ')}</span>}
+                <div className="flex items-center gap-2 text-xs text-stone-400 mt-0.5 truncate">
+                  <span className="text-emerald-400 font-medium truncate">{route?.mountainRange}</span>
+                  {route?.date && <span className="shrink-0">• {new Date(route.date).toLocaleDateString('cs-CZ')}</span>}
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               {!isEditing && (
                 <button
                   onClick={() => {
@@ -553,7 +561,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       onRequestUnlock();
                     }
                   }}
-                  className="p-2 text-stone-400 hover:text-white hover:bg-stone-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
+                  className="p-2 text-stone-300 hover:text-white bg-stone-800/80 hover:bg-stone-800 rounded-xl transition flex items-center gap-1.5 text-xs font-medium"
                   title="Upravit trasu"
                 >
                   <Edit3 className="w-4 h-4" />
@@ -582,7 +590,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
               <button
                 onClick={onClose}
-                className="p-2 text-stone-400 hover:text-white hover:bg-stone-800 rounded-xl transition ml-1"
+                className="p-2 text-stone-400 hover:text-white hover:bg-stone-800 rounded-xl transition ml-0.5"
                 title="Zavřít"
               >
                 <X className="w-5 h-5" />
@@ -591,7 +599,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
           </div>
 
           {/* Body */}
-          <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
+          <div className="p-3.5 sm:p-6 overflow-y-auto overflow-x-hidden space-y-4 sm:space-y-6 flex-1 custom-scrollbar">
             {!isEditing ? (
               <>
                 {/* Metrics ribbon */}
@@ -731,65 +739,68 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           />
 
                           {/* Floating Top Controls */}
-                          <div className="absolute top-3 left-3 flex flex-wrap items-center gap-2 max-w-[70%]">
-                            <div className="bg-black/75 backdrop-blur px-3 py-1 rounded-full text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 shadow">
-                              <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>
-                                {activePhotoIndex + 1} / {currentPhotos.length}
-                              </span>
-                            </div>
-                            {activePhotoDimensions && (
-                              <div
-                                className={`px-2.5 py-1 rounded-full text-xs font-medium border shadow backdrop-blur ${
-                                  Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
-                                    ? 'bg-amber-950/85 text-amber-300 border-amber-800/80'
-                                    : 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
-                                }`}
-                              >
-                                {activePhotoDimensions.width} × {activePhotoDimensions.height} px
-                                {Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
-                                  ? ' (Náhled 800px)'
-                                  : activePhotoDimensions.width >= 3800 || activePhotoDimensions.height >= 2100
-                                  ? ' (4K Ultra HD)'
-                                  : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 1400
-                                  ? ' (2.5K QHD)'
-                                  : activePhotoDimensions.width >= 1900 || activePhotoDimensions.height >= 1000
-                                  ? ' (Full HD)'
-                                  : activePhotoDimensions.width >= 1200 || activePhotoDimensions.height >= 700
-                                  ? ' (HD)'
-                                  : ' (Vysoká kvalita)'}
-                                {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb ? (
-                                  <span className="text-emerald-400 font-semibold ml-1">
-                                    • {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
-                                      ? ((currentPhotos[activePhotoIndex] as any).sizeKb / 1024).toFixed(1) + ' MB'
-                                      : (currentPhotos[activePhotoIndex] as any).sizeKb + ' KB'}
-                                  </span>
-                                ) : null}
+                          <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex items-start justify-between gap-2 pointer-events-none">
+                            <div className="flex flex-wrap items-center gap-1.5 max-w-[65%] pointer-events-auto">
+                              <div className="bg-black/75 backdrop-blur px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 shadow shrink-0">
+                                <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>
+                                  {activePhotoIndex + 1} / {currentPhotos.length}
+                                </span>
                               </div>
-                            )}
-                          </div>
+                              {activePhotoDimensions && (
+                                <div
+                                  className={`px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium border shadow backdrop-blur truncate max-w-full ${
+                                    Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
+                                      ? 'bg-amber-950/85 text-amber-300 border-amber-800/80'
+                                      : 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
+                                  }`}
+                                >
+                                  {activePhotoDimensions.width} × {activePhotoDimensions.height} px
+                                  {Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
+                                    ? ' (Náhled 800px)'
+                                    : activePhotoDimensions.width >= 3800 || activePhotoDimensions.height >= 2100
+                                    ? ' (4K Ultra HD)'
+                                    : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 1400
+                                    ? ' (2.5K QHD)'
+                                    : activePhotoDimensions.width >= 1900 || activePhotoDimensions.height >= 1000
+                                    ? ' (Full HD)'
+                                    : activePhotoDimensions.width >= 1200 || activePhotoDimensions.height >= 700
+                                    ? ' (HD)'
+                                    : ' (Vysoká kvalita)'}
+                                  {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb ? (
+                                    <span className="text-emerald-400 font-semibold ml-1">
+                                      • {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
+                                        ? ((currentPhotos[activePhotoIndex] as any).sizeKb / 1024).toFixed(1) + ' MB'
+                                        : (currentPhotos[activePhotoIndex] as any).sizeKb + ' KB'}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              )}
+                            </div>
 
-                          <div className="absolute top-3 right-3 flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setIsReplacingActivePhoto(true);
-                                fileInputRef.current?.click();
-                              }}
-                              className="bg-emerald-600/90 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
-                              title="Nahrát novou fotografii z mobilu nebo disku"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                              <span className="hidden sm:inline">
-                                {Math.max(activePhotoDimensions?.width || 0, activePhotoDimensions?.height || 0) <= 800
-                                  ? 'Nahradit plnou kvalitou'
-                                  : 'Nahrát novou fotku'}
-                              </span>
-                            </button>
-                            <div className="bg-black/75 backdrop-blur px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">
-                              <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Celá obrazovka</span>
+                            <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setIsReplacingActivePhoto(true);
+                                  fileInputRef.current?.click();
+                                }}
+                                className="bg-emerald-600/90 hover:bg-emerald-500 text-white px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
+                                title="Nahrát novou fotografii z mobilu nebo disku"
+                              >
+                                <Upload className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">
+                                  {Math.max(activePhotoDimensions?.width || 0, activePhotoDimensions?.height || 0) <= 800
+                                    ? 'Nahradit plnou kvalitou'
+                                    : 'Nahrát novou fotku'}
+                                </span>
+                                <span className="sm:hidden text-[11px]">Nahrát</span>
+                              </button>
+                              <div className="bg-black/75 backdrop-blur px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">
+                                <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+                                <span className="hidden sm:inline">Celá obrazovka</span>
+                              </div>
                             </div>
                           </div>
 
@@ -961,9 +972,9 @@ export const HikeModal: React.FC<HikeModalProps> = ({
               </>
             ) : (
               /* Edit / Create Form */
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4 max-w-full">
                 {/* GPX Upload button for autofill */}
-                <div className="bg-emerald-950/30 border border-emerald-800/50 rounded-2xl p-4 text-center">
+                <div className="bg-emerald-950/30 border border-emerald-800/50 rounded-2xl p-3.5 sm:p-4 text-center max-w-full">
                   <input
                     ref={gpxInputRef}
                     type="file"
@@ -971,19 +982,19 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                     onChange={handleGpxFile}
                     className="hidden"
                   />
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <div className="text-left">
-                      <span className="text-sm font-semibold text-emerald-400 block">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-left">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm font-semibold text-emerald-400 block truncate">
                         Importovat trasu z GPX souboru
                       </span>
-                      <span className="text-xs text-stone-400">
+                      <span className="text-xs text-stone-400 block mt-0.5 leading-relaxed">
                         Automaticky dopočítá vzdálenost, převýšení, čas a rozpozná pohoří.
                       </span>
                     </div>
                     <button
                       type="button"
                       onClick={() => gpxInputRef.current?.click()}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5 shadow whitespace-nowrap"
+                      className="w-full sm:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 shadow shrink-0"
                     >
                       <Upload className="w-4 h-4" />
                       Vybrat GPX
@@ -992,7 +1003,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                 </div>
 
                 {/* Form fields */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 max-w-full">
                   <div>
                     <label className="text-xs font-medium text-stone-400 block mb-1">
                       Název výpravy *
@@ -1002,7 +1013,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       required
                       value={formData.title || ''}
                       onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                      className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                      className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
                       placeholder="např. Výstup na Sněžku z Pece"
                     />
                   </div>
@@ -1017,7 +1028,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       list="popular-ranges"
                       value={formData.mountainRange || ''}
                       onChange={(e) => setFormData({ ...formData, mountainRange: e.target.value })}
-                      className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                      className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
                       placeholder="Vyberte nebo zadejte pohoří"
                     />
                     <datalist id="popular-ranges">
@@ -1033,7 +1044,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       type="date"
                       value={formData.date || ''}
                       onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                      className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                      className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
 
@@ -1049,7 +1060,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           activityType: e.target.value as ActivityType,
                         })
                       }
-                      className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                      className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
                     >
                       <option value="hiking">Pěší turistika / Hory</option>
                       <option value="ferrata">Via Ferrata</option>
@@ -1070,7 +1081,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       onChange={(e) =>
                         setFormData({ ...formData, distanceKm: parseFloat(e.target.value) || 0 })
                       }
-                      className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                      className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
 
@@ -1087,7 +1098,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           elevationGainM: parseInt(e.target.value, 10) || 0,
                         })
                       }
-                      className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                      className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
 
@@ -1104,7 +1115,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           highestPointM: parseInt(e.target.value, 10) || 0,
                         })
                       }
-                      className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                      className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
 
@@ -1116,7 +1127,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       type="text"
                       value={formData.duration || ''}
                       onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
-                      className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                      className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
                       placeholder="např. 4h 30m"
                     />
                   </div>
@@ -1131,7 +1142,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                     type="url"
                     value={formData.externalAlbumUrl || ''}
                     onChange={(e) => setFormData({ ...formData, externalAlbumUrl: e.target.value })}
-                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                    className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
                     placeholder="https://photos.app.goo.gl/..."
                   />
                 </div>
@@ -1145,16 +1156,16 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                     rows={3}
                     value={formData.description || ''}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none resize-none"
+                    className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none resize-none transition"
                     placeholder="Popište počasí, zážitky na trase, výhledy z vrcholu..."
                   />
                 </div>
 
                 {/* Photos upload section */}
-                <div className="bg-stone-950/50 border border-stone-800 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
+                <div className="bg-stone-950/50 border border-stone-800 rounded-2xl p-3.5 sm:p-4 space-y-3 max-w-full">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <div>
-                      <span className="text-xs font-semibold text-white block">
+                      <span className="text-xs sm:text-sm font-semibold text-white block">
                         Fotografie k výpravě ({currentPhotos.length})
                       </span>
                       <span className="text-[11px] text-emerald-400">
@@ -1168,22 +1179,22 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                         fileInputRef.current?.click();
                       }}
                       disabled={isUploadingPhotos}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5"
+                      className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 shrink-0 shadow"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <Plus className="w-4 h-4" />
                       {isUploadingPhotos ? 'Nahrávám...' : 'Přidat fotky'}
                     </button>
                   </div>
 
                   {uploadStatus && (
                     <div className="p-3 bg-emerald-950/50 border border-emerald-800/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2 animate-pulse">
-                      <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
-                      <span>{uploadStatus}</span>
+                      <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+                      <span className="truncate">{uploadStatus}</span>
                     </div>
                   )}
 
                   {currentPhotos.length > 0 && (
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 pt-2">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 pt-1 max-w-full">
                       {currentPhotos.map((photo, idx) => (
                         <div
                           key={idx}
@@ -1197,7 +1208,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           <button
                             type="button"
                             onClick={() => handleDeletePhoto(idx)}
-                            className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-md opacity-80 hover:opacity-100 transition"
+                            className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-md opacity-80 hover:opacity-100 transition shadow"
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -1208,21 +1219,21 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                 </div>
 
                 {/* Form buttons */}
-                <div className="flex gap-3 pt-3">
+                <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 pt-3 sticky bottom-0 bg-stone-900/95 py-2.5 -mx-3.5 sm:-mx-6 px-3.5 sm:px-6 border-t border-stone-800/80 mt-2 backdrop-blur-md">
                   <button
                     type="button"
                     onClick={() => {
                       if (isNew) onClose();
                       else setIsEditing(false);
                     }}
-                    className="flex-1 py-3 rounded-xl border border-stone-800 text-stone-300 hover:bg-stone-800 text-sm font-medium transition"
+                    className="w-full sm:flex-1 py-3 rounded-xl border border-stone-800 text-stone-300 hover:bg-stone-800 text-sm font-medium transition"
                   >
                     Zrušit
                   </button>
                   <button
                     type="submit"
                     disabled={isSaving}
-                    className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2"
+                    className="w-full sm:flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2"
                   >
                     <Check className="w-4 h-4" />
                     {isSaving ? 'Ukládám...' : 'Uložit výpravu'}

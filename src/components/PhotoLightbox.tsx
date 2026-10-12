@@ -155,14 +155,14 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md select-none animate-fadeIn">
       {/* Top action bar */}
-      <div className="p-3 sm:p-4 flex items-center justify-between z-50 bg-gradient-to-b from-black/90 via-black/70 to-transparent">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <span className="text-xs sm:text-sm font-semibold text-stone-200 bg-stone-900/90 px-3 py-1 rounded-full border border-stone-700">
+      <div className="p-2.5 sm:p-4 flex items-center justify-between z-50 bg-gradient-to-b from-black/90 via-black/70 to-transparent gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap min-w-0 flex-1">
+          <span className="text-[11px] sm:text-xs font-semibold text-stone-200 bg-stone-900/90 px-2.5 sm:px-3 py-1 rounded-full border border-stone-700 shrink-0">
             {currentIndex + 1} / {photos.length}
           </span>
           {realDimensions ? (
             <span
-              className={`text-[11px] px-2.5 py-1 rounded-md border font-medium flex items-center gap-1.5 ${
+              className={`text-[10px] sm:text-[11px] px-2 sm:px-2.5 py-1 rounded-md border font-medium flex items-center gap-1 sm:gap-1.5 truncate max-w-full ${
                 Math.max(realDimensions.width, realDimensions.height) <= 800
                   ? 'bg-amber-950/80 text-amber-300 border-amber-800/60'
                   : Math.max(realDimensions.width, realDimensions.height) >= 1920

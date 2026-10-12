@@ -10,18 +10,23 @@ export interface OptimizedPhotoResult {
 }
 
 /**
- * Optimizes photos to crisp QHD / Full HD (up to 2560px) at high quality.
+ * Optimizes photos to crisp 4K Ultra HD / QHD (up to 3840px) at high quality (0.90).
  * Handles mobile browser photos seamlessly (iPhone Safari, Android Chrome, Samsung).
  */
 export async function optimizePhoto(
   file: File,
-  maxDimension = 2560,
-  quality = 0.88
+  maxDimension = 3840,
+  quality = 0.90
 ): Promise<OptimizedPhotoResult> {
-  // Method 1: Try modern createImageBitmap (fastest, preserves EXIF orientation, low memory on mobile)
+  // Method 1: Try modern createImageBitmap with EXIF orientation (fastest, low memory on mobile)
   if (typeof window !== 'undefined' && 'createImageBitmap' in window) {
     try {
-      const bitmap = await createImageBitmap(file);
+      let bitmap: ImageBitmap;
+      try {
+        bitmap = await (createImageBitmap as any)(file, { imageOrientation: 'from-image' });
+      } catch {
+        bitmap = await createImageBitmap(file);
+      }
       const origWidth = bitmap.width;
       const origHeight = bitmap.height;
 
@@ -133,8 +138,8 @@ export async function optimizePhoto(
         const rawDataUrl = e.target?.result as string;
         resolve({
           dataUrl: rawDataUrl,
-          width: 1920,
-          height: 1080,
+          width: 3840,
+          height: 2160,
           sizeKb: Math.round(file.size / 1024),
           name: file.name || 'foto.jpg',
           wasDownscaled: false,
@@ -149,61 +154,45 @@ export async function optimizePhoto(
 }
 
 /**
- * Uploads/prepares an optimized photo for direct, robust storage.
+ * Uploads/prepares an optimized 4K photo for direct, robust storage.
  */
 export async function uploadPhotoToStorage(
   file: File,
   hikeId?: string,
   caption?: string
 ): Promise<HikePhotoItem> {
-  const optimized = await optimizePhoto(file, 2560, 0.88);
+  const optimized = await optimizePhoto(file, 3840, 0.90);
   const photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
 
-  try {
-    const res = await fetch('/api/photos/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        hikeId: hikeId || '',
-        dataUrl: optimized.dataUrl,
-        name: file.name || 'foto.jpg',
-        caption: caption || '',
-        width: optimized.width,
-        height: optimized.height,
-        sizeKb: optimized.sizeKb,
-      }),
-    });
+  const res = await fetch('/api/photos/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      hikeId: hikeId || '',
+      dataUrl: optimized.dataUrl,
+      name: file.name || 'foto.jpg',
+      caption: caption || '',
+      width: optimized.width,
+      height: optimized.height,
+      sizeKb: optimized.sizeKb,
+    }),
+  });
 
-    if (res.ok) {
-      const serverPhoto = await res.json();
-      return {
-        id: serverPhoto.id || photoId,
-        url: serverPhoto.url || `/api/photos/${photoId}`,
-        rawUrl: serverPhoto.rawUrl || `/api/photos/${photoId}?raw=1`,
-        name: serverPhoto.name || file.name,
-        caption: caption || '',
-        width: serverPhoto.width || optimized.width,
-        height: serverPhoto.height || optimized.height,
-        sizeKb: serverPhoto.sizeKb || optimized.sizeKb,
-        source: 'user',
-        createdAt: new Date().toISOString(),
-      };
-    }
-  } catch (err) {
-    console.warn('Nepodařilo se nahrát fotografii přes API endpoint, použit přímý formát:', err);
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Chyba při nahrávání na server (${res.status} ${res.statusText})`);
   }
 
-  // Fallback with clean structure if network was temporarily unavailable
+  const serverPhoto = await res.json();
   return {
-    id: photoId,
-    url: optimized.dataUrl,
-    rawUrl: optimized.dataUrl,
-    dataUrl: optimized.dataUrl,
-    name: optimized.name,
+    id: serverPhoto.id || photoId,
+    url: serverPhoto.url || `/api/photos/${photoId}`,
+    rawUrl: serverPhoto.rawUrl || `/api/photos/${photoId}?raw=1`,
+    name: serverPhoto.name || file.name,
     caption: caption || '',
-    width: optimized.width,
-    height: optimized.height,
-    sizeKb: optimized.sizeKb,
+    width: serverPhoto.width || optimized.width,
+    height: serverPhoto.height || optimized.height,
+    sizeKb: serverPhoto.sizeKb || optimized.sizeKb,
     source: 'user',
     createdAt: new Date().toISOString(),
   };
