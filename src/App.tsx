@@ -113,12 +113,28 @@ export const App: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        const loadedRoutes = (data.routes || []).map((r: any) => ({
-          ...r,
-          id: r.id || r.title || 'route_' + Math.random(),
-          photos: Array.isArray(r.photos) ? r.photos : [],
-        }));
+        const loadedRoutes = (data.routes || []).map((r: any) => {
+          const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
+            ? r.trackpoints
+            : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
+            ? r.trackPoints
+            : [];
+          return {
+            ...r,
+            id: r.id || r.title || 'route_' + Math.random(),
+            trackpoints: pts,
+            trackPoints: pts,
+            photos: Array.isArray(r.photos) ? r.photos : [],
+          };
+        });
         setRoutes(loadedRoutes);
+
+        // Keep active modal route perfectly in sync
+        setModalRoute((prev) => {
+          if (!prev) return null;
+          const fresh = loadedRoutes.find((r: HikeRoute) => r.id === prev.id);
+          return fresh || prev;
+        });
       }
     } catch (err) {
       console.error('Chyba při načítání tras:', err);
@@ -129,6 +145,12 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchRoutes(false);
+
+    // If not unlocked (e.g. anonymous / incognito mode), prompt for PIN immediately
+    const isCurrentlyUnlocked = localStorage.getItem('horsky_denik_unlocked') === 'true';
+    if (!isCurrentlyUnlocked) {
+      setIsPinModalOpen(true);
+    }
 
     // Live multi-device sync: auto-refresh when tab gains focus or screen turns on
     const handleFocus = () => {

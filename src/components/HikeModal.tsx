@@ -123,7 +123,11 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     }
   }, [route, isOpen, isNew]);
 
-  const currentPhotos = formData.photos || route?.photos || [];
+  const currentPhotos = Array.isArray(formData.photos)
+    ? formData.photos
+    : Array.isArray(route?.photos)
+    ? route!.photos
+    : [];
 
   // Intrinsic dimension resolver: immune to container CSS layout
   useEffect(() => {
@@ -308,15 +312,30 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         try {
           const updated = [...currentPhotos];
           const removed = updated.splice(index, 1)[0];
+          const targetHikeId = formData.id || route?.id;
 
-          if (typeof removed === 'object' && removed.id) {
-            fetch(`/api/photos/${removed.id}`, { method: 'DELETE' }).catch(() => {});
+          const photoId = typeof removed === 'object' && removed?.id
+            ? removed.id
+            : typeof removed === 'string' && removed.startsWith('/api/photos/')
+            ? removed.replace('/api/photos/', '').split('?')[0]
+            : null;
+
+          if (targetHikeId && photoId) {
+            try {
+              await fetch(`/api/routes/${encodeURIComponent(targetHikeId)}/photos/${encodeURIComponent(photoId)}`, {
+                method: 'DELETE',
+              });
+            } catch (delErr) {
+              console.warn('Chyba při přímém mazání fotky ze serveru:', delErr);
+            }
           }
 
           setFormData((prev) => ({ ...prev, photos: updated }));
-          if (route?.id) {
+          if (targetHikeId) {
             await onSave({ ...route, ...formData, photos: updated });
           }
+
+          setActivePhotoIndex((prev) => Math.max(0, Math.min(prev, updated.length - 1)));
           if (lightboxIndex >= updated.length) {
             setLightboxIndex(Math.max(0, updated.length - 1));
           }
@@ -406,7 +425,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         elevationGainM: Math.round(totalAscent),
         elevationLossM: Math.round(totalDescent),
         highestPointM: maxEle !== -Infinity ? Math.round(maxEle) : 0,
-        trackpoints: points.length > 2000 ? points.filter((_, idx) => idx % 2 === 0) : points,
+        trackpoints: points,
+        trackPoints: points,
         startPoint: points[0],
         endPoint: points[points.length - 1],
       }));
@@ -634,16 +654,28 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                 </div>
 
                 {/* Elevation profile */}
-                {route?.trackpoints && route.trackpoints.length > 1 && (
-                  <div>
-                    <ElevationProfile
-                      trackpoints={route.trackpoints}
-                      highestPointM={route.highestPointM}
-                      elevationGainM={route.elevationGainM}
-                      distanceKm={route.distanceKm}
-                    />
-                  </div>
-                )}
+                {(() => {
+                  const pts = (Array.isArray(route?.trackpoints) && route!.trackpoints.length > 1)
+                    ? route!.trackpoints
+                    : (Array.isArray(route?.trackPoints) && route!.trackPoints.length > 1)
+                    ? route!.trackPoints
+                    : (Array.isArray(formData?.trackpoints) && formData!.trackpoints.length > 1)
+                    ? formData!.trackpoints
+                    : [];
+                  if (pts.length > 1) {
+                    return (
+                      <div>
+                        <ElevationProfile
+                          trackpoints={pts}
+                          highestPointM={formData.highestPointM || route?.highestPointM}
+                          elevationGainM={formData.elevationGainM || route?.elevationGainM}
+                          distanceKm={formData.distanceKm || route?.distanceKm}
+                        />
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Photo Gallery Section */}
                 <div className="bg-stone-950/50 border border-stone-800 rounded-2xl p-4 sm:p-5 space-y-4">

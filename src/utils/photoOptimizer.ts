@@ -66,21 +66,15 @@ export async function optimizePhoto(
     }
   }
 
-  // If the file is already a valid image (under 12 MB and under 4096px):
-  // Preserve the ORIGINAL file data URL directly! Zero compression loss, full camera quality!
+  // Preserve the ORIGINAL file data URL directly for all photos up to 35MB!
+  // Zero compression loss, full camera quality (4K, 8K, 12MP, 48MP, etc.)
   const isDirectImage =
-    file.type.startsWith('image/jpeg') ||
-    file.type.startsWith('image/png') ||
-    file.type.startsWith('image/webp') ||
-    file.name.toLowerCase().endsWith('.jpg') ||
-    file.name.toLowerCase().endsWith('.jpeg') ||
-    file.name.toLowerCase().endsWith('.png') ||
-    file.name.toLowerCase().endsWith('.webp');
+    file.type.startsWith('image/') ||
+    /\.(jpe?g|png|webp|heic|heif|bmp|tiff?)$/i.test(file.name);
 
-  const maxSide = Math.max(origWidth, origHeight);
   const sizeMb = file.size / (1024 * 1024);
 
-  if (isDirectImage && sizeMb <= 12 && maxSide <= 4096 && maxSide > 0) {
+  if (isDirectImage && sizeMb <= 35) {
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => resolve(e.target?.result as string);
@@ -90,8 +84,8 @@ export async function optimizePhoto(
 
     return {
       dataUrl,
-      width: origWidth,
-      height: origHeight,
+      width: origWidth || 3840,
+      height: origHeight || 2160,
       sizeKb: Math.round(file.size / 1024),
       name: file.name || 'foto.jpg',
       wasDownscaled: false,

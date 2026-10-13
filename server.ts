@@ -604,6 +604,35 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     }
   }
 
+  // Security & Access PIN configuration
+  const securityConfigPath = path.join(dataDir, 'security.json');
+  function getSecurityPin(): string {
+    try {
+      if (fs.existsSync(securityConfigPath)) {
+        const text = fs.readFileSync(securityConfigPath, 'utf8');
+        const json = JSON.parse(text);
+        if (json.pin && typeof json.pin === 'string' && json.pin.trim()) {
+          return json.pin.trim();
+        }
+      }
+    } catch {}
+    return '1234';
+  }
+
+  function setSecurityPin(newPin: string) {
+    try {
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      fs.writeFileSync(securityConfigPath, JSON.stringify({ pin: newPin.trim() }, null, 2));
+      if (db) {
+        setDoc(doc(db, 'settings', 'security'), { pin: newPin.trim() }, { merge: true }).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Nelze uložit security PIN:', e);
+    }
+  }
+
   // Robust photo storage helper: Saves photo dataUrl to disk and Firestore hike_photos
   // Returns lean HikePhotoItem metadata object with permanent /api/photos/:id URL
   async function savePhotoDataUrl(
@@ -820,7 +849,25 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         difficulty: reqDifficulty,
       } = req.body;
 
-      console.log(`[API /api/routes] Přijata nová trasa z Garminu: "${title || 'Bez názvu'}" (${distanceKm} km)`);
+      const routeId = (id && String(id).trim()) || `hike-garmin-${Date.now()}`;
+      console.log(`[API /api/routes] Zpracovávám trasu ${routeId}: "${title || ''}"`);
+
+      // 1. Fetch existing route data if updating
+      let existingData: any = null;
+      if (db) {
+        try {
+          const existingDocSnap = await getDoc(doc(db, 'hikes', routeId));
+          if (existingDocSnap.exists()) {
+            existingData = existingDocSnap.data();
+          }
+        } catch (dbErr: any) {
+          console.warn('[API /api/routes] Chyba při čtení existující trasy z Firestore:', dbErr.message);
+        }
+      }
+      if (!existingData) {
+        const local = getLocalRoutes();
+        existingData = local.find((r: any) => r.id === routeId) || null;
+      }
 
       const host = req.get('host') || 'localhost:3000';
       const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
@@ -835,32 +882,57 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }
       }
 
-      const routeId = id || `hike-garmin-${Date.now()}`;
-      const finalTitle = title || parsedGpx?.name || 'Aktivita z Garminu';
-      const finalDistance = Number(distanceKm) || parsedGpx?.totalDistKm || 5;
-      const finalGain = Number(elevationGainM) || parsedGpx?.gainM || 100;
-      const finalLoss = Number(elevationLossM) || parsedGpx?.lossM || finalGain;
+      // Title & Metrics
+      const finalTitle = title !== undefined && String(title).trim()
+        ? String(title).trim()
+        : existingData?.title || parsedGpx?.name || 'Aktivita z Garminu';
 
-      // Format duration
-      let formattedDuration = parsedGpx?.duration || '1h 30m';
-      let formattedMovingDuration = parsedGpx?.movingDuration;
+      const finalDistance = distanceKm !== undefined && !isNaN(Number(distanceKm))
+        ? Number(distanceKm)
+        : existingData?.distanceKm !== undefined
+        ? Number(existingData.distanceKm)
+        : (parsedGpx?.totalDistKm || 5);
+
+      const finalGain = elevationGainM !== undefined && !isNaN(Number(elevationGainM))
+        ? Number(elevationGainM)
+        : existingData?.elevationGainM !== undefined
+        ? Number(existingData.elevationGainM)
+        : (parsedGpx?.gainM || 100);
+
+      const finalLoss = elevationLossM !== undefined && !isNaN(Number(elevationLossM))
+        ? Number(elevationLossM)
+        : existingData?.elevationLossM !== undefined
+        ? Number(existingData.elevationLossM)
+        : (parsedGpx?.lossM || finalGain);
+
+      // Duration
+      let formattedDuration = existingData?.duration || parsedGpx?.duration || '1h 30m';
+      let formattedMovingDuration = existingData?.movingDuration || parsedGpx?.movingDuration;
       if (durationMinutes && !isNaN(Number(durationMinutes))) {
         const mins = Math.round(Number(durationMinutes));
         const hours = Math.floor(mins / 60);
         const remMins = mins % 60;
         formattedDuration = `${hours}h ${remMins < 10 ? '0' : ''}${remMins}m`;
       }
-      if (req.body.duration && typeof req.body.duration === 'string') {
+      if (req.body.duration && typeof req.body.duration === 'string' && req.body.duration.trim()) {
         formattedDuration = req.body.duration.trim();
       }
-      if (req.body.movingDuration && typeof req.body.movingDuration === 'string') {
+      if (req.body.movingDuration && typeof req.body.movingDuration === 'string' && req.body.movingDuration.trim()) {
         formattedMovingDuration = req.body.movingDuration.trim();
       }
 
       // Peak coordinates & mountain range
-      const peakLat = parsedGpx?.highestPoint?.lat || 50.736;
-      const peakLng = parsedGpx?.highestPoint?.lng || 15.74;
+      const peakLat = req.body.peakCoords?.lat || existingData?.peakCoords?.lat || parsedGpx?.highestPoint?.lat || 50.736;
+      const peakLng = req.body.peakCoords?.lng || existingData?.peakCoords?.lng || parsedGpx?.highestPoint?.lng || 15.74;
       const detectedRange = detectRangeFromCoords(peakLat, peakLng);
+
+      const candidateRange = typeof req.body.mountainRange === 'string' && req.body.mountainRange.trim()
+        ? req.body.mountainRange.trim()
+        : existingData?.mountainRange || '';
+
+      const finalRange = candidateRange && !isSuspectMountainRange(candidateRange, peakLat, peakLng)
+        ? candidateRange
+        : (candidateRange || detectedRange);
 
       const isMountaineering =
         (activityType && /climb|mountaineer|lezen|skal/i.test(String(activityType))) ||
@@ -868,53 +940,99 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
 
       const determinedActivityType = isMountaineering
         ? 'mountaineering'
-        : activityType
-        ? String(activityType).trim().toLowerCase()
-        : undefined;
+        : (activityType && String(activityType).trim().toLowerCase()) || existingData?.activityType || 'hiking';
 
-      const candidateRange = typeof req.body.mountainRange === 'string' ? req.body.mountainRange.trim() : '';
-      const finalRange =
-        candidateRange && !isSuspectMountainRange(candidateRange, peakLat, peakLng)
-          ? candidateRange
-          : detectedRange;
-
-      const finalTrackPoints =
-        Array.isArray(req.body.trackPoints) && req.body.trackPoints.length > 0
+      // Trackpoints handling (both trackPoints and trackpoints supported)
+      const inputTrackPoints =
+        (Array.isArray(req.body.trackpoints) && req.body.trackpoints.length > 0)
+          ? req.body.trackpoints
+          : (Array.isArray(req.body.trackPoints) && req.body.trackPoints.length > 0)
           ? req.body.trackPoints
           : parsedGpx?.trackPoints?.length
           ? parsedGpx.trackPoints
-          : undefined;
+          : existingData?.trackpoints || existingData?.trackPoints;
+
+      // Photos handling: If photos explicitly passed as array (even empty []), respect user's exact state!
+      let finalPhotos: any[] = [];
+      if (Array.isArray(req.body.photos)) {
+        finalPhotos = req.body.photos;
+      } else if (existingData && Array.isArray(existingData.photos)) {
+        finalPhotos = existingData.photos;
+      }
+
+      // Normalize photos: If any photo has inline base64 string or dataUrl, extract to /api/photos/:id
+      const normalizedPhotos: any[] = [];
+      for (let i = 0; i < finalPhotos.length; i++) {
+        const p = finalPhotos[i];
+        if (typeof p === 'string') {
+          if (p.startsWith('data:')) {
+            const saved = await savePhotoDataUrl(p, routeId, { name: `foto_${i + 1}.jpg` });
+            normalizedPhotos.push(saved);
+          } else {
+            normalizedPhotos.push(p);
+          }
+        } else if (typeof p === 'object' && p !== null) {
+          const pObj = { ...p };
+          const b64 = (pObj.dataUrl && typeof pObj.dataUrl === 'string' && pObj.dataUrl.startsWith('data:'))
+            ? pObj.dataUrl
+            : (pObj.url && typeof pObj.url === 'string' && pObj.url.startsWith('data:'))
+            ? pObj.url
+            : null;
+
+          if (b64) {
+            const saved = await savePhotoDataUrl(b64, routeId, {
+              name: pObj.name || `foto_${i + 1}.jpg`,
+              caption: pObj.caption || '',
+              width: pObj.width,
+              height: pObj.height,
+              sizeKb: pObj.sizeKb,
+            });
+            normalizedPhotos.push({
+              ...pObj,
+              id: pObj.id || saved.id,
+              url: saved.url,
+              rawUrl: saved.rawUrl,
+              dataUrl: undefined,
+            });
+          } else {
+            const { dataUrl, ...rest } = pObj;
+            normalizedPhotos.push(rest);
+          }
+        }
+      }
 
       const newHike: Record<string, any> = {
+        ...(existingData || {}),
         id: routeId,
         title: finalTitle,
         mountainRange: finalRange,
         activityType: determinedActivityType,
-        date: date ? String(date).slice(0, 10) : (parsedGpx?.date || new Date().toISOString().split('T')[0]),
-        startTime: req.body.startTime && typeof req.body.startTime === 'string' ? req.body.startTime.trim() : undefined,
+        date: date ? String(date).slice(0, 10) : (existingData?.date || parsedGpx?.date || new Date().toISOString().split('T')[0]),
+        startTime: req.body.startTime !== undefined ? req.body.startTime : existingData?.startTime,
         distanceKm: Math.round(finalDistance * 10) / 10,
         elevationGainM: Math.round(finalGain),
         elevationLossM: Math.round(finalLoss),
         duration: formattedDuration,
         movingDuration: formattedMovingDuration,
-        difficulty: reqDifficulty || (isMountaineering ? 'climbing' : (finalGain > 0 || finalDistance > 0)
+        difficulty: reqDifficulty || existingData?.difficulty || (isMountaineering ? 'climbing' : (finalGain > 0 || finalDistance > 0)
           ? (finalGain >= 1000 || finalDistance >= 22 ? 'hard' : (finalGain <= 350 && finalDistance <= 10 ? 'easy' : 'moderate'))
           : undefined),
-        description:
-          description ||
-          'Nová aktivita z Garminu. Klikněte pro doplnění zážitků a fotek.',
-        photos: Array.isArray(req.body.photos) ? req.body.photos : [],
-        highestPointM: Number(req.body.highestPointM) || parsedGpx?.maxEle || (finalTrackPoints?.length ? Math.max(...finalTrackPoints.map((p: any) => p.ele ?? 0).filter((e: number) => e > 0)) : undefined),
-        lowestPointM: Number(req.body.lowestPointM) || parsedGpx?.minEle || (finalTrackPoints?.length ? Math.min(...finalTrackPoints.map((p: any) => p.ele ?? 9999).filter((e: number) => e > 0)) : undefined),
-        peakCoords: req.body.peakCoords || {
+        description: description !== undefined
+          ? description
+          : (existingData?.description || 'Nová aktivita z Garminu. Klikněte pro doplnění zážitků a fotek.'),
+        photos: normalizedPhotos,
+        highestPointM: Number(req.body.highestPointM) || existingData?.highestPointM || parsedGpx?.maxEle || (inputTrackPoints?.length ? Math.max(...inputTrackPoints.map((p: any) => p.ele ?? 0).filter((e: number) => e > 0)) : undefined),
+        lowestPointM: Number(req.body.lowestPointM) || existingData?.lowestPointM || parsedGpx?.minEle || (inputTrackPoints?.length ? Math.min(...inputTrackPoints.map((p: any) => p.ele ?? 9999).filter((e: number) => e > 0)) : undefined),
+        peakCoords: req.body.peakCoords || existingData?.peakCoords || {
           lat: peakLat,
           lng: peakLng,
           name: finalTitle,
         },
-        trackPoints: finalTrackPoints,
-        gpxRawXml: gpxXml || undefined,
-        garminActivityId: req.body.garminActivityId || req.body.activityId,
-        source: req.body.source || 'garmin',
+        trackPoints: inputTrackPoints,
+        trackpoints: inputTrackPoints,
+        gpxRawXml: gpxXml || existingData?.gpxRawXml || undefined,
+        garminActivityId: req.body.garminActivityId || req.body.activityId || existingData?.garminActivityId,
+        source: req.body.source || existingData?.source || 'garmin',
       };
 
       // Sanitize: Firestore throws on undefined, so omit any undefined values
@@ -925,113 +1043,17 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }
       }
 
-      // Normalize photos: If any photo has inline base64 string or dataUrl, extract to /api/photos/:id
-      if (Array.isArray(cleanHikeForDb.photos)) {
-        const normalizedPhotos: any[] = [];
-        for (let i = 0; i < cleanHikeForDb.photos.length; i++) {
-          const p = cleanHikeForDb.photos[i];
-          if (typeof p === 'string') {
-            if (p.startsWith('data:')) {
-              const saved = await savePhotoDataUrl(p, routeId, { name: `foto_${i + 1}.jpg` });
-              normalizedPhotos.push(saved);
-            } else {
-              normalizedPhotos.push(p);
-            }
-          } else if (typeof p === 'object' && p !== null) {
-            const pObj = { ...p };
-            const b64 = (pObj.dataUrl && typeof pObj.dataUrl === 'string' && pObj.dataUrl.startsWith('data:'))
-              ? pObj.dataUrl
-              : (pObj.url && typeof pObj.url === 'string' && pObj.url.startsWith('data:'))
-              ? pObj.url
-              : null;
-
-            if (b64) {
-              const saved = await savePhotoDataUrl(b64, routeId, {
-                name: pObj.name || `foto_${i + 1}.jpg`,
-                caption: pObj.caption || '',
-                width: pObj.width,
-                height: pObj.height,
-                sizeKb: pObj.sizeKb,
-              });
-              normalizedPhotos.push({
-                ...pObj,
-                id: pObj.id || saved.id,
-                url: saved.url,
-                rawUrl: saved.rawUrl,
-                dataUrl: undefined,
-              });
-            } else {
-              const { dataUrl, ...rest } = pObj;
-              normalizedPhotos.push(rest);
-            }
-          }
-        }
-        cleanHikeForDb.photos = normalizedPhotos;
-      }
-
-      // Save to Firestore (Preserve existing photos and user notes so Garmin re-sync never wipes them)
+      // Save to Firestore
       if (db) {
         try {
-          const existingDocSnap = await getDoc(doc(db, 'hikes', routeId));
-          if (existingDocSnap.exists()) {
-            const existingData = existingDocSnap.data();
-
-            // 1. Preserve photos if:
-            // a) req.body.photos was NOT supplied at all, OR
-            // b) incoming request is an automated Garmin sync script and existing hike has user-uploaded/curated photos
-            const existingHasUserPhotos =
-              Array.isArray(existingData.photos) &&
-              existingData.photos.length > 0 &&
-              existingData.photos.some((p: any) =>
-                typeof p === 'object' && (p.url || p.id || p.source === 'user' || (p.width && p.width > 800))
-              );
-
-            const isAutomatedGarminSync = req.body.source === 'garmin' && !req.body.fromUserModal;
-
-            if (isAutomatedGarminSync && existingHasUserPhotos) {
-              cleanHikeForDb.photos = existingData.photos;
-              console.log(`[API /api/routes] Chráněny uživatelské fotografie v plné kvalitě (${existingData.photos.length}) pro trasu ${routeId}`);
-            } else if (
-              req.body.photos === undefined &&
-              Array.isArray(existingData.photos) &&
-              existingData.photos.length > 0
-            ) {
-              cleanHikeForDb.photos = existingData.photos;
-              console.log(`[API /api/routes] Zachovány existující fotky (${existingData.photos.length}) pro trasu ${routeId}`);
-            }
-
-            // 2. Preserve user's custom notes/description
-            const isIncomingGeneric =
-              !description ||
-              description.includes('Automaticky synchronizováno') ||
-              description.includes('Nová aktivita z Garminu');
-            if (existingData.description && isIncomingGeneric) {
-              cleanHikeForDb.description = existingData.description;
-              console.log(`[API /api/routes] Zachovány uživatelské poznámky pro trasu ${routeId}`);
-            }
-
-            // 3. Preserve user rating, weather, stops/waypoints, and videos if set
-            if (existingData.rating && !cleanHikeForDb.rating) {
-              cleanHikeForDb.rating = existingData.rating;
-            }
-            if (existingData.weather && !cleanHikeForDb.weather) {
-              cleanHikeForDb.weather = existingData.weather;
-            }
-            if (Array.isArray(existingData.hutsAndWaypoints) && existingData.hutsAndWaypoints.length > 0 && (!cleanHikeForDb.hutsAndWaypoints || cleanHikeForDb.hutsAndWaypoints.length === 0)) {
-              cleanHikeForDb.hutsAndWaypoints = existingData.hutsAndWaypoints;
-            }
-            if (Array.isArray(existingData.videos) && existingData.videos.length > 0 && (!cleanHikeForDb.videos || cleanHikeForDb.videos.length === 0)) {
-              cleanHikeForDb.videos = existingData.videos;
-            }
-          }
-          await setDoc(doc(db, 'hikes', routeId), cleanHikeForDb, { merge: true });
-          console.log(`[API /api/routes] Trasa ${routeId} úspěšně uložena do Firestore.`);
+          await setDoc(doc(db, 'hikes', routeId), cleanHikeForDb);
+          console.log(`[API /api/routes] Trasa ${routeId} úspěšně uložena do Firestore (fotografií: ${normalizedPhotos.length}).`);
         } catch (dbErr) {
           console.error('[API /api/routes] Chyba při zápisu do Firestore:', dbErr);
         }
       }
 
-      // Always update local disk cache so routes are never lost even if Firestore is rate-limited
+      // Always update local disk cache
       try {
         const currentRoutes = getLocalRoutes();
         const existingIdx = currentRoutes.findIndex((r: any) => r.id === routeId);
@@ -1045,7 +1067,6 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         console.warn('Chyba při ukládání do lokální mezipaměti:', cacheErr);
       }
 
-      // Return structure expected by Garmin python script: r.json().get("route", {}).get("id")
       return res.status(201).json({
         success: true,
         route: cleanHikeForDb,
@@ -1065,7 +1086,6 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
 
   // GET /api/routes: List all routes
   app.get('/api/routes', async (req, res) => {
-    // Prevent stale caching across browsers, proxies, and PWAs
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
       'Pragma': 'no-cache',
@@ -1079,9 +1099,13 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           const routes: any[] = [];
           snapshot.forEach((d) => {
             const data = d.data() as any;
+            const pts = data.trackpoints || data.trackPoints || [];
             routes.push({
               ...data,
               id: (data.id && String(data.id).trim()) || d.id,
+              trackpoints: pts,
+              trackPoints: pts,
+              photos: Array.isArray(data.photos) ? data.photos : [],
             });
           });
           saveLocalRoutes(routes);
@@ -1090,10 +1114,26 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           console.warn('[API /api/routes] Firestore chyba (' + dbErr.message + '), vracím trasy z lokálního disku.');
         }
       }
-      const local = getLocalRoutes();
+      const local = getLocalRoutes().map((r: any) => {
+        const pts = r.trackpoints || r.trackPoints || [];
+        return {
+          ...r,
+          trackpoints: pts,
+          trackPoints: pts,
+          photos: Array.isArray(r.photos) ? r.photos : [],
+        };
+      });
       return res.json({ routes: local });
     } catch (err: any) {
-      const local = getLocalRoutes();
+      const local = getLocalRoutes().map((r: any) => {
+        const pts = r.trackpoints || r.trackPoints || [];
+        return {
+          ...r,
+          trackpoints: pts,
+          trackPoints: pts,
+          photos: Array.isArray(r.photos) ? r.photos : [],
+        };
+      });
       if (local.length > 0) {
         return res.json({ routes: local });
       }
@@ -1267,6 +1307,105 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     }
   });
 
+  // DELETE /api/routes/:id/photos/:photoId: Directly and permanently delete a photo from a hike
+  app.delete('/api/routes/:id/photos/:photoId', async (req, res) => {
+    try {
+      const { id, photoId } = req.params;
+      console.log(`[API /api/routes/:id/photos/:photoId] Trvale odstraňuji fotku ${photoId} z výpravy ${id}`);
+
+      // 1. Delete physical files from disk
+      const binPath = path.join(photosDir, `${photoId}.bin`);
+      const jsonPath = path.join(photosDir, `${photoId}.json`);
+      if (fs.existsSync(binPath)) {
+        try { fs.unlinkSync(binPath); } catch {}
+      }
+      if (fs.existsSync(jsonPath)) {
+        try { fs.unlinkSync(jsonPath); } catch {}
+      }
+
+      // 2. Delete from Firestore collection hike_photos
+      if (db) {
+        deleteDoc(doc(db, 'hike_photos', photoId)).catch(() => {});
+      }
+
+      // 3. Update route in Firestore
+      let updatedPhotos: any[] = [];
+      if (db) {
+        try {
+          const snap = await getDoc(doc(db, 'hikes', id));
+          if (snap.exists()) {
+            const currentPhotos = snap.data().photos || [];
+            updatedPhotos = currentPhotos.filter((p: any) => {
+              if (typeof p === 'string') return p !== photoId && !p.includes(photoId);
+              if (typeof p === 'object' && p !== null) return p.id !== photoId && p.url !== `/api/photos/${photoId}` && p.rawUrl !== `/api/photos/${photoId}?raw=1`;
+              return true;
+            });
+            await updateDoc(doc(db, 'hikes', id), { photos: updatedPhotos });
+            console.log(`[API /api/routes/:id/photos/:photoId] Firestore výprava ${id} aktualizována (zbývá fotek: ${updatedPhotos.length})`);
+          }
+        } catch (dbErr: any) {
+          console.warn('[API DELETE photo] Firestore chyba:', dbErr.message);
+        }
+      }
+
+      // 4. Update route in local routes-cache.json
+      try {
+        const local = getLocalRoutes();
+        const rIdx = local.findIndex((r: any) => r.id === id);
+        if (rIdx >= 0) {
+          const currentPhotos = local[rIdx].photos || [];
+          updatedPhotos = currentPhotos.filter((p: any) => {
+            if (typeof p === 'string') return p !== photoId && !p.includes(photoId);
+            if (typeof p === 'object' && p !== null) return p.id !== photoId && p.url !== `/api/photos/${photoId}` && p.rawUrl !== `/api/photos/${photoId}?raw=1`;
+            return true;
+          });
+          local[rIdx].photos = updatedPhotos;
+          saveLocalRoutes(local);
+        }
+      } catch (cacheErr: any) {
+        console.warn('[API DELETE photo] Cache chyba:', cacheErr.message);
+      }
+
+      return res.json({ success: true, photos: updatedPhotos, message: 'Fotografie byla trvale smazána.' });
+    } catch (err: any) {
+      console.error('[API DELETE photo] Chyba:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Security PIN / Password Endpoints ---
+  // GET /api/security/pin - check security configuration
+  app.get('/api/security/pin', (req, res) => {
+    res.json({
+      configured: true,
+      hasPin: true,
+    });
+  });
+
+  // POST /api/security/verify - verify entered PIN
+  app.post('/api/security/verify', (req, res) => {
+    const { pin } = req.body || {};
+    const stored = getSecurityPin();
+    if (pin && String(pin).trim() === stored) {
+      return res.json({ success: true, authorized: true });
+    }
+    return res.status(401).json({ success: false, error: 'Nesprávný bezpečnostní PIN' });
+  });
+
+  // POST /api/security/pin - update security PIN
+  app.post('/api/security/pin', (req, res) => {
+    const { currentPin, newPin } = req.body || {};
+    const stored = getSecurityPin();
+    if (!currentPin || String(currentPin).trim() !== stored) {
+      return res.status(401).json({ success: false, error: 'Stávající PIN není správný' });
+    }
+    if (!newPin || String(newPin).trim().length < 4) {
+      return res.status(400).json({ success: false, error: 'Nový PIN musí mít alespoň 4 znaky' });
+    }
+    setSecurityPin(String(newPin).trim());
+    return res.json({ success: true, message: 'PIN byl úspěšně změněn' });
+  });
+
   // --- Photo storage endpoints (Dedicated local disk storage & Firestore collection 'hike_photos') ---
   // POST /api/photos/upload: Upload high quality photo
   app.post('/api/photos/upload', async (req, res) => {
@@ -1313,9 +1452,19 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         return res.status(404).json({ error: 'Metadata fotografie nenalezena' });
       }
 
+      let fileName = 'foto.jpg';
+      if (fs.existsSync(jsonPath)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+          if (meta.name) fileName = meta.name;
+        } catch {}
+      }
+
+      const isDownload = req.query.raw === '1' || req.query.download === '1';
+
       // 2. Default: Stream binary image directly (compatible with all <img> tags and lightboxes)
       if (fs.existsSync(binPath)) {
-        let mimeType = 'image/webp';
+        let mimeType = 'image/jpeg';
         try {
           const fd = fs.openSync(binPath, 'r');
           const head = Buffer.alloc(16);
@@ -1327,6 +1476,9 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         } catch {}
         res.setHeader('Content-Type', mimeType);
         res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+        if (isDownload) {
+          res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+        }
         return res.sendFile(binPath);
       }
 
@@ -1338,6 +1490,9 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
             const buffer = Buffer.from(matches[2], 'base64');
             res.setHeader('Content-Type', matches[1]);
             res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+            if (isDownload) {
+              res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+            }
             return res.send(buffer);
           }
         }
@@ -1366,12 +1521,14 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
               if (matches && matches.length === 3) {
                 const contentType = matches[1];
                 const buffer = Buffer.from(matches[2], 'base64');
-                // Cache to disk so subsequent reads are 0ms
                 try {
                   fs.writeFileSync(binPath, buffer);
                 } catch {}
                 res.setHeader('Content-Type', contentType);
                 res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+                if (isDownload) {
+                  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(photoData.name || fileName)}"`);
+                }
                 return res.send(buffer);
               }
             }
@@ -1394,8 +1551,12 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       const { id } = req.params;
       const binPath = path.join(photosDir, `${id}.bin`);
       const jsonPath = path.join(photosDir, `${id}.json`);
-      if (fs.existsSync(binPath)) fs.unlinkSync(binPath);
-      if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
+      if (fs.existsSync(binPath)) {
+        try { fs.unlinkSync(binPath); } catch {}
+      }
+      if (fs.existsSync(jsonPath)) {
+        try { fs.unlinkSync(jsonPath); } catch {}
+      }
 
       if (db) {
         deleteDoc(doc(db, 'hike_photos', id)).catch(() => {});

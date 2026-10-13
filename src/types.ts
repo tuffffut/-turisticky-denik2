@@ -39,6 +39,7 @@ export interface HikeRoute {
   externalAlbumUrl?: string;
   photos?: (string | HikePhotoItem)[];
   trackpoints?: GpxTrackpoint[];
+  trackPoints?: GpxTrackpoint[];
   gpxXml?: string;
   startPoint?: { lat: number; lng: number };
   endPoint?: { lat: number; lng: number };

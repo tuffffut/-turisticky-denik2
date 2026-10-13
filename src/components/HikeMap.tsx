@@ -80,7 +80,11 @@ export const HikeMap: React.FC<HikeMapProps> = ({
 
     routes.forEach((route) => {
       const isSelected = route.id === selectedRouteId;
-      const pts = route.trackpoints || [];
+      const pts = (Array.isArray(route.trackpoints) && route.trackpoints.length > 0)
+        ? route.trackpoints
+        : (Array.isArray(route.trackPoints) && route.trackPoints.length > 0)
+        ? route.trackPoints
+        : [];
 
       if (pts.length > 1) {
         const latLngs = pts.map((p) => L.latLng(p.lat, p.lng));
@@ -152,9 +156,14 @@ export const HikeMap: React.FC<HikeMapProps> = ({
     // Auto zoom to selected or all
     if (selectedRouteId) {
       const selectedRoute = routes.find((r) => r.id === selectedRouteId);
-      if (selectedRoute?.trackpoints && selectedRoute.trackpoints.length > 1) {
+      const selPts = (Array.isArray(selectedRoute?.trackpoints) && selectedRoute!.trackpoints.length > 0)
+        ? selectedRoute!.trackpoints
+        : (Array.isArray(selectedRoute?.trackPoints) && selectedRoute!.trackPoints.length > 0)
+        ? selectedRoute!.trackPoints
+        : [];
+      if (selPts.length > 1) {
         const selectedBounds = L.latLngBounds(
-          selectedRoute.trackpoints.map((p) => [p.lat, p.lng])
+          selPts.map((p) => [p.lat, p.lng])
         );
         map.fitBounds(selectedBounds, { padding: [40, 40], maxZoom: 14 });
       }
