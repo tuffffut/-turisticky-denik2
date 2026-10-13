@@ -27,6 +27,55 @@ import { HikeMap } from './components/HikeMap';
 import { HikeModal } from './components/HikeModal';
 import { PinModal } from './components/PinModal';
 
+function getActivityTimeScore(route: HikeRoute): number {
+  if (!route.date) return 0;
+  const baseDayStr = route.date.split('T')[0];
+  const dayMs = new Date(baseDayStr + 'T00:00:00').getTime();
+
+  // If explicit startTime exists (e.g. "14:30")
+  if (route.startTime && typeof route.startTime === 'string' && route.startTime.trim()) {
+    const parts = route.startTime.trim().split(':');
+    if (parts.length >= 2) {
+      const h = parseInt(parts[0], 10) || 0;
+      const m = parseInt(parts[1], 10) || 0;
+      const s = parseInt(parts[2], 10) || 0;
+      return dayMs + (h * 3600 + m * 60 + s) * 1000;
+    }
+  }
+
+  // If trackpoints have explicit UTC/local timestamp
+  const tps: any[] = (route as any).trackpoints || (route as any).trackPoints || [];
+  if (tps.length > 0 && tps[0]?.time) {
+    const t = new Date(tps[0].time).getTime();
+    if (!isNaN(t)) return t;
+  }
+
+  // If createdAt has timestamp on this date
+  if (route.createdAt) {
+    const createdDate = new Date(route.createdAt);
+    const createdMs = createdDate.getTime();
+    if (!isNaN(createdMs)) {
+      const createdDayStr = route.createdAt.split('T')[0];
+      if (createdDayStr === baseDayStr) return createdMs;
+      const timeOfDayMs =
+        (createdDate.getUTCHours() * 3600 +
+          createdDate.getUTCMinutes() * 60 +
+          createdDate.getUTCSeconds()) *
+        1000;
+      return dayMs + timeOfDayMs;
+    }
+  }
+
+  // If Garmin sequential ID (e.g. garmin-24689514614)
+  const garminMatch = String(route.id || '').match(/garmin-(\d+)/);
+  if (garminMatch) {
+    const num = Number(garminMatch[1]);
+    return dayMs + (num % 86400000);
+  }
+
+  return dayMs;
+}
+
 export const App: React.FC = () => {
   const [routes, setRoutes] = useState<HikeRoute[]>([]);
   const [loading, setLoading] = useState(true);
@@ -154,7 +203,7 @@ export const App: React.FC = () => {
       .sort((a, b) => {
         if (sortBy === 'distance') return (b.distanceKm || 0) - (a.distanceKm || 0);
         if (sortBy === 'elevation') return (b.elevationGainM || 0) - (a.elevationGainM || 0);
-        return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+        return getActivityTimeScore(b) - getActivityTimeScore(a);
       });
   }, [routes, searchQuery, selectedRange, selectedActivity, sortBy]);
 
@@ -506,6 +555,7 @@ export const App: React.FC = () => {
                               <span className="text-xs text-stone-400 flex items-center gap-1 whitespace-nowrap">
                                 <Calendar className="w-3 h-3 text-stone-500" />
                                 {new Date(route.date).toLocaleDateString('cs-CZ')}
+                                {route.startTime ? ` • ${route.startTime}` : ''}
                               </span>
                             )}
                           </div>

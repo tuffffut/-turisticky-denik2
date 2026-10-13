@@ -891,6 +891,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         mountainRange: finalRange,
         activityType: determinedActivityType,
         date: date ? String(date).slice(0, 10) : (parsedGpx?.date || new Date().toISOString().split('T')[0]),
+        startTime: req.body.startTime && typeof req.body.startTime === 'string' ? req.body.startTime.trim() : undefined,
         distanceKm: Math.round(finalDistance * 10) / 10,
         elevationGainM: Math.round(finalGain),
         elevationLossM: Math.round(finalLoss),

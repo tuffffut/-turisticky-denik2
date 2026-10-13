@@ -25,6 +25,7 @@ export interface HikeRoute {
   id: string;
   title: string;
   date: string;
+  startTime?: string;
   mountainRange: string;
   activityType: ActivityType;
   distanceKm: number;

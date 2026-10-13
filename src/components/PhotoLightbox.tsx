@@ -163,20 +163,16 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
           {realDimensions ? (
             <span
               className={`text-[10px] sm:text-[11px] px-2 sm:px-2.5 py-1 rounded-md border font-medium flex items-center gap-1 sm:gap-1.5 truncate max-w-full ${
-                Math.max(realDimensions.width, realDimensions.height) <= 800
-                  ? 'bg-amber-950/80 text-amber-300 border-amber-800/60'
-                  : Math.max(realDimensions.width, realDimensions.height) >= 1920
+                Math.max(realDimensions.width, realDimensions.height) >= 1900
                   ? 'bg-emerald-950/90 text-emerald-400 border-emerald-800/60'
-                  : 'bg-stone-900 text-stone-300 border-stone-700'
+                  : 'bg-stone-900 text-stone-200 border-stone-700'
               }`}
             >
-              <span>
+              <span className="font-semibold">
                 {realDimensions.width} × {realDimensions.height} px
               </span>
-              <span className="opacity-75">
-                {Math.max(realDimensions.width, realDimensions.height) <= 800
-                  ? '• Náhled (800px)'
-                  : realDimensions.width >= 3800 || realDimensions.height >= 2100
+              <span className="opacity-80">
+                {realDimensions.width >= 3600 || realDimensions.height >= 2100
                   ? '• 4K Ultra HD'
                   : realDimensions.width >= 2400 || realDimensions.height >= 1400
                   ? '• 2.5K QHD'
@@ -184,10 +180,10 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
                   ? '• Full HD'
                   : realDimensions.width >= 1200 || realDimensions.height >= 700
                   ? '• HD'
-                  : '• Vysoká kvalita'}
+                  : '• Originální snímek'}
               </span>
               {typeof currentItem === 'object' && currentItem?.sizeKb ? (
-                <span className="opacity-80 text-emerald-400 font-semibold">
+                <span className="opacity-90 text-emerald-400 font-semibold">
                   • {currentItem.sizeKb > 1024 ? (currentItem.sizeKb / 1024).toFixed(1) + ' MB' : currentItem.sizeKb + ' KB'}
                 </span>
               ) : null}

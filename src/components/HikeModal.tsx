@@ -531,10 +531,10 @@ export const HikeModal: React.FC<HikeModalProps> = ({
           </div>
         </div>
       )}
-      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 md:p-6 overflow-y-auto overflow-x-hidden">
-        <div className="bg-stone-900 border border-stone-800 rounded-2xl sm:rounded-3xl w-full max-w-full sm:max-w-5xl max-h-[96vh] sm:max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-fadeIn my-auto">
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-0 sm:p-4 md:p-6 overflow-y-auto overflow-x-hidden">
+        <div className="bg-stone-900 border-0 sm:border sm:border-stone-800 rounded-none sm:rounded-3xl w-full max-w-full sm:max-w-5xl h-full sm:h-auto sm:max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-fadeIn my-auto">
           {/* Header */}
-          <div className="px-3.5 sm:px-6 py-3 sm:py-4 border-b border-stone-800 flex items-center justify-between bg-stone-900/95 sticky top-0 z-10 gap-2">
+          <div className="px-3.5 sm:px-6 py-3 sm:py-4 border-b border-stone-800 flex items-center justify-between bg-stone-900/95 sticky top-0 z-10 gap-2 shrink-0">
             <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-1">
               <div className="p-2 bg-emerald-950/80 border border-emerald-800/60 rounded-xl text-emerald-400 shrink-0">
                 <Mountain className="w-5 h-5" />
@@ -545,7 +545,12 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                 </h2>
                 <div className="flex items-center gap-2 text-xs text-stone-400 mt-0.5 truncate">
                   <span className="text-emerald-400 font-medium truncate">{route?.mountainRange}</span>
-                  {route?.date && <span className="shrink-0">• {new Date(route.date).toLocaleDateString('cs-CZ')}</span>}
+                  {route?.date && (
+                    <span className="shrink-0">
+                      • {new Date(route.date).toLocaleDateString('cs-CZ')}
+                      {route.startTime ? ` • ${route.startTime}` : ''}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -750,15 +755,13 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                               {activePhotoDimensions && (
                                 <div
                                   className={`px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium border shadow backdrop-blur truncate max-w-full ${
-                                    Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
-                                      ? 'bg-amber-950/85 text-amber-300 border-amber-800/80'
-                                      : 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
+                                    Math.max(activePhotoDimensions.width, activePhotoDimensions.height) >= 1900
+                                      ? 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
+                                      : 'bg-stone-900/90 text-stone-200 border-stone-700/80'
                                   }`}
                                 >
                                   {activePhotoDimensions.width} × {activePhotoDimensions.height} px
-                                  {Math.max(activePhotoDimensions.width, activePhotoDimensions.height) <= 800
-                                    ? ' (Náhled 800px)'
-                                    : activePhotoDimensions.width >= 3800 || activePhotoDimensions.height >= 2100
+                                  {activePhotoDimensions.width >= 3600 || activePhotoDimensions.height >= 2100
                                     ? ' (4K Ultra HD)'
                                     : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 1400
                                     ? ' (2.5K QHD)'
@@ -766,7 +769,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                     ? ' (Full HD)'
                                     : activePhotoDimensions.width >= 1200 || activePhotoDimensions.height >= 700
                                     ? ' (HD)'
-                                    : ' (Vysoká kvalita)'}
+                                    : ' (Originál)'}
                                   {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb ? (
                                     <span className="text-emerald-400 font-semibold ml-1">
                                       • {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
@@ -1050,6 +1053,18 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
                   <div>
                     <label className="text-xs font-medium text-stone-400 block mb-1">
+                      Čas zahájení (např. 09:30)
+                    </label>
+                    <input
+                      type="time"
+                      value={formData.startTime || ''}
+                      onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                      className="w-full max-w-full box-border bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-base sm:text-sm focus:border-emerald-500 focus:outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-medium text-stone-400 block mb-1">
                       Typ aktivity
                     </label>
                     <select
@@ -1219,7 +1234,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                 </div>
 
                 {/* Form buttons */}
-                <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 pt-3 sticky bottom-0 bg-stone-900/95 py-2.5 -mx-3.5 sm:-mx-6 px-3.5 sm:px-6 border-t border-stone-800/80 mt-2 backdrop-blur-md">
+                <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 pt-3 sticky bottom-0 bg-stone-900/95 py-3 border-t border-stone-800/80 mt-2 backdrop-blur-md">
                   <button
                     type="button"
                     onClick={() => {

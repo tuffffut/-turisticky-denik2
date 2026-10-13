@@ -10,15 +10,19 @@ export interface OptimizedPhotoResult {
 }
 
 /**
- * Optimizes photos to crisp 4K Ultra HD / QHD (up to 3840px) at high quality (0.90).
- * Handles mobile browser photos seamlessly (iPhone Safari, Android Chrome, Samsung).
+ * Optimizes photos preserving full original camera resolution (up to 4K Ultra HD / 3840px+).
+ * If the image is already a high-resolution photo under 12MB, it is preserved 100% losslessly
+ * without degrading or downsampling.
  */
 export async function optimizePhoto(
   file: File,
   maxDimension = 3840,
-  quality = 0.90
+  quality = 0.92
 ): Promise<OptimizedPhotoResult> {
-  // Method 1: Try modern createImageBitmap with EXIF orientation (fastest, low memory on mobile)
+  // Step 1: Detect native image dimensions
+  let origWidth = 0;
+  let origHeight = 0;
+
   if (typeof window !== 'undefined' && 'createImageBitmap' in window) {
     try {
       let bitmap: ImageBitmap;
@@ -27,77 +31,93 @@ export async function optimizePhoto(
       } catch {
         bitmap = await createImageBitmap(file);
       }
-      const origWidth = bitmap.width;
-      const origHeight = bitmap.height;
-
-      let targetWidth = origWidth;
-      let targetHeight = origHeight;
-
-      if (origWidth > maxDimension || origHeight > maxDimension) {
-        if (origWidth > origHeight) {
-          targetHeight = Math.round((origHeight * maxDimension) / origWidth);
-          targetWidth = maxDimension;
-        } else {
-          targetWidth = Math.round((origWidth * maxDimension) / origHeight);
-          targetHeight = maxDimension;
-        }
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
-        bitmap.close();
-
-        let dataUrl = canvas.toDataURL('image/jpeg', quality);
-        if (!dataUrl.startsWith('data:image/jpeg')) {
-          dataUrl = canvas.toDataURL('image/webp', quality);
-        }
-
-        const base64Len = dataUrl.length - (dataUrl.indexOf(',') + 1);
-        const sizeKb = Math.round(((base64Len * 3) / 4) / 1024);
-
-        return {
-          dataUrl,
-          width: targetWidth,
-          height: targetHeight,
-          sizeKb,
-          name: file.name || 'foto.jpg',
-          wasDownscaled: targetWidth !== origWidth || targetHeight !== origHeight,
-        };
-      }
-    } catch (bitmapErr) {
-      console.warn('[PhotoOptimizer] createImageBitmap selhal, přecházím na HTML Image:', bitmapErr);
+      origWidth = bitmap.width;
+      origHeight = bitmap.height;
+      bitmap.close();
+    } catch {
+      // Ignore, fallback to Image
     }
   }
 
-  // Method 2: Standard HTML5 Image & Canvas fallback
+  if (!origWidth || !origHeight) {
+    try {
+      const dims = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve({
+            width: img.naturalWidth || img.width,
+            height: img.naturalHeight || img.height,
+          });
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('Nelze načíst rozměry'));
+        };
+        img.src = objectUrl;
+      });
+      origWidth = dims.width;
+      origHeight = dims.height;
+    } catch {
+      // Dimensions could not be read, fallback defaults
+      origWidth = 3840;
+      origHeight = 2160;
+    }
+  }
+
+  // If the file is already a valid image (under 12 MB and under 4096px):
+  // Preserve the ORIGINAL file data URL directly! Zero compression loss, full camera quality!
+  const isDirectImage =
+    file.type.startsWith('image/jpeg') ||
+    file.type.startsWith('image/png') ||
+    file.type.startsWith('image/webp') ||
+    file.name.toLowerCase().endsWith('.jpg') ||
+    file.name.toLowerCase().endsWith('.jpeg') ||
+    file.name.toLowerCase().endsWith('.png') ||
+    file.name.toLowerCase().endsWith('.webp');
+
+  const maxSide = Math.max(origWidth, origHeight);
+  const sizeMb = file.size / (1024 * 1024);
+
+  if (isDirectImage && sizeMb <= 12 && maxSide <= 4096 && maxSide > 0) {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = () => reject(new Error('Nepodařilo se přečíst soubor'));
+      reader.readAsDataURL(file);
+    });
+
+    return {
+      dataUrl,
+      width: origWidth,
+      height: origHeight,
+      sizeKb: Math.round(file.size / 1024),
+      name: file.name || 'foto.jpg',
+      wasDownscaled: false,
+    };
+  }
+
+  // If huge (e.g. > 12MB or > 4096px), scale smoothly down to 4K Ultra HD (3840px)
+  let targetWidth = origWidth;
+  let targetHeight = origHeight;
+
+  if (origWidth > maxDimension || origHeight > maxDimension) {
+    if (origWidth > origHeight) {
+      targetHeight = Math.round((origHeight * maxDimension) / origWidth);
+      targetWidth = maxDimension;
+    } else {
+      targetWidth = Math.round((origWidth * maxDimension) / origHeight);
+      targetHeight = maxDimension;
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const img = new Image();
 
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const origWidth = img.naturalWidth || img.width;
-      const origHeight = img.naturalHeight || img.height;
-
-      let targetWidth = origWidth;
-      let targetHeight = origHeight;
-
-      if (origWidth > maxDimension || origHeight > maxDimension) {
-        if (origWidth > origHeight) {
-          targetHeight = Math.round((origHeight * maxDimension) / origWidth);
-          targetWidth = maxDimension;
-        } else {
-          targetWidth = Math.round((origWidth * maxDimension) / origHeight);
-          targetHeight = maxDimension;
-        }
-      }
-
       const canvas = document.createElement('canvas');
       canvas.width = targetWidth;
       canvas.height = targetHeight;
@@ -132,20 +152,19 @@ export async function optimizePhoto(
 
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      // Fallback: read directly as DataURL via FileReader
       const reader = new FileReader();
       reader.onload = (e) => {
         const rawDataUrl = e.target?.result as string;
         resolve({
           dataUrl: rawDataUrl,
-          width: 3840,
-          height: 2160,
+          width: origWidth || 3840,
+          height: origHeight || 2160,
           sizeKb: Math.round(file.size / 1024),
           name: file.name || 'foto.jpg',
           wasDownscaled: false,
         });
       };
-      reader.onerror = () => reject(new Error('Nepodařilo se načíst soubor z mobilu nebo disku'));
+      reader.onerror = () => reject(new Error('Nepodařilo se načíst soubor'));
       reader.readAsDataURL(file);
     };
 
