@@ -1024,17 +1024,19 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }
       }
 
-      // Save to Firestore
-      if (db) {
-        try {
-          await setDoc(doc(db, 'hikes', routeId), cleanHikeForDb);
-          console.log(`[API /api/routes] Trasa ${routeId} úspěšně uložena do Firestore (fotografií: ${normalizedPhotos.length}).`);
-        } catch (dbErr) {
-          console.error('[API /api/routes] Chyba při zápisu do Firestore:', dbErr);
-        }
+      // Save directly to Firestore cloud database
+      if (!db) {
+        return res.status(503).json({ error: 'Cloudová databáze Firestore není na serveru připojena.' });
+      }
+      try {
+        await setDoc(doc(db, 'hikes', routeId), cleanHikeForDb);
+        console.log(`[API /api/routes] Trasa ${routeId} úspěšně uložena do Firestore (fotografií: ${normalizedPhotos.length}).`);
+      } catch (dbErr: any) {
+        console.error('[API /api/routes] Chyba při zápisu do Firestore:', dbErr);
+        return res.status(500).json({ error: 'Chyba při zápisu do cloudové databáze serveru: ' + dbErr.message });
       }
 
-      // Always update local disk cache
+      // Also mirror to local disk
       try {
         const currentRoutes = getLocalRoutes();
         const existingIdx = currentRoutes.findIndex((r: any) => r.id === routeId);
@@ -1044,9 +1046,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           currentRoutes.unshift(cleanHikeForDb);
         }
         saveLocalRoutes(currentRoutes);
-      } catch (cacheErr) {
-        console.warn('Chyba při ukládání do lokální mezipaměti:', cacheErr);
-      }
+      } catch (cacheErr) {}
 
       return res.status(201).json({
         success: true,
@@ -1065,33 +1065,45 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
   app.post('/api/routes', handleSaveRoute);
   app.post('/api/hikes', handleSaveRoute);
 
-  // GET /api/routes: List all routes (fast, quota-safe and consistent across all browsers)
-  app.get('/api/routes', (req, res) => {
+  // GET /api/routes: List all routes directly from central Firestore cloud database
+  app.get('/api/routes', async (req, res) => {
     res.set({
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
       'Pragma': 'no-cache',
       'Expires': '0',
       'Surrogate-Control': 'no-store',
     });
+    if (!db) {
+      return res.status(503).json({
+        error: 'Cloudová databáze Firestore není na serveru připojena.',
+        routes: [],
+      });
+    }
     try {
-      const local = getLocalRoutes().map((r: any) => {
-        const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
-          ? r.trackpoints
-          : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
-          ? r.trackPoints
+      const snapshot = await getDocs(collection(db, 'hikes'));
+      const routes: any[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data() as any;
+        const pts = (Array.isArray(data.trackpoints) && data.trackpoints.length > 0)
+          ? data.trackpoints
+          : (Array.isArray(data.trackPoints) && data.trackPoints.length > 0)
+          ? data.trackPoints
           : [];
-        return {
-          ...r,
-          id: (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random(),
+        routes.push({
+          ...data,
+          id: (data.id && String(data.id).trim()) || d.id,
           trackpoints: pts,
           trackPoints: pts,
-          photos: Array.isArray(r.photos) ? r.photos : [],
-        };
+          photos: Array.isArray(data.photos) ? data.photos : [],
+        });
       });
-      return res.json({ routes: local });
+      return res.json({ routes });
     } catch (err: any) {
-      console.error('[API /api/routes] Chyba při čtení tras:', err);
-      return res.status(500).json({ error: err.message, routes: [] });
+      console.error('[API /api/routes] Chyba při čtení tras z Firestore serverem:', err);
+      return res.status(500).json({
+        error: `Chyba při načítání tras z cloudové databáze serveru: ${err.message || 'Neznámá chyba'}`,
+        routes: [],
+      });
     }
   });
 

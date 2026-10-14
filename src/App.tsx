@@ -20,6 +20,7 @@ import {
   Sparkles,
   RefreshCw,
   Award,
+  AlertCircle,
 } from 'lucide-react';
 import { HikeRoute, HikeStats, ActivityType } from './types';
 import { POPULAR_MOUNTAIN_RANGES } from './utils/mountainRanges';
@@ -79,6 +80,7 @@ function getActivityTimeScore(route: HikeRoute): number {
 export const App: React.FC = () => {
   const [routes, setRoutes] = useState<HikeRoute[]>([]);
   const [loading, setLoading] = useState(true);
+  const [serverError, setServerError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRange, setSelectedRange] = useState<string>('all');
   const [selectedActivity, setSelectedActivity] = useState<string>('all');
@@ -100,10 +102,11 @@ export const App: React.FC = () => {
     return localStorage.getItem('horsky_denik_pin') || '1234';
   });
 
-  // Fetch routes from server/Firestore
+  // Fetch routes from central server/Firestore
   const fetchRoutes = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
+      setServerError(null);
       const res = await fetch(`/api/routes?_t=${Date.now()}`, {
         cache: 'no-store',
         headers: {
@@ -111,33 +114,38 @@ export const App: React.FC = () => {
           'Pragma': 'no-cache',
         },
       });
-      if (res.ok) {
-        const data = await res.json();
-        const loadedRoutes = (data.routes || []).map((r: any) => {
-          const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
-            ? r.trackpoints
-            : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
-            ? r.trackPoints
-            : [];
-          return {
-            ...r,
-            id: r.id || r.title || 'route_' + Math.random(),
-            trackpoints: pts,
-            trackPoints: pts,
-            photos: Array.isArray(r.photos) ? r.photos : [],
-          };
-        });
-        setRoutes(loadedRoutes);
 
-        // Keep active modal route perfectly in sync
-        setModalRoute((prev) => {
-          if (!prev) return null;
-          const fresh = loadedRoutes.find((r: HikeRoute) => r.id === prev.id);
-          return fresh || prev;
-        });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `Chyba serveru (${res.status}: ${res.statusText})`);
       }
-    } catch (err) {
-      console.error('Chyba při načítání tras:', err);
+
+      const data = await res.json();
+      const loadedRoutes = (data.routes || []).map((r: any) => {
+        const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
+          ? r.trackpoints
+          : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
+          ? r.trackPoints
+          : [];
+        return {
+          ...r,
+          id: (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random(),
+          trackpoints: pts,
+          trackPoints: pts,
+          photos: Array.isArray(r.photos) ? r.photos : [],
+        };
+      });
+      setRoutes(loadedRoutes);
+
+      // Keep active modal route perfectly in sync
+      setModalRoute((prev) => {
+        if (!prev) return null;
+        const fresh = loadedRoutes.find((r: HikeRoute) => r.id === prev.id);
+        return fresh || prev;
+      });
+    } catch (err: any) {
+      console.error('Chyba při načítání tras ze serveru:', err);
+      setServerError(err.message || 'Nepodařilo se načíst data z centrálního serveru.');
     } finally {
       if (!silent) setLoading(false);
     }
@@ -405,6 +413,28 @@ export const App: React.FC = () => {
         </div>
       </header>
 
+      {/* Server Error Warning Banner */}
+      {serverError && (
+        <div className="bg-red-950/90 border-b border-red-800 text-red-100 px-4 py-3 shadow-xl">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 text-sm">
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+              <div>
+                <span className="font-bold text-red-200">Chyba připojení k serveru: </span>
+                <span className="text-red-300">{serverError}</span>
+              </div>
+            </div>
+            <button
+              onClick={() => fetchRoutes(false)}
+              className="px-3.5 py-1.5 bg-red-800 hover:bg-red-700 text-white text-xs font-semibold rounded-xl transition shadow flex items-center gap-1.5 shrink-0"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Zkusit znovu
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Stats Summary Banner */}
       <section className="bg-stone-900/40 border-b border-stone-800/60 py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -543,7 +573,24 @@ export const App: React.FC = () => {
               {loading ? (
                 <div className="py-20 text-center">
                   <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-                  <span className="text-stone-400 text-sm">Načítám výpravy z databáze...</span>
+                  <span className="text-stone-400 text-sm">Načítám výpravy z centrální databáze serveru...</span>
+                </div>
+              ) : serverError && routes.length === 0 ? (
+                <div className="py-16 text-center bg-red-950/20 border border-red-900/50 rounded-2xl p-6">
+                  <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3 animate-pulse" />
+                  <h4 className="text-base font-bold text-white mb-1">
+                    Chyba při komunikaci s cloudovým serverem
+                  </h4>
+                  <p className="text-xs text-red-300 max-w-md mx-auto mb-4">
+                    {serverError}
+                  </p>
+                  <button
+                    onClick={() => fetchRoutes(false)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow flex items-center gap-2 mx-auto"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Opakovat načtení ze serveru
+                  </button>
                 </div>
               ) : filteredRoutes.length === 0 ? (
                 <div className="py-16 text-center bg-stone-900/40 border border-dashed border-stone-800 rounded-2xl">
