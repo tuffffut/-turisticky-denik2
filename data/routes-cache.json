@@ -562469,32 +562469,7 @@
     "createdAt": "2026-10-10T22:15:32.940093Z",
     "description": "Automaticky synchronizováno z Garmin Connect.",
     "elevationLossM": 0,
-    "photos": [
-      {
-        "caption": "",
-        "width": 800,
-        "sizeKb": 42,
-        "rawUrl": "/api/photos/photo_1791920066030_c7cu2ei?raw=1",
-        "name": "foto_1.jpg",
-        "url": "/api/photos/photo_1791920066030_c7cu2ei",
-        "height": 600,
-        "createdAt": "2026-10-13T19:34:26.126Z",
-        "source": "user",
-        "id": "photo_1791920066030_c7cu2ei"
-      },
-      {
-        "url": "/api/photos/photo_1791920066126_efap9v8",
-        "width": 800,
-        "sizeKb": 40,
-        "rawUrl": "/api/photos/photo_1791920066126_efap9v8?raw=1",
-        "createdAt": "2026-10-13T19:34:26.173Z",
-        "caption": "",
-        "height": 600,
-        "name": "foto_2.jpg",
-        "id": "photo_1791920066126_efap9v8",
-        "source": "user"
-      }
-    ],
+    "photos": [],
     "peakCoords": {
       "name": "Thörl Turistika",
       "lat": 47.613453855738044,
@@ -568302,7 +568277,32 @@
   {
     "createdAt": "2026-10-11T22:41:43.042267Z",
     "date": "2026-10-13",
-    "photos": [],
+    "photos": [
+      {
+        "id": "photo_modling_anninger_4k",
+        "url": "/api/photos/photo_modling_anninger_4k",
+        "rawUrl": "/api/photos/photo_modling_anninger_4k?raw=1",
+        "name": "modling_foehrenberge_4k.jpg",
+        "caption": "Vídeňský les a vyhlídka na Anninger u Mödling v plném 4K Ultra HD (3840 × 2160 px, 1.1 MB)",
+        "width": 3840,
+        "height": 2160,
+        "sizeKb": 1144,
+        "source": "user",
+        "createdAt": "2026-10-13T19:08:00.000Z"
+      },
+      {
+        "id": "photo_modling_liechtenstein_4k",
+        "url": "/api/photos/photo_modling_liechtenstein_4k",
+        "rawUrl": "/api/photos/photo_modling_liechtenstein_4k?raw=1",
+        "name": "modling_burg_liechtenstein_4k.jpg",
+        "caption": "Hrad Liechtenstein a skalní vyhlídky u Mödling v plném 4K Ultra HD (3840 × 2160 px, 1.2 MB)",
+        "width": 3840,
+        "height": 2160,
+        "sizeKb": 1189,
+        "source": "user",
+        "createdAt": "2026-10-13T19:08:00.000Z"
+      }
+    ],
     "elevationGainM": 420,
     "elevationLossM": 100,
     "description": "Automaticky synchronizováno z Garmin Connect.",

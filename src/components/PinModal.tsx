@@ -96,17 +96,17 @@ export const PinModal: React.FC<PinModalProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        <div className="text-center mb-6">
-          <div className="inline-flex p-3 bg-emerald-950/80 border border-emerald-800/60 rounded-2xl text-emerald-400 mb-3">
+        <div className="text-center mb-5">
+          <div className="inline-flex p-3 bg-emerald-950/80 border border-emerald-800/60 rounded-2xl text-emerald-400 mb-2.5 shadow-lg shadow-emerald-950/50">
             <Lock className="w-6 h-6" />
           </div>
           <h3 className="text-lg font-bold text-white">
-            {showChangePin ? 'Změna bezpečnostního PINu' : 'Odemknout režim úprav'}
+            {showChangePin ? 'Změna bezpečnostního hesla / PINu' : 'Zabezpečený Horský deník'}
           </h3>
           <p className="text-xs text-stone-400 mt-1">
             {showChangePin
               ? 'Zadejte stávající a nový minimálně 4místný PIN.'
-              : 'Zadejte PIN pro přidávání, úpravu a mazání výprav.'}
+              : 'Zadejte heslo / PIN pro přístup k deníku, mapám a fotografiím.'}
           </p>
         </div>
 
@@ -127,32 +127,64 @@ export const PinModal: React.FC<PinModalProps> = ({
                 placeholder="••••"
                 className="w-full text-center tracking-[0.5em] text-2xl font-bold bg-stone-950 border border-stone-800 rounded-xl py-3 text-stone-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-700"
               />
+              <div className="text-center mt-1.5">
+                <span className="text-[11px] text-stone-500">
+                  Výchozí bezpečnostní PIN: <strong className="text-emerald-400 font-mono">1234</strong>
+                </span>
+              </div>
               {error && (
                 <div className="flex items-center justify-center gap-1.5 text-xs text-red-400 mt-2">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  <span>Nesprávný PIN. (Výchozí je 1234)</span>
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Nesprávný PIN. Zadejte 1234 nebo váš změněný PIN.</span>
                 </div>
               )}
             </div>
 
-            <div className="flex gap-2">
+            {/* Quick numeric touch keypad */}
+            <div className="grid grid-cols-3 gap-1.5 pt-1">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => {
+                    setError(false);
+                    if (k === 'C') {
+                      setPinInput('');
+                    } else if (k === '⌫') {
+                      setPinInput((prev) => prev.slice(0, -1));
+                    } else if (pinInput.length < 8) {
+                      setPinInput((prev) => prev + k);
+                    }
+                  }}
+                  className={`py-2 rounded-xl text-sm font-semibold transition border ${
+                    k === 'C' || k === '⌫'
+                      ? 'bg-stone-950 border-stone-800/80 text-stone-400 hover:text-white hover:bg-stone-800'
+                      : 'bg-stone-800/70 hover:bg-stone-700/80 border-stone-700/60 text-white'
+                  }`}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 py-2.5 rounded-xl border border-stone-800 text-stone-300 hover:bg-stone-800 text-sm font-medium transition"
+                className="flex-1 py-2.5 rounded-xl border border-stone-800 text-stone-400 hover:text-stone-200 hover:bg-stone-800 text-sm font-medium transition"
               >
-                Zrušit
+                Host (pouze čtení)
               </button>
               <button
                 type="submit"
                 className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-1.5"
               >
                 <Unlock className="w-4 h-4" />
-                Odemknout
+                Odemknout deník
               </button>
             </div>
 
-            <div className="text-center pt-2">
+            <div className="text-center pt-1">
               <button
                 type="button"
                 onClick={() => {
@@ -162,7 +194,7 @@ export const PinModal: React.FC<PinModalProps> = ({
                 className="text-xs text-stone-500 hover:text-stone-300 transition inline-flex items-center gap-1"
               >
                 <KeyRound className="w-3 h-3" />
-                Změnit PIN
+                Změnit bezpečnostní PIN
               </button>
             </div>
           </form>

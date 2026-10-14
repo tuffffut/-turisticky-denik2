@@ -232,6 +232,16 @@ export const App: React.FC = () => {
   // Save or update route
   const handleSaveRoute = async (updatedRoute: Partial<HikeRoute>) => {
     try {
+      // 1. Optimistic update so UI reflects changes instantly (photos removed/added, etc.)
+      if (updatedRoute.id) {
+        setRoutes((prev) =>
+          prev.map((r) => (r.id === updatedRoute.id ? ({ ...r, ...updatedRoute } as HikeRoute) : r))
+        );
+        setModalRoute((prev) =>
+          prev && prev.id === updatedRoute.id ? ({ ...prev, ...updatedRoute } as HikeRoute) : prev
+        );
+      }
+
       const res = await fetch('/api/routes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -247,13 +257,11 @@ export const App: React.FC = () => {
         throw new Error(err.error || 'Uložení selhalo');
       }
 
-      await fetchRoutes();
-      if (modalRoute && modalRoute.id === updatedRoute.id) {
-        setModalRoute((prev) => (prev ? { ...prev, ...updatedRoute } as HikeRoute : null));
-      }
+      // Refresh silently in background
+      await fetchRoutes(true);
     } catch (err: any) {
       console.error('Chyba při ukládání trasy:', err);
-      alert('Chyba při ukládání do databáze: ' + err.message);
+      alert('Chyba při ukládání: ' + err.message);
       throw err;
     }
   };
@@ -367,20 +375,21 @@ export const App: React.FC = () => {
                 if (isUnlocked) {
                   setIsUnlocked(false);
                   localStorage.removeItem('horsky_denik_unlocked');
+                  sessionStorage.removeItem('horsky_denik_unlocked');
                 } else {
                   setIsPinModalOpen(true);
                 }
               }}
               className={`p-2 sm:px-3 sm:py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
                 isUnlocked
-                  ? 'bg-emerald-950/80 border-emerald-800/80 text-emerald-400'
-                  : 'bg-stone-900 border-stone-800 text-stone-400 hover:text-stone-200'
+                  ? 'bg-emerald-950/80 border-emerald-800/80 text-emerald-400 hover:bg-emerald-900/50'
+                  : 'bg-amber-950/70 border-amber-800/80 text-amber-300 hover:bg-amber-900/60 shadow-lg shadow-amber-950/40'
               }`}
-              title={isUnlocked ? 'Režim úprav odemčen (kliknutím zamknete)' : 'Odemknout režim úprav (PIN)'}
+              title={isUnlocked ? 'Deník odemčen (kliknutím zamknete)' : 'Deník je zamčen (kliknutím zadáte PIN)'}
             >
-              {isUnlocked ? <Unlock className="w-4 h-4 text-emerald-400" /> : <Lock className="w-4 h-4" />}
+              {isUnlocked ? <Unlock className="w-4 h-4 text-emerald-400" /> : <Lock className="w-4 h-4 text-amber-400" />}
               <span className="hidden sm:inline">
-                {isUnlocked ? 'Úpravy odemčeny' : 'Zamčeno (PIN)'}
+                {isUnlocked ? 'Odemčeno' : 'Zamčeno (PIN)'}
               </span>
             </button>
 

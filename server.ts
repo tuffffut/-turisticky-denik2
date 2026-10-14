@@ -23,21 +23,28 @@ function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
   return R * c;
 }
 
-// Server-side GPX track parser (robust regex-based with Garmin odometer extraction, duration & date)
+// Server-side GPX track parser (universal: handles self-closing tags, arbitrary attribute order, namespaces)
 function parseServerGpx(xmlString: string) {
   const points: { lat: number; lng: number; ele?: number; time?: string; distFromStartKm?: number }[] = [];
-  const ptRegex = /<(?:trkpt|rtept|wpt)\s+[^>]*lat=["']([^"']+)["']\s+[^>]*lon=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:trkpt|rtept|wpt)>/gi;
-  const ptRegex2 = /<(?:trkpt|rtept|wpt)\s+[^>]*lon=["']([^"']+)["']\s+[^>]*lat=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:trkpt|rtept|wpt)>/gi;
-
   const raw: { lat: number; lng: number; ele?: number; time?: string; timestampMs?: number; embeddedDistM?: number }[] = [];
-  let match;
   let firstTimestamp: Date | null = null;
   let lastTimestamp: Date | null = null;
 
-  while ((match = ptRegex.exec(xmlString)) !== null) {
-    const lat = parseFloat(match[1]);
-    const lng = parseFloat(match[2]);
-    const inner = match[3];
+  // Universal match for any track/route/way point tag: open with inner content OR self-closing
+  const pointTagRegex = /<(?:[a-zA-Z0-9_-]+:)?(?:trkpt|rtept|wpt)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:[a-zA-Z0-9_-]+:)?(?:trkpt|rtept|wpt)>)/gi;
+  let match;
+
+  while ((match = pointTagRegex.exec(xmlString)) !== null) {
+    const attrs = match[1] || '';
+    const inner = match[2] || '';
+
+    const latMatch = /\blat=["']([^"']+)["']/i.exec(attrs);
+    const lonMatch = /\b(?:lon|lng)=["']([^"']+)["']/i.exec(attrs);
+
+    if (!latMatch || !lonMatch) continue;
+    const lat = parseFloat(latMatch[1]);
+    const lng = parseFloat(lonMatch[1]);
+
     const eleMatch = /<ele>([0-9.-]+)<\/ele>/i.exec(inner);
     const timeMatch = /<time>([^<]+)<\/time>/i.exec(inner);
     const distMatch = /<(?:(?:gpxtpx:)?distance)>([0-9.-]+)<\/(?:(?:gpxtpx:)?distance)>/i.exec(inner);
@@ -55,32 +62,6 @@ function parseServerGpx(xmlString: string) {
     }
     if (!isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0)) {
       raw.push({ lat, lng, ele, time, timestampMs, embeddedDistM });
-    }
-  }
-
-  if (raw.length === 0) {
-    while ((match = ptRegex2.exec(xmlString)) !== null) {
-      const lng = parseFloat(match[1]);
-      const lat = parseFloat(match[2]);
-      const inner = match[3];
-      const eleMatch = /<ele>([0-9.-]+)<\/ele>/i.exec(inner);
-      const timeMatch = /<time>([^<]+)<\/time>/i.exec(inner);
-      const distMatch = /<(?:(?:gpxtpx:)?distance)>([0-9.-]+)<\/(?:(?:gpxtpx:)?distance)>/i.exec(inner);
-      const ele = eleMatch ? parseFloat(eleMatch[1]) : undefined;
-      const time = timeMatch ? timeMatch[1].trim() : undefined;
-      const embeddedDistM = distMatch ? parseFloat(distMatch[1]) : undefined;
-      let timestampMs: number | undefined = undefined;
-      if (time) {
-        const d = new Date(time);
-        if (!isNaN(d.getTime())) {
-          timestampMs = d.getTime();
-          if (!firstTimestamp) firstTimestamp = d;
-          lastTimestamp = d;
-        }
-      }
-      if (!isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0)) {
-        raw.push({ lat, lng, ele, time, timestampMs, embeddedDistM });
-      }
     }
   }
 
@@ -1084,8 +1065,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
   app.post('/api/routes', handleSaveRoute);
   app.post('/api/hikes', handleSaveRoute);
 
-  // GET /api/routes: List all routes
-  app.get('/api/routes', async (req, res) => {
+  // GET /api/routes: List all routes (fast, quota-safe and consistent across all browsers)
+  app.get('/api/routes', (req, res) => {
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
       'Pragma': 'no-cache',
@@ -1093,31 +1074,15 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       'Surrogate-Control': 'no-store',
     });
     try {
-      if (db) {
-        try {
-          const snapshot = await getDocs(collection(db, 'hikes'));
-          const routes: any[] = [];
-          snapshot.forEach((d) => {
-            const data = d.data() as any;
-            const pts = data.trackpoints || data.trackPoints || [];
-            routes.push({
-              ...data,
-              id: (data.id && String(data.id).trim()) || d.id,
-              trackpoints: pts,
-              trackPoints: pts,
-              photos: Array.isArray(data.photos) ? data.photos : [],
-            });
-          });
-          saveLocalRoutes(routes);
-          return res.json({ routes });
-        } catch (dbErr: any) {
-          console.warn('[API /api/routes] Firestore chyba (' + dbErr.message + '), vracím trasy z lokálního disku.');
-        }
-      }
       const local = getLocalRoutes().map((r: any) => {
-        const pts = r.trackpoints || r.trackPoints || [];
+        const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
+          ? r.trackpoints
+          : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
+          ? r.trackPoints
+          : [];
         return {
           ...r,
+          id: (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random(),
           trackpoints: pts,
           trackPoints: pts,
           photos: Array.isArray(r.photos) ? r.photos : [],
@@ -1125,19 +1090,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       });
       return res.json({ routes: local });
     } catch (err: any) {
-      const local = getLocalRoutes().map((r: any) => {
-        const pts = r.trackpoints || r.trackPoints || [];
-        return {
-          ...r,
-          trackpoints: pts,
-          trackPoints: pts,
-          photos: Array.isArray(r.photos) ? r.photos : [],
-        };
-      });
-      if (local.length > 0) {
-        return res.json({ routes: local });
-      }
-      return res.status(500).json({ error: err.message });
+      console.error('[API /api/routes] Chyba při čtení tras:', err);
+      return res.status(500).json({ error: err.message, routes: [] });
     }
   });
 
@@ -1328,27 +1282,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         deleteDoc(doc(db, 'hike_photos', photoId)).catch(() => {});
       }
 
-      // 3. Update route in Firestore
+      // 3. Update route in local routes-cache.json (authoritative immediate storage)
       let updatedPhotos: any[] = [];
-      if (db) {
-        try {
-          const snap = await getDoc(doc(db, 'hikes', id));
-          if (snap.exists()) {
-            const currentPhotos = snap.data().photos || [];
-            updatedPhotos = currentPhotos.filter((p: any) => {
-              if (typeof p === 'string') return p !== photoId && !p.includes(photoId);
-              if (typeof p === 'object' && p !== null) return p.id !== photoId && p.url !== `/api/photos/${photoId}` && p.rawUrl !== `/api/photos/${photoId}?raw=1`;
-              return true;
-            });
-            await updateDoc(doc(db, 'hikes', id), { photos: updatedPhotos });
-            console.log(`[API /api/routes/:id/photos/:photoId] Firestore výprava ${id} aktualizována (zbývá fotek: ${updatedPhotos.length})`);
-          }
-        } catch (dbErr: any) {
-          console.warn('[API DELETE photo] Firestore chyba:', dbErr.message);
-        }
-      }
-
-      // 4. Update route in local routes-cache.json
       try {
         const local = getLocalRoutes();
         const rIdx = local.findIndex((r: any) => r.id === id);
@@ -1361,9 +1296,20 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           });
           local[rIdx].photos = updatedPhotos;
           saveLocalRoutes(local);
+          console.log(`[API /api/routes/:id/photos/:photoId] Místní cache pro výpravu ${id} aktualizována (zbývá fotek: ${updatedPhotos.length})`);
         }
       } catch (cacheErr: any) {
         console.warn('[API DELETE photo] Cache chyba:', cacheErr.message);
+      }
+
+      // 4. Update route in Firestore in background
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'hikes', id), { photos: updatedPhotos });
+          console.log(`[API /api/routes/:id/photos/:photoId] Firestore výprava ${id} aktualizována (zbývá fotek: ${updatedPhotos.length})`);
+        } catch (dbErr: any) {
+          console.warn('[API DELETE photo] Firestore chyba (nebude blokovat klienta):', dbErr.message);
+        }
       }
 
       return res.json({ success: true, photos: updatedPhotos, message: 'Fotografie byla trvale smazána.' });

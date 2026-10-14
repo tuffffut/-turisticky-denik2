@@ -22,6 +22,7 @@ import {
   ChevronRight,
   LayoutGrid,
   Image as ImageIcon,
+  AlertTriangle,
 } from 'lucide-react';
 import { HikeRoute, HikePhotoItem, ActivityType } from '../types';
 import { POPULAR_MOUNTAIN_RANGES, detectMountainRangeFromCoords } from '../utils/mountainRanges';
@@ -363,76 +364,166 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
     try {
       const text = await file.text();
-      // Send to server parser or parse client side
-      const ptRegex = /<(?:trkpt|rtept|wpt)\s+[^>]*lat=["']([^"']+)["']\s+[^>]*lon=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:trkpt|rtept|wpt)>/gi;
-      const points: { lat: number; lng: number; ele?: number }[] = [];
-      let match;
+      const points: { lat: number; lng: number; ele?: number; time?: string; distFromStartKm?: number }[] = [];
       let minEle = Infinity;
       let maxEle = -Infinity;
+      let totalDist = 0;
+      let totalAscent = 0;
+      let totalDescent = 0;
 
-      while ((match = ptRegex.exec(text)) !== null) {
-        const lat = parseFloat(match[1]);
-        const lng = parseFloat(match[2]);
-        const eleMatch = /<ele>([0-9.-]+)<\/ele>/i.exec(match[3]);
-        const ele = eleMatch ? parseFloat(eleMatch[1]) : undefined;
-        if (!isNaN(lat) && !isNaN(lng)) {
-          points.push({ lat, lng, ele });
-          if (ele !== undefined) {
+      // 1. Try browser DOMParser for 100% compliant XML parsing
+      try {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(text, 'text/xml');
+        const pointNodes = xmlDoc.querySelectorAll('trkpt, rtept, wpt');
+
+        for (let i = 0; i < pointNodes.length; i++) {
+          const node = pointNodes[i];
+          const lat = parseFloat(node.getAttribute('lat') || '');
+          const lng = parseFloat(node.getAttribute('lon') || node.getAttribute('lng') || '');
+          if (isNaN(lat) || isNaN(lng)) continue;
+
+          const eleNode = node.querySelector('ele');
+          const ele = eleNode ? parseFloat(eleNode.textContent || '') : undefined;
+          const timeNode = node.querySelector('time');
+          const time = timeNode ? timeNode.textContent?.trim() : undefined;
+
+          if (points.length > 0) {
+            const p1 = points[points.length - 1];
+            const dLat = ((lat - p1.lat) * Math.PI) / 180;
+            const dLon = ((lng - p1.lng) * Math.PI) / 180;
+            const a =
+              Math.sin(dLat / 2) ** 2 +
+              Math.cos((p1.lat * Math.PI) / 180) *
+                Math.cos((lat * Math.PI) / 180) *
+                Math.sin(dLon / 2) ** 2;
+            const d = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            totalDist += d;
+
+            if (p1.ele !== undefined && ele !== undefined) {
+              const diff = ele - p1.ele;
+              if (diff > 0.8) totalAscent += diff;
+              else if (diff < -0.8) totalDescent += Math.abs(diff);
+            }
+          }
+
+          if (ele !== undefined && !isNaN(ele)) {
             if (ele < minEle) minEle = ele;
             if (ele > maxEle) maxEle = ele;
+          }
+
+          points.push({
+            lat,
+            lng,
+            ele: ele !== undefined ? Math.round(ele) : undefined,
+            time,
+            distFromStartKm: Math.round(totalDist * 100) / 100,
+          });
+        }
+      } catch (xmlErr) {
+        console.warn('DOMParser selhal, zkouším regulární výraz:', xmlErr);
+      }
+
+      // 2. Fallback to universal regex if DOMParser didn't find points
+      if (points.length === 0) {
+        const ptRegex = /<(?:[a-zA-Z0-9_-]+:)?(?:trkpt|rtept|wpt)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:[a-zA-Z0-9_-]+:)?(?:trkpt|rtept|wpt)>)/gi;
+        let match;
+        while ((match = ptRegex.exec(text)) !== null) {
+          const attrs = match[1] || '';
+          const inner = match[2] || '';
+          const latMatch = /\blat=["']([^"']+)["']/i.exec(attrs);
+          const lonMatch = /\b(?:lon|lng)=["']([^"']+)["']/i.exec(attrs);
+          if (!latMatch || !lonMatch) continue;
+          const lat = parseFloat(latMatch[1]);
+          const lng = parseFloat(lonMatch[1]);
+          const eleMatch = /<ele>([0-9.-]+)<\/ele>/i.exec(inner);
+          const ele = eleMatch ? parseFloat(eleMatch[1]) : undefined;
+          if (!isNaN(lat) && !isNaN(lng)) {
+            if (points.length > 0) {
+              const p1 = points[points.length - 1];
+              const dLat = ((lat - p1.lat) * Math.PI) / 180;
+              const dLon = ((lng - p1.lng) * Math.PI) / 180;
+              const a =
+                Math.sin(dLat / 2) ** 2 +
+                Math.cos((p1.lat * Math.PI) / 180) *
+                  Math.cos((lat * Math.PI) / 180) *
+                  Math.sin(dLon / 2) ** 2;
+              totalDist += 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+              if (p1.ele !== undefined && ele !== undefined) {
+                const diff = ele - p1.ele;
+                if (diff > 0.8) totalAscent += diff;
+                else if (diff < -0.8) totalDescent += Math.abs(diff);
+              }
+            }
+            if (ele !== undefined) {
+              if (ele < minEle) minEle = ele;
+              if (ele > maxEle) maxEle = ele;
+            }
+            points.push({ lat, lng, ele: ele !== undefined ? Math.round(ele) : undefined, distFromStartKm: Math.round(totalDist * 100) / 100 });
           }
         }
       }
 
-      // Calculate distance
-      let totalDist = 0;
-      let totalAscent = 0;
-      let totalDescent = 0;
-      for (let i = 1; i < points.length; i++) {
-        const p1 = points[i - 1];
-        const p2 = points[i];
-        const dLat = ((p2.lat - p1.lat) * Math.PI) / 180;
-        const dLon = ((p2.lng - p1.lng) * Math.PI) / 180;
-        const a =
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos((p1.lat * Math.PI) / 180) *
-            Math.cos((p2.lat * Math.PI) / 180) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        totalDist += 6371 * c;
-
-        if (p1.ele !== undefined && p2.ele !== undefined) {
-          const diff = p2.ele - p1.ele;
-          if (diff > 0.8) totalAscent += diff;
-          else if (diff < -0.8) totalDescent += Math.abs(diff);
-        }
+      if (points.length === 0) {
+        throw new Error('V souboru GPX nebyly nalezeny žádné body trasy (<trkpt>, <rtept> ani <wpt>).');
       }
 
       // Detect mountain range
-      let detectedRange = formData.mountainRange || 'Krkonoše';
+      let detectedRange = formData.mountainRange || route?.mountainRange || 'Krkonoše';
       if (points.length > 0) {
         detectedRange = detectMountainRangeFromCoords(points[0].lat, points[0].lng);
       }
 
       const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+      const finalDistKm = Math.round(totalDist * 10) / 10 || formData.distanceKm || route?.distanceKm || 0;
+      const finalGain = Math.round(totalAscent) || formData.elevationGainM || route?.elevationGainM || 0;
+      const finalLoss = Math.round(totalDescent) || formData.elevationLossM || route?.elevationLossM || 0;
+      const finalHighest = maxEle !== -Infinity ? Math.round(maxEle) : (formData.highestPointM || route?.highestPointM || 0);
 
-      setFormData((prev) => ({
-        ...prev,
-        title: prev.title || cleanTitle,
+      const updatedFormData = {
+        ...formData,
+        title: formData.title || cleanTitle,
         mountainRange: detectedRange,
-        distanceKm: Math.round(totalDist * 10) / 10,
-        elevationGainM: Math.round(totalAscent),
-        elevationLossM: Math.round(totalDescent),
-        highestPointM: maxEle !== -Infinity ? Math.round(maxEle) : 0,
+        distanceKm: finalDistKm,
+        elevationGainM: finalGain,
+        elevationLossM: finalLoss,
+        highestPointM: finalHighest,
         trackpoints: points,
         trackPoints: points,
         startPoint: points[0],
         endPoint: points[points.length - 1],
-      }));
+      };
+
+      setFormData(updatedFormData);
+
+      // Auto-save immediately if updating existing hike so track is immediately permanent
+      const targetId = formData.id || route?.id;
+      if (targetId) {
+        await onSave({
+          ...route,
+          ...updatedFormData,
+          id: targetId,
+        });
+      }
+
+      setFeedbackDialog({
+        type: 'success',
+        title: '✅ GPX trasa úspěšně nahrána',
+        message: `Byla načtena kompletní GPS trasa (${points.length} bodů, ${finalDistKm} km, převýšení +${finalGain} m). Změny byly ihned uloženy.`,
+        confirmLabel: 'Rozumím',
+        onConfirm: () => setFeedbackDialog(null),
+      });
     } catch (err: any) {
       console.error('Chyba při čtení GPX:', err);
-      alert('Chyba při zpracování GPX souboru: ' + err.message);
+      setFeedbackDialog({
+        type: 'error',
+        title: '❌ Chyba při zpracování GPX',
+        message: err.message || 'Nepodařilo se načíst body z vybraného souboru GPX.',
+        confirmLabel: 'Zavřít',
+        onConfirm: () => setFeedbackDialog(null),
+      });
+    } finally {
+      if (gpxInputRef.current) gpxInputRef.current.value = '';
     }
   };
 
@@ -493,6 +584,13 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         multiple
         className="hidden"
         onChange={handlePhotoUpload}
+      />
+      <input
+        ref={gpxInputRef}
+        type="file"
+        accept=".gpx"
+        className="hidden"
+        onChange={handleGpxFile}
       />
 
       {/* In-app custom feedback modal */}
@@ -653,28 +751,73 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                   </div>
                 </div>
 
-                {/* Elevation profile */}
+                {/* Elevation profile & partial GPX warning banner */}
                 {(() => {
-                  const pts = (Array.isArray(route?.trackpoints) && route!.trackpoints.length > 1)
+                  const pts = (Array.isArray(formData?.trackpoints) && formData!.trackpoints.length > 1)
+                    ? formData!.trackpoints
+                    : (Array.isArray(route?.trackpoints) && route!.trackpoints.length > 1)
                     ? route!.trackpoints
                     : (Array.isArray(route?.trackPoints) && route!.trackPoints.length > 1)
                     ? route!.trackPoints
-                    : (Array.isArray(formData?.trackpoints) && formData!.trackpoints.length > 1)
-                    ? formData!.trackpoints
                     : [];
+                  const totalRecordedKm = route?.distanceKm || formData?.distanceKm || 0;
+                  let ptsDistKm = 0;
                   if (pts.length > 1) {
-                    return (
-                      <div>
-                        <ElevationProfile
-                          trackpoints={pts}
-                          highestPointM={formData.highestPointM || route?.highestPointM}
-                          elevationGainM={formData.elevationGainM || route?.elevationGainM}
-                          distanceKm={formData.distanceKm || route?.distanceKm}
-                        />
-                      </div>
-                    );
+                    for (let i = 0; i < pts.length - 1; i++) {
+                      const p1 = pts[i];
+                      const p2 = pts[i + 1];
+                      const dLat = ((p2.lat - p1.lat) * Math.PI) / 180;
+                      const dLon = ((p2.lng - p1.lng) * Math.PI) / 180;
+                      const a =
+                        Math.sin(dLat / 2) ** 2 +
+                        Math.cos((p1.lat * Math.PI) / 180) *
+                          Math.cos((p2.lat * Math.PI) / 180) *
+                          Math.sin(dLon / 2) ** 2;
+                      ptsDistKm += 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    }
                   }
-                  return null;
+                  const isPartialTrack = totalRecordedKm > 3 && pts.length > 0 && ptsDistKm < totalRecordedKm * 0.72;
+
+                  return (
+                    <div className="space-y-3">
+                      {isPartialTrack && (
+                        <div className="bg-amber-950/40 border border-amber-800/60 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-200">
+                          <div className="flex items-start gap-2.5">
+                            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                            <div className="text-xs">
+                              <span className="font-semibold block text-amber-300">
+                                Upozornění: GPX trasa je zkrácená (zaznamenáno pouze {ptsDistKm.toFixed(1)} km z celkových {totalRecordedKm} km)
+                              </span>
+                              <span className="text-stone-400 block mt-0.5">
+                                Původní synchronizace z Garminu uložila pouze prvních {pts.length} bodů. Můžete nahrát kompletní originální GPX soubor přímo sem.
+                              </span>
+                            </div>
+                          </div>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => gpxInputRef.current?.click()}
+                              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-stone-950 text-xs font-bold rounded-xl transition shadow flex items-center gap-1.5 shrink-0"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              Nahrát celou GPX trasu
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {pts.length > 1 && (
+                        <div>
+                          <ElevationProfile
+                            trackpoints={pts}
+                            highestPointM={formData.highestPointM || route?.highestPointM}
+                            elevationGainM={formData.elevationGainM || route?.elevationGainM}
+                            distanceKm={formData.distanceKm || route?.distanceKm}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
                 })()}
 
                 {/* Photo Gallery Section */}
@@ -814,6 +957,20 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                             </div>
 
                             <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
+                              {canEdit && currentPhotos.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeletePhoto(activePhotoIndex);
+                                  }}
+                                  className="bg-red-950/90 hover:bg-red-900 border border-red-800/80 text-red-300 hover:text-white px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
+                                  title="Trvale smazat tuto fotografii z výpravy"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                  <span className="hidden sm:inline">Smazat fotku</span>
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={(e) => {
