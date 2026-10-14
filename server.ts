@@ -23,6 +23,60 @@ function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
   return R * c;
 }
 
+// Precise image dimensions detector directly from Buffer (JPEG, PNG, WEBP)
+function getImageDimensions(buf: Buffer): { width: number; height: number; type: string } | null {
+  if (!buf || buf.length < 8) return null;
+  // JPEG
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    let offset = 2;
+    while (offset < buf.length - 8) {
+      if (buf[offset] !== 0xff) {
+        offset++;
+        continue;
+      }
+      const marker = buf[offset + 1];
+      if (
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf)
+      ) {
+        const height = buf.readUInt16BE(offset + 5);
+        const width = buf.readUInt16BE(offset + 7);
+        return { width, height, type: 'jpeg' };
+      }
+      const len = buf.readUInt16BE(offset + 2);
+      offset += 2 + len;
+    }
+  }
+  // PNG
+  if (buf[0] === 0x89 && buf.toString('ascii', 1, 4) === 'PNG' && buf.length >= 24) {
+    const width = buf.readUInt32BE(16);
+    const height = buf.readUInt32BE(20);
+    return { width, height, type: 'png' };
+  }
+  // WEBP
+  if (buf.length >= 30 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
+    if (buf.toString('ascii', 12, 16) === 'VP8 ') {
+      const width = buf.readUInt16LE(26) & 0x3fff;
+      const height = buf.readUInt16LE(28) & 0x3fff;
+      return { width, height, type: 'webp' };
+    }
+    if (buf.toString('ascii', 12, 16) === 'VP8L') {
+      const b0 = buf[21], b1 = buf[22], b2 = buf[23], b3 = buf[24];
+      const width = 1 + (((b1 & 0x3f) << 8) | b0);
+      const height = 1 + (((b3 & 0xf) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6));
+      return { width, height, type: 'webp' };
+    }
+    if (buf.toString('ascii', 12, 16) === 'VP8X') {
+      const width = 1 + (buf[24] | (buf[25] << 8) | (buf[26] << 16));
+      const height = 1 + (buf[27] | (buf[28] << 8) | (buf[29] << 16));
+      return { width, height, type: 'webp' };
+    }
+  }
+  return null;
+}
+
 // Server-side GPX track parser (universal: handles self-closing tags, arbitrary attribute order, namespaces)
 function parseServerGpx(xmlString: string) {
   const points: { lat: number; lng: number; ele?: number; time?: string; distFromStartKm?: number }[] = [];
@@ -637,7 +691,11 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         if (!sizeKb) {
           sizeKb = Math.round(buffer.length / 1024);
         }
-        if (!width || !height) {
+        const detectedDims = getImageDimensions(buffer);
+        if (detectedDims) {
+          width = detectedDims.width;
+          height = detectedDims.height;
+        } else if (!width || !height) {
           try {
             const tags = ExifReader.load(buffer);
             const w = tags['Image Width']?.value;
@@ -1024,19 +1082,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }
       }
 
-      // Save directly to Firestore cloud database
-      if (!db) {
-        return res.status(503).json({ error: 'Cloudová databáze Firestore není na serveru připojena.' });
-      }
-      try {
-        await setDoc(doc(db, 'hikes', routeId), cleanHikeForDb);
-        console.log(`[API /api/routes] Trasa ${routeId} úspěšně uložena do Firestore (fotografií: ${normalizedPhotos.length}).`);
-      } catch (dbErr: any) {
-        console.error('[API /api/routes] Chyba při zápisu do Firestore:', dbErr);
-        return res.status(500).json({ error: 'Chyba při zápisu do cloudové databáze serveru: ' + dbErr.message });
-      }
-
-      // Also mirror to local disk
+      // 1. Immediately update server storage (authoritative persistence on server)
       try {
         const currentRoutes = getLocalRoutes();
         const existingIdx = currentRoutes.findIndex((r: any) => r.id === routeId);
@@ -1046,7 +1092,17 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
           currentRoutes.unshift(cleanHikeForDb);
         }
         saveLocalRoutes(currentRoutes);
-      } catch (cacheErr) {}
+        console.log(`[API /api/routes] Trasa ${routeId} úspěšně uložena na serveru (fotografií: ${normalizedPhotos.length}).`);
+      } catch (cacheErr: any) {
+        console.error('[API /api/routes] Chyba při ukládání na disk serveru:', cacheErr);
+      }
+
+      // 2. Also sync to Firestore cloud database in background (safe against quota issues)
+      if (db) {
+        setDoc(doc(db, 'hikes', routeId), cleanHikeForDb)
+          .then(() => console.log(`[API /api/routes] Trasa ${routeId} synchronizována do Firestore.`))
+          .catch((dbErr) => console.warn('[API /api/routes] Firestore varování při zápisu:', dbErr.message));
+      }
 
       return res.status(201).json({
         success: true,
@@ -1065,7 +1121,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
   app.post('/api/routes', handleSaveRoute);
   app.post('/api/hikes', handleSaveRoute);
 
-  // GET /api/routes: List all routes directly from central Firestore cloud database
+  // GET /api/routes: List all routes directly from central server storage
   app.get('/api/routes', async (req, res) => {
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
@@ -1073,35 +1129,13 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       'Expires': '0',
       'Surrogate-Control': 'no-store',
     });
-    if (!db) {
-      return res.status(503).json({
-        error: 'Cloudová databáze Firestore není na serveru připojena.',
-        routes: [],
-      });
-    }
     try {
-      const snapshot = await getDocs(collection(db, 'hikes'));
-      const routes: any[] = [];
-      snapshot.forEach((d) => {
-        const data = d.data() as any;
-        const pts = (Array.isArray(data.trackpoints) && data.trackpoints.length > 0)
-          ? data.trackpoints
-          : (Array.isArray(data.trackPoints) && data.trackPoints.length > 0)
-          ? data.trackPoints
-          : [];
-        routes.push({
-          ...data,
-          id: (data.id && String(data.id).trim()) || d.id,
-          trackpoints: pts,
-          trackPoints: pts,
-          photos: Array.isArray(data.photos) ? data.photos : [],
-        });
-      });
+      const routes = getLocalRoutes();
       return res.json({ routes });
     } catch (err: any) {
-      console.error('[API /api/routes] Chyba při čtení tras z Firestore serverem:', err);
+      console.error('[API /api/routes] Chyba při čtení tras ze serveru:', err);
       return res.status(500).json({
-        error: `Chyba při načítání tras z cloudové databáze serveru: ${err.message || 'Neznámá chyba'}`,
+        error: `Chyba při načítání tras ze serveru: ${err.message || 'Neznámá chyba'}`,
         routes: [],
       });
     }
@@ -1262,11 +1296,20 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       if (!id || !id.trim() || id === 'undefined' || id === 'null') {
         return res.status(400).json({ error: 'Neplatné ID trasy' });
       }
+      const cleanId = id.trim();
+      try {
+        const local = getLocalRoutes();
+        const filtered = local.filter((r: any) => r.id !== cleanId);
+        saveLocalRoutes(filtered);
+        console.log(`[API /api/routes] Trasa ${cleanId} smazána z mezipaměti serveru.`);
+      } catch (cacheErr) {}
+
       if (db) {
-        await deleteDoc(doc(db, 'hikes', id.trim()));
-        console.log(`[API /api/routes] Trasa ${id} úspěšně smazána z Firestore serverem.`);
+        deleteDoc(doc(db, 'hikes', cleanId))
+          .then(() => console.log(`[API /api/routes] Trasa ${cleanId} úspěšně smazána z Firestore serverem.`))
+          .catch((dbErr) => console.warn('[API /api/routes] Firestore chyba při mazání (server pokračuje):', dbErr.message));
       }
-      return res.json({ success: true, message: `Trasa ${id} byla smazána.` });
+      return res.json({ success: true, message: `Trasa ${cleanId} byla smazána.` });
     } catch (err: any) {
       console.warn(`[API /api/routes] Chyba při mazání trasy ${req.params.id}:`, err);
       return res.status(500).json({ error: err.message });
@@ -1418,9 +1461,9 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         } catch {}
       }
 
-      const isDownload = req.query.raw === '1' || req.query.download === '1';
+      const isDownload = req.query.download === '1';
 
-      // 2. Default: Stream binary image directly (compatible with all <img> tags and lightboxes)
+      // 2. Default: Stream binary image directly (compatible with all <img> tags, lightboxes, and fetch)
       if (fs.existsSync(binPath)) {
         let mimeType = 'image/jpeg';
         try {
@@ -1436,6 +1479,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
         if (isDownload) {
           res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+        } else {
+          res.setHeader('Content-Disposition', 'inline');
         }
         return res.sendFile(binPath);
       }
@@ -1450,6 +1495,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
             res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
             if (isDownload) {
               res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+            } else {
+              res.setHeader('Content-Disposition', 'inline');
             }
             return res.send(buffer);
           }

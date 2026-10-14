@@ -101,8 +101,8 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
     try {
       let downloadUrl = resolvedSrc;
       if (downloadUrl.startsWith('/api/photos/')) {
-        if (!downloadUrl.includes('raw=1')) {
-          downloadUrl += (downloadUrl.includes('?') ? '&' : '?') + 'raw=1';
+        if (!downloadUrl.includes('download=1')) {
+          downloadUrl += (downloadUrl.includes('?') ? '&' : '?') + 'download=1';
         }
       }
 

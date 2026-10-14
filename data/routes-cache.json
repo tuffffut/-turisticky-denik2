@@ -565972,16 +565972,15 @@
     "id": "garmin-24684166892",
     "photos": [
       {
-        "source": "user",
+        "id": "photo_spital_semmering_hd",
         "url": "/api/photos/photo_spital_semmering_hd",
-        "createdAt": "2026-10-12T14:42:53.414Z",
+        "rawUrl": "/api/photos/photo_spital_semmering_hd?raw=1",
+        "name": "spital_semmering_stuhleck_4k.jpg",
+        "caption": "Panoramatický pohled na Alpy a Stuhleck u Spital am Semmering v plném 4K rozlišení (3840 × 2160 px)",
+        "width": 3840,
         "height": 2160,
         "sizeKb": 1044,
-        "rawUrl": "/api/photos/photo_spital_semmering_hd?raw=1",
-        "id": "photo_spital_semmering_hd",
-        "name": "spital_semmering_stuhleck_4k.jpg",
-        "width": 3840,
-        "caption": "Panoramatický pohled na Alpy a Stuhleck u Spital am Semmering v plném 4K rozlišení (3840 × 2160 px)"
+        "source": "user"
       }
     ],
     "peakCoords": {
@@ -565991,7 +565990,7 @@
     },
     "elevationGainM": 1049,
     "startTime": "09:30",
-    "distanceKm": 15.17,
+    "distanceKm": 15.2,
     "createdAt": "2026-10-11T16:34:28.555357Z",
     "title": "Spital am Semmering Turistika",
     "mountainRange": "Vídeňské Alpy (Rax / Schneeberg)",
@@ -568272,7 +568271,10 @@
         "lng": 15.756841,
         "lat": 47.615117
       }
-    ]
+    ],
+    "activityType": "hiking",
+    "difficulty": "hard",
+    "source": "garmin"
   },
   {
     "createdAt": "2026-10-11T22:41:43.042267Z",

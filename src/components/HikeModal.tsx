@@ -978,16 +978,12 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                   setIsReplacingActivePhoto(true);
                                   fileInputRef.current?.click();
                                 }}
-                                className="bg-emerald-600/90 hover:bg-emerald-500 text-white px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition"
-                                title="Nahrát novou fotografii z mobilu nebo disku"
+                                className="bg-stone-800 hover:bg-stone-700 text-stone-200 hover:text-white px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow transition border border-stone-700"
+                                title="Nahradit tuto fotografii novým souborem z disku"
                               >
-                                <Upload className="w-3.5 h-3.5" />
-                                <span className="hidden sm:inline">
-                                  {Math.max(activePhotoDimensions?.width || 0, activePhotoDimensions?.height || 0) <= 800
-                                    ? 'Nahradit plnou kvalitou'
-                                    : 'Nahrát novou fotku'}
-                                </span>
-                                <span className="sm:hidden text-[11px]">Nahrát</span>
+                                <Upload className="w-3.5 h-3.5 text-stone-300" />
+                                <span className="hidden sm:inline">Nahradit fotku</span>
+                                <span className="sm:hidden text-[11px]">Nahradit</span>
                               </button>
                               <div className="bg-black/75 backdrop-blur px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition shadow">
                                 <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
