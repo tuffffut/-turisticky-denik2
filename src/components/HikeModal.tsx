@@ -23,6 +23,7 @@ import {
   LayoutGrid,
   Image as ImageIcon,
   AlertTriangle,
+  Download,
 } from 'lucide-react';
 import { HikeRoute, HikePhotoItem, ActivityType } from '../types';
 import { POPULAR_MOUNTAIN_RANGES, detectMountainRangeFromCoords } from '../utils/mountainRanges';
@@ -574,6 +575,44 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     return photo.dataUrl || photo.rawUrl || photo.url || '';
   };
 
+  const handleDownloadCurrentPhoto = () => {
+    const currentPhoto = currentPhotos[activePhotoIndex] || currentPhotos[0];
+    if (!currentPhoto) return;
+
+    let downloadUrl = '';
+    let fileName = 'foto.jpg';
+
+    if (typeof currentPhoto === 'string') {
+      if (currentPhoto.startsWith('/api/photos/')) {
+        downloadUrl = `${currentPhoto}${currentPhoto.includes('?') ? '&' : '?'}download=1`;
+      } else {
+        downloadUrl = currentPhoto;
+      }
+    } else {
+      fileName = currentPhoto.name || 'foto.jpg';
+      if (currentPhoto.url && currentPhoto.url.startsWith('/api/photos/')) {
+        downloadUrl = `${currentPhoto.url}${currentPhoto.url.includes('?') ? '&' : '?'}download=1`;
+      } else if (currentPhoto.rawUrl) {
+        downloadUrl = currentPhoto.rawUrl.includes('download=1')
+          ? currentPhoto.rawUrl
+          : `${currentPhoto.rawUrl}&download=1`;
+      } else if (currentPhoto.dataUrl) {
+        downloadUrl = currentPhoto.dataUrl;
+      } else if (currentPhoto.url) {
+        downloadUrl = currentPhoto.url;
+      }
+    }
+
+    if (downloadUrl) {
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
   return (
     <>
       {/* Hidden file input unconditionally present in DOM */}
@@ -1027,6 +1066,81 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                           {/* Bottom instruction hint */}
                           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur px-3 py-1 rounded-full text-[11px] text-stone-300 border border-stone-800 opacity-0 group-hover:opacity-100 transition pointer-events-none">
                             Kliknutím otevřete v maximálním rozlišení
+                          </div>
+                        </div>
+
+                        {/* Photo Resolution & Action Inspector Bar */}
+                        <div className="bg-stone-900/90 border border-stone-800 rounded-xl p-3 sm:p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                                <Camera className="w-4 h-4 text-emerald-400" />
+                                <span>Foto {activePhotoIndex + 1} z {currentPhotos.length}</span>
+                              </span>
+                              {activePhotoDimensions && (
+                                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800/80">
+                                  {activePhotoDimensions.width} × {activePhotoDimensions.height} px
+                                  {activePhotoDimensions.width >= 3600 || activePhotoDimensions.height >= 2100
+                                    ? ' • 4K Ultra HD'
+                                    : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 1400
+                                    ? ' • 2.5K QHD'
+                                    : activePhotoDimensions.width >= 1900 || activePhotoDimensions.height >= 1000
+                                    ? ' • Full HD'
+                                    : activePhotoDimensions.width >= 1200 || activePhotoDimensions.height >= 700
+                                    ? ' • HD'
+                                    : ''}
+                                </span>
+                              )}
+                              {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb && (
+                                <span className="text-xs text-stone-300 bg-stone-800 px-2.5 py-0.5 rounded-full border border-stone-700 font-semibold">
+                                  💾 {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
+                                    ? ((currentPhotos[activePhotoIndex] as any).sizeKb / 1024).toFixed(1) + ' MB'
+                                    : (currentPhotos[activePhotoIndex] as any).sizeKb + ' KB'}
+                                </span>
+                              )}
+                              {activePhotoDimensions && (
+                                <span className="text-xs text-stone-400">
+                                  ({((activePhotoDimensions.width * activePhotoDimensions.height) / 1000000).toFixed(1)} MPx)
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-stone-400 flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
+                              <span>Původní originál v plné kvalitě z centrálního serveru (žádná ztrátová komprese).</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDownloadCurrentPhoto();
+                              }}
+                              className="flex-1 sm:flex-none px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow transition shadow-emerald-950/40"
+                              title="Stáhnout původní nezmenšený soubor z centrálního serveru"
+                            >
+                              <Download className="w-4 h-4" />
+                              <span>
+                                Stáhnout originál
+                                {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb
+                                  ? ` (${(currentPhotos[activePhotoIndex] as any).sizeKb > 1024 ? ((currentPhotos[activePhotoIndex] as any).sizeKb / 1024).toFixed(1) + ' MB' : (currentPhotos[activePhotoIndex] as any).sizeKb + ' KB'})`
+                                  : ''}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLightboxIndex(activePhotoIndex);
+                                setLightboxOpen(true);
+                              }}
+                              className="px-3 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-stone-700 transition"
+                              title="Otevřít na celou obrazovku v maximálním rozlišení se 100% přiblížením"
+                            >
+                              <Maximize2 className="w-4 h-4 text-emerald-400" />
+                              <span>Celá obrazovka</span>
+                            </button>
                           </div>
                         </div>
 

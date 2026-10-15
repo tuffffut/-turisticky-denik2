@@ -96,53 +96,29 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
     setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
   };
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (!resolvedSrc) return;
     try {
       let downloadUrl = resolvedSrc;
+      const fileName =
+        typeof currentItem === 'object' && currentItem?.name
+          ? currentItem.name
+          : `horsky-denik-foto-${currentIndex + 1}.jpg`;
+
       if (downloadUrl.startsWith('/api/photos/')) {
         if (!downloadUrl.includes('download=1')) {
           downloadUrl += (downloadUrl.includes('?') ? '&' : '?') + 'download=1';
         }
       }
 
-      if (downloadUrl.startsWith('/') || downloadUrl.startsWith('http')) {
-        const resp = await fetch(downloadUrl);
-        if (!resp.ok) {
-          alert('Fotografie nebyla nalezena na serveru.');
-          return;
-        }
-        const contentType = resp.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          const errJson = await resp.json().catch(() => ({}));
-          alert('Fotografii se nepodařilo stáhnout: ' + (errJson.error || 'Soubor není platný obrázek'));
-          return;
-        }
-        const blob = await resp.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        const isJpeg = contentType.includes('jpeg') || contentType.includes('jpg');
-        const ext = isJpeg ? 'jpg' : 'webp';
-        const dimSuffix = realDimensions ? `-${realDimensions.width}x${realDimensions.height}` : '';
-        a.download = `horsky-denik-foto-${currentIndex + 1}${dimSuffix}.${ext}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
-        return;
-      }
-
       const a = document.createElement('a');
       a.href = downloadUrl;
-      const dimSuffix = realDimensions ? `-${realDimensions.width}x${realDimensions.height}` : '';
-      const ext = downloadUrl.startsWith('data:image/jpeg') ? 'jpg' : 'webp';
-      a.download = `horsky-denik-foto-${currentIndex + 1}${dimSuffix}.${ext}`;
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
     } catch (err: any) {
-      alert('Chyba při stahování: ' + err.message);
+      alert('Chyba při stahování: ' + (err.message || 'Neznámá chyba'));
     }
   };
 
