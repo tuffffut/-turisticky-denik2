@@ -63,6 +63,9 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
 
   // Unconstrained offscreen probe to guarantee measurement is immune to CSS container scaling
   useEffect(() => {
+    if (typeof currentItem === 'object' && currentItem?.width && currentItem?.height) {
+      setRealDimensions({ width: currentItem.width, height: currentItem.height });
+    }
     if (!resolvedSrc) return;
     const probe = new Image();
     probe.onload = () => {
@@ -71,7 +74,10 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
       }
     };
     probe.src = resolvedSrc;
-  }, [resolvedSrc]);
+    if (probe.complete && probe.naturalWidth) {
+      setRealDimensions({ width: probe.naturalWidth, height: probe.naturalHeight });
+    }
+  }, [resolvedSrc, currentItem]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -136,39 +142,43 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
           <span className="text-[11px] sm:text-xs font-semibold text-stone-200 bg-stone-900/90 px-2.5 sm:px-3 py-1 rounded-full border border-stone-700 shrink-0">
             {currentIndex + 1} / {photos.length}
           </span>
-          {realDimensions ? (
-            <span
-              className={`text-[10px] sm:text-[11px] px-2 sm:px-2.5 py-1 rounded-md border font-medium flex items-center gap-1 sm:gap-1.5 truncate max-w-full ${
-                Math.max(realDimensions.width, realDimensions.height) >= 1900
-                  ? 'bg-emerald-950/90 text-emerald-400 border-emerald-800/60'
-                  : 'bg-stone-900 text-stone-200 border-stone-700'
-              }`}
-            >
-              <span className="font-semibold">
-                {realDimensions.width} × {realDimensions.height} px
-              </span>
-              <span className="opacity-80">
-                {realDimensions.width >= 3600 || realDimensions.height >= 2100
-                  ? '• 4K Ultra HD'
-                  : realDimensions.width >= 2400 || realDimensions.height >= 1400
-                  ? '• 2.5K QHD'
-                  : realDimensions.width >= 1900 || realDimensions.height >= 1000
-                  ? '• Full HD'
-                  : realDimensions.width >= 1200 || realDimensions.height >= 700
-                  ? '• HD'
-                  : '• Originální snímek'}
-              </span>
-              {typeof currentItem === 'object' && currentItem?.sizeKb ? (
-                <span className="opacity-90 text-emerald-400 font-semibold">
-                  • {currentItem.sizeKb > 1024 ? (currentItem.sizeKb / 1024).toFixed(1) + ' MB' : currentItem.sizeKb + ' KB'}
+          <span
+            className={`text-[10px] sm:text-[11px] px-2 sm:px-2.5 py-1 rounded-md border font-medium flex items-center gap-1 sm:gap-1.5 truncate max-w-full ${
+              realDimensions && Math.max(realDimensions.width, realDimensions.height) >= 1900
+                ? 'bg-emerald-950/90 text-emerald-400 border-emerald-800/60'
+                : 'bg-stone-900 text-stone-200 border-stone-700'
+            }`}
+          >
+            <span className="font-bold text-white">Rozlišení:</span>
+            {realDimensions ? (
+              <>
+                <span className="font-semibold text-emerald-300">
+                  {realDimensions.width} × {realDimensions.height} px
                 </span>
-              ) : null}
-            </span>
-          ) : (
-            <span className="text-[11px] text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-md border border-emerald-800/50 font-medium">
-              Zjišťuji rozlišení...
-            </span>
-          )}
+                <span className="opacity-80">
+                  {realDimensions.width >= 3600 || realDimensions.height >= 2100
+                    ? '• 4K Ultra HD'
+                    : realDimensions.width >= 2400 || realDimensions.height >= 1400
+                    ? '• 2.5K QHD'
+                    : realDimensions.width >= 1900 || realDimensions.height >= 1000
+                    ? '• Full HD'
+                    : realDimensions.width >= 1200 || realDimensions.height >= 700
+                    ? '• HD'
+                    : '• Originál'}
+                </span>
+                <span className="text-stone-400 font-mono text-[10px]">
+                  ({((realDimensions.width * realDimensions.height) / 1000000).toFixed(1)} MPx)
+                </span>
+              </>
+            ) : (
+              <span className="text-stone-400 animate-pulse">Zjišťuji pixely...</span>
+            )}
+            {typeof currentItem === 'object' && currentItem?.sizeKb ? (
+              <span className="text-emerald-400 font-semibold ml-1">
+                • {currentItem.sizeKb > 1024 ? (currentItem.sizeKb / 1024).toFixed(1) + ' MB' : currentItem.sizeKb + ' KB'}
+              </span>
+            ) : null}
+          </span>
           {zoomLevel > 1 && (
             <span className="text-[11px] text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/40">
               Přiblíženo {Math.round(zoomLevel * 100)}%

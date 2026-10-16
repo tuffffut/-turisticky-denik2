@@ -140,7 +140,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       return;
     }
 
-    if (typeof currentPhoto === 'object' && currentPhoto.width && currentPhoto.height) {
+    if (typeof currentPhoto === 'object' && currentPhoto?.width && currentPhoto?.height) {
       setActivePhotoDimensions({ width: currentPhoto.width, height: currentPhoto.height });
       return;
     }
@@ -158,6 +158,9 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       }
     };
     probe.src = src;
+    if (probe.complete && probe.naturalWidth) {
+      setActivePhotoDimensions({ width: probe.naturalWidth, height: probe.naturalHeight });
+    }
   }, [activePhotoIndex, currentPhotos, isOpen]);
 
   // Shared function to optimize and upload files
@@ -959,40 +962,49 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
                           {/* Floating Top Controls */}
                           <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex items-start justify-between gap-2 pointer-events-none">
-                            <div className="flex flex-wrap items-center gap-1.5 max-w-[65%] pointer-events-auto">
-                              <div className="bg-black/75 backdrop-blur px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 shadow shrink-0">
+                            <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+                              <div className="bg-black/85 backdrop-blur px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-medium text-stone-200 border border-stone-700/80 flex items-center gap-1.5 shadow shrink-0">
                                 <Camera className="w-3.5 h-3.5 text-emerald-400" />
                                 <span>
                                   {activePhotoIndex + 1} / {currentPhotos.length}
                                 </span>
                               </div>
-                              {activePhotoDimensions && (
-                                <div
-                                  className={`px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium border shadow backdrop-blur truncate max-w-full ${
-                                    Math.max(activePhotoDimensions.width, activePhotoDimensions.height) >= 1900
-                                      ? 'bg-emerald-950/85 text-emerald-300 border-emerald-800/80'
-                                      : 'bg-stone-900/90 text-stone-200 border-stone-700/80'
-                                  }`}
-                                >
-                                  {activePhotoDimensions.width} × {activePhotoDimensions.height} px
-                                  {activePhotoDimensions.width >= 3600 || activePhotoDimensions.height >= 2100
-                                    ? ' (4K Ultra HD)'
-                                    : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 1400
-                                    ? ' (2.5K QHD)'
-                                    : activePhotoDimensions.width >= 1900 || activePhotoDimensions.height >= 1000
-                                    ? ' (Full HD)'
-                                    : activePhotoDimensions.width >= 1200 || activePhotoDimensions.height >= 700
-                                    ? ' (HD)'
-                                    : ' (Originál)'}
-                                  {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb ? (
-                                    <span className="text-emerald-400 font-semibold ml-1">
-                                      • {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
-                                        ? ((currentPhotos[activePhotoIndex] as any).sizeKb / 1024).toFixed(1) + ' MB'
-                                        : (currentPhotos[activePhotoIndex] as any).sizeKb + ' KB'}
+                              <div
+                                className={`px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-bold border shadow-lg backdrop-blur flex items-center gap-1.5 ${
+                                  activePhotoDimensions && Math.max(activePhotoDimensions.width, activePhotoDimensions.height) >= 1900
+                                    ? 'bg-emerald-950/95 text-emerald-300 border-emerald-700'
+                                    : 'bg-stone-900/95 text-stone-200 border-stone-700'
+                                }`}
+                              >
+                                <span className="font-extrabold text-white">Rozlišení:</span>
+                                {activePhotoDimensions ? (
+                                  <>
+                                    <span>
+                                      {activePhotoDimensions.width} × {activePhotoDimensions.height} px
                                     </span>
-                                  ) : null}
-                                </div>
-                              )}
+                                    <span className="opacity-90">
+                                      {activePhotoDimensions.width >= 3600 || activePhotoDimensions.height >= 2100
+                                        ? '• 4K Ultra HD'
+                                        : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 1400
+                                        ? '• 2.5K QHD'
+                                        : activePhotoDimensions.width >= 1900 || activePhotoDimensions.height >= 1000
+                                        ? '• Full HD'
+                                        : activePhotoDimensions.width >= 1200 || activePhotoDimensions.height >= 700
+                                        ? '• HD'
+                                        : '• Originál'}
+                                    </span>
+                                    {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb ? (
+                                      <span className="text-emerald-400 font-semibold ml-1">
+                                        • {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
+                                          ? ((currentPhotos[activePhotoIndex] as any).sizeKb / 1024).toFixed(1) + ' MB'
+                                          : (currentPhotos[activePhotoIndex] as any).sizeKb + ' KB'}
+                                      </span>
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  <span className="text-stone-400 animate-pulse">Zjišťuji pixely fotografie...</span>
+                                )}
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
@@ -1090,23 +1102,28 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                 <Camera className="w-4 h-4 text-emerald-400" />
                                 <span>Foto {activePhotoIndex + 1} z {currentPhotos.length}</span>
                               </span>
-                              {activePhotoDimensions && (
-                                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800/80">
-                                  {activePhotoDimensions.width} × {activePhotoDimensions.height} px
-                                  {activePhotoDimensions.width >= 3600 || activePhotoDimensions.height >= 2100
-                                    ? ' • 4K Ultra HD'
-                                    : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 1400
-                                    ? ' • 2.5K QHD'
-                                    : activePhotoDimensions.width >= 1900 || activePhotoDimensions.height >= 1000
-                                    ? ' • Full HD'
-                                    : activePhotoDimensions.width >= 1200 || activePhotoDimensions.height >= 700
-                                    ? ' • HD'
-                                    : ''}
-                                </span>
-                              )}
+                              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800/80">
+                                <span className="text-stone-300 font-semibold mr-1">Rozlišení:</span>
+                                {activePhotoDimensions ? (
+                                  <>
+                                    {activePhotoDimensions.width} × {activePhotoDimensions.height} px
+                                    {activePhotoDimensions.width >= 3600 || activePhotoDimensions.height >= 2100
+                                      ? ' • 4K Ultra HD'
+                                      : activePhotoDimensions.width >= 2400 || activePhotoDimensions.height >= 1400
+                                      ? ' • 2.5K QHD'
+                                      : activePhotoDimensions.width >= 1900 || activePhotoDimensions.height >= 1000
+                                      ? ' • Full HD'
+                                      : activePhotoDimensions.width >= 1200 || activePhotoDimensions.height >= 700
+                                      ? ' • HD'
+                                      : ''}
+                                  </>
+                                ) : (
+                                  <span className="text-stone-400 animate-pulse">Zjišťuji pixely...</span>
+                                )}
+                              </span>
                               {typeof currentPhotos[activePhotoIndex] === 'object' && (currentPhotos[activePhotoIndex] as any)?.sizeKb && (
                                 <span className="text-xs text-stone-300 bg-stone-800 px-2.5 py-0.5 rounded-full border border-stone-700 font-semibold">
-                                  💾 {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
+                                  💾 Velikost: {(currentPhotos[activePhotoIndex] as any).sizeKb > 1024
                                     ? ((currentPhotos[activePhotoIndex] as any).sizeKb / 1024).toFixed(1) + ' MB'
                                     : (currentPhotos[activePhotoIndex] as any).sizeKb + ' KB'}
                                 </span>

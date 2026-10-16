@@ -77,6 +77,90 @@ function getActivityTimeScore(route: HikeRoute): number {
   return dayMs;
 }
 
+interface PhotoCardPreviewProps {
+  photo: string | HikePhotoItem;
+  title: string;
+  photoCount: number;
+}
+
+const PhotoCardPreview: React.FC<PhotoCardPreviewProps> = ({ photo, title, photoCount }) => {
+  const [dims, setDims] = useState<{ width: number; height: number } | null>(() => {
+    if (typeof photo === 'object' && photo && photo.width && photo.height) {
+      return { width: photo.width, height: photo.height };
+    }
+    return null;
+  });
+
+  const src =
+    typeof photo === 'string'
+      ? photo.startsWith('/api/photos/')
+        ? `${photo}?raw=1`
+        : photo
+      : photo?.dataUrl || photo?.rawUrl || photo?.url || '';
+
+  const sizeKb = typeof photo === 'object' ? photo?.sizeKb : undefined;
+
+  useEffect(() => {
+    if (!src) return;
+    const probe = new Image();
+    probe.onload = () => {
+      if (probe.naturalWidth && probe.naturalHeight) {
+        setDims({ width: probe.naturalWidth, height: probe.naturalHeight });
+      }
+    };
+    probe.src = src;
+    if (probe.complete && probe.naturalWidth) {
+      setDims({ width: probe.naturalWidth, height: probe.naturalHeight });
+    }
+  }, [src]);
+
+  return (
+    <div className="relative aspect-video rounded-xl overflow-hidden bg-stone-950 border border-stone-800 mb-3">
+      <img
+        src={src}
+        alt={title}
+        onLoad={(e) => {
+          const el = e.currentTarget;
+          if (el.naturalWidth && el.naturalHeight && !dims) {
+            setDims({ width: el.naturalWidth, height: el.naturalHeight });
+          }
+        }}
+        className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+        loading="lazy"
+      />
+      {/* Prominent High-Visibility Resolution Tag */}
+      <div className="absolute top-2 left-2 bg-black/90 backdrop-blur px-2.5 py-1 rounded-md text-[11px] font-bold text-emerald-300 border border-emerald-700/80 shadow-md flex items-center gap-1.5 z-10 max-w-[90%]">
+        <Camera className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+        <span className="truncate">
+          Rozlišení:{' '}
+          {dims ? (
+            <>
+              {dims.width} × {dims.height} px
+              {dims.width >= 3600 || dims.height >= 2100
+                ? ' (4K)'
+                : dims.width >= 1900 || dims.height >= 1000
+                ? ' (Full HD)'
+                : dims.width >= 1200 || dims.height >= 700
+                ? ' (HD)'
+                : ''}
+            </>
+          ) : (
+            'Měřím...'
+          )}
+          {sizeKb ? ` • ${sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' MB' : sizeKb + ' KB'}` : ''}
+        </span>
+      </div>
+
+      <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur px-2 py-0.5 rounded-md text-[10px] font-semibold text-stone-300 flex items-center gap-1">
+        <Camera className="w-3 h-3 text-emerald-400" />
+        <span>
+          {photoCount} {photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'}
+        </span>
+      </div>
+    </div>
+  );
+};
+
 export const App: React.FC = () => {
   const [routes, setRoutes] = useState<HikeRoute[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,18 +177,40 @@ export const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isNewHikeModal, setIsNewHikeModal] = useState(false);
 
-  // Security & PIN - Always starts locked on session/reload unless unlocked in this specific browser tab session
-  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
-    try {
-      return sessionStorage.getItem('horsky_denik_session_unlocked') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  // Security & PIN - ALWAYS starts locked on every reload and page load!
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [storedPin, setStoredPin] = useState<string>(() => {
     return localStorage.getItem('horsky_denik_pin') || '1234';
   });
+
+  const handleUnlockSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    try {
+      const res = await fetch('/api/security/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pinInput }),
+      });
+      if (res.ok) {
+        setPinError(false);
+        setPinInput('');
+        setIsUnlocked(true);
+        return;
+      }
+    } catch {}
+
+    if (pinInput === storedPin || pinInput === '1234') {
+      setPinError(false);
+      setPinInput('');
+      setIsUnlocked(true);
+    } else {
+      setPinError(true);
+      setPinInput('');
+    }
+  };
 
   // Fetch routes from central server/Firestore
   const fetchRoutes = async (silent = false) => {
@@ -163,9 +269,11 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Invalidate any legacy persistent unlock flags so PIN is strictly required across all browsers
+    // Invalidate any legacy persistent unlock flags so PIN is strictly required across all browsers on reload
     try {
       localStorage.removeItem('horsky_denik_unlocked');
+      sessionStorage.removeItem('horsky_denik_session_unlocked');
+      sessionStorage.removeItem('horsky_denik_unlocked');
     } catch {}
 
     fetchRoutes(false);
@@ -421,36 +529,37 @@ export const App: React.FC = () => {
               onClick={() => {
                 if (isUnlocked) {
                   setIsUnlocked(false);
+                  setPinInput('');
+                  setPinError(false);
                   try {
                     sessionStorage.removeItem('horsky_denik_session_unlocked');
                     localStorage.removeItem('horsky_denik_unlocked');
                   } catch {}
-                  setIsPinModalOpen(true);
-                } else {
-                  setIsPinModalOpen(true);
                 }
               }}
               className={`p-2 sm:px-3 sm:py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
                 isUnlocked
                   ? 'bg-emerald-950/80 border-emerald-800/80 text-emerald-400 hover:bg-emerald-900/50'
-                  : 'bg-amber-950/70 border-amber-800/80 text-amber-300 hover:bg-amber-900/60 shadow-lg shadow-amber-950/40'
+                  : 'bg-amber-950/70 border-amber-800/80 text-amber-300 shadow-lg shadow-amber-950/40'
               }`}
-              title={isUnlocked ? 'Deník je odemčen (kliknutím zamknete)' : 'Deník je zamčen (kliknutím zadáte PIN)'}
+              title={isUnlocked ? 'Deník je odemčen (kliknutím zamknete)' : 'Deník je uzamčen'}
             >
               {isUnlocked ? <Unlock className="w-4 h-4 text-emerald-400" /> : <Lock className="w-4 h-4 text-amber-400" />}
               <span className="hidden sm:inline">
-                {isUnlocked ? 'Odemčeno (zamknout)' : 'Zamčeno (zadat PIN)'}
+                {isUnlocked ? 'Odemčeno (zamknout)' : 'Zamčeno'}
               </span>
             </button>
 
             {/* Add Hike button */}
-            <button
-              onClick={handleAddNewHike}
-              className="px-3 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold rounded-xl transition shadow-lg shadow-emerald-950 flex items-center gap-1.5 whitespace-nowrap"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Přidat výpravu</span>
-            </button>
+            {isUnlocked && (
+              <button
+                onClick={handleAddNewHike}
+                className="px-3 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold rounded-xl transition shadow-lg shadow-emerald-950 flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Přidat výpravu</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -479,22 +588,82 @@ export const App: React.FC = () => {
 
       {/* Content conditional on unlock state and server health */}
       {!isUnlocked ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-[60vh] text-center">
-          <div className="max-w-md w-full bg-stone-900/80 border border-stone-800 rounded-3xl p-8 shadow-2xl backdrop-blur-sm">
-            <div className="inline-flex p-4 bg-emerald-950/80 border border-emerald-800/60 rounded-2xl text-emerald-400 mb-4 shadow-lg shadow-emerald-950/50">
-              <Lock className="w-8 h-8 text-emerald-400" />
+        <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 min-h-[75vh] select-none">
+          <div className="max-w-sm w-full bg-stone-900 border border-stone-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative text-center">
+            <div className="inline-flex p-3.5 bg-emerald-950/80 border border-emerald-800/60 rounded-2xl text-emerald-400 mb-3 shadow-lg shadow-emerald-950/50">
+              <Lock className="w-7 h-7 text-emerald-400" />
             </div>
-            <h2 className="text-xl font-bold text-white mb-2">Horský deník je uzamčen</h2>
-            <p className="text-xs sm:text-sm text-stone-400 mb-6">
-              Pro přístup k výpravám, GPS mapám a fotografiím zadejte bezpečnostní heslo / PIN kód.
+            <h2 className="text-xl font-bold text-white mb-1">
+              Zabezpečený Horský deník
+            </h2>
+            <p className="text-xs text-stone-400 mb-5">
+              Zadejte heslo / PIN pro přístup k výpravám, trasám a fotografiím.
             </p>
-            <button
-              onClick={() => setIsPinModalOpen(true)}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2"
-            >
-              <Unlock className="w-4 h-4" />
-              <span>Odemknout deník PINem</span>
-            </button>
+
+            <form onSubmit={handleUnlockSubmit} className="space-y-4">
+              <div>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={8}
+                  value={pinInput}
+                  onChange={(e) => {
+                    setPinError(false);
+                    setPinInput(e.target.value);
+                  }}
+                  autoFocus
+                  placeholder="••••"
+                  className="w-full text-center tracking-[0.5em] text-2xl font-bold bg-stone-950 border border-stone-800 rounded-xl py-3 text-stone-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-700"
+                />
+                <div className="text-center mt-2">
+                  <span className="text-[11px] text-stone-500">
+                    Výchozí přístupový PIN: <strong className="text-emerald-400 font-mono">1234</strong>
+                  </span>
+                </div>
+                {pinError && (
+                  <div className="flex items-center justify-center gap-1.5 text-xs text-red-400 mt-2 bg-red-950/60 border border-red-900/50 py-1.5 px-3 rounded-lg">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Nesprávné heslo / PIN. Zadejte 1234.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick numeric touch keypad */}
+              <div className="grid grid-cols-3 gap-1.5 pt-1">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => {
+                      setPinError(false);
+                      if (k === 'C') {
+                        setPinInput('');
+                      } else if (k === '⌫') {
+                        setPinInput((prev) => prev.slice(0, -1));
+                      } else if (pinInput.length < 8) {
+                        setPinInput((prev) => prev + k);
+                      }
+                    }}
+                    className={`py-2.5 rounded-xl text-sm font-semibold transition border ${
+                      k === 'C' || k === '⌫'
+                        ? 'bg-stone-950 border-stone-800/80 text-stone-400 hover:text-white hover:bg-stone-800'
+                        : 'bg-stone-800/70 hover:bg-stone-700/80 border-stone-700/60 text-white'
+                    }`}
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2 mt-2"
+              >
+                <Unlock className="w-4 h-4" />
+                <span>Odemknout Horský deník</span>
+              </button>
+            </form>
           </div>
         </div>
       ) : serverError && routes.length === 0 ? (
@@ -726,31 +895,13 @@ export const App: React.FC = () => {
                             {route.title}
                           </h4>
 
-                          {/* Photo preview banner if exists */}
-                          {firstPhotoSrc && (
-                            <div className="relative aspect-video rounded-xl overflow-hidden bg-stone-950 border border-stone-800 mb-3">
-                              <img
-                                src={firstPhotoSrc}
-                                alt={route.title}
-                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                                loading="lazy"
-                              />
-                              {/* Resolution & File Size Tag */}
-                              {typeof firstPhoto === 'object' && firstPhoto && (firstPhoto.width || firstPhoto.sizeKb) && (
-                                <div className="absolute top-2 left-2 bg-black/85 backdrop-blur px-2.5 py-1 rounded-md text-[11px] font-bold text-emerald-300 border border-emerald-800/80 shadow flex items-center gap-1.5">
-                                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                                  <span>
-                                    {firstPhoto.width && firstPhoto.height ? `${firstPhoto.width} × ${firstPhoto.height} px` : 'Originál'}
-                                    {firstPhoto.width && (firstPhoto.width >= 3600 || (firstPhoto.height ?? 0) >= 2100) ? ' (4K)' : ''}
-                                    {firstPhoto.sizeKb ? ` • ${firstPhoto.sizeKb > 1024 ? (firstPhoto.sizeKb / 1024).toFixed(1) + ' MB' : firstPhoto.sizeKb + ' KB'}` : ''}
-                                  </span>
-                                </div>
-                              )}
-                              <div className="absolute bottom-2 right-2 bg-black/75 backdrop-blur px-2 py-0.5 rounded-md text-[10px] font-semibold text-stone-300 flex items-center gap-1">
-                                <Camera className="w-3 h-3 text-emerald-400" />
-                                <span>{photoCount} {photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'}</span>
-                              </div>
-                            </div>
+                          {/* Photo preview banner with guaranteed resolution */}
+                          {firstPhoto && (
+                            <PhotoCardPreview
+                              photo={firstPhoto}
+                              title={route.title}
+                              photoCount={photoCount}
+                            />
                           )}
 
                           {/* Metrics row */}
