@@ -93,8 +93,14 @@ export const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isNewHikeModal, setIsNewHikeModal] = useState(false);
 
-  // Security & PIN - Always starts locked on session/reload, never permanently stored in localStorage
-  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+  // Security & PIN - Always starts locked on session/reload unless unlocked in this specific browser tab session
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('horsky_denik_session_unlocked') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [storedPin, setStoredPin] = useState<string>(() => {
     return localStorage.getItem('horsky_denik_pin') || '1234';
@@ -157,14 +163,10 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Invalidate any legacy persistent unlock flags so PIN is strictly required
+    // Invalidate any legacy persistent unlock flags so PIN is strictly required across all browsers
     try {
       localStorage.removeItem('horsky_denik_unlocked');
-      sessionStorage.removeItem('horsky_denik_unlocked');
     } catch {}
-
-    // Demand PIN prompt immediately on load
-    setIsPinModalOpen(true);
 
     fetchRoutes(false);
 
@@ -419,8 +421,11 @@ export const App: React.FC = () => {
               onClick={() => {
                 if (isUnlocked) {
                   setIsUnlocked(false);
-                  localStorage.removeItem('horsky_denik_unlocked');
-                  sessionStorage.removeItem('horsky_denik_unlocked');
+                  try {
+                    sessionStorage.removeItem('horsky_denik_session_unlocked');
+                    localStorage.removeItem('horsky_denik_unlocked');
+                  } catch {}
+                  setIsPinModalOpen(true);
                 } else {
                   setIsPinModalOpen(true);
                 }
@@ -430,11 +435,11 @@ export const App: React.FC = () => {
                   ? 'bg-emerald-950/80 border-emerald-800/80 text-emerald-400 hover:bg-emerald-900/50'
                   : 'bg-amber-950/70 border-amber-800/80 text-amber-300 hover:bg-amber-900/60 shadow-lg shadow-amber-950/40'
               }`}
-              title={isUnlocked ? 'Deník odemčen (kliknutím zamknete)' : 'Deník je zamčen (kliknutím zadáte PIN)'}
+              title={isUnlocked ? 'Deník je odemčen (kliknutím zamknete)' : 'Deník je zamčen (kliknutím zadáte PIN)'}
             >
               {isUnlocked ? <Unlock className="w-4 h-4 text-emerald-400" /> : <Lock className="w-4 h-4 text-amber-400" />}
               <span className="hidden sm:inline">
-                {isUnlocked ? 'Odemčeno' : 'Zamčeno (PIN)'}
+                {isUnlocked ? 'Odemčeno (zamknout)' : 'Zamčeno (zadat PIN)'}
               </span>
             </button>
 
@@ -472,8 +477,49 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Stats Summary Banner */}
-      <section className="bg-stone-900/40 border-b border-stone-800/60 py-4">
+      {/* Content conditional on unlock state and server health */}
+      {!isUnlocked ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-[60vh] text-center">
+          <div className="max-w-md w-full bg-stone-900/80 border border-stone-800 rounded-3xl p-8 shadow-2xl backdrop-blur-sm">
+            <div className="inline-flex p-4 bg-emerald-950/80 border border-emerald-800/60 rounded-2xl text-emerald-400 mb-4 shadow-lg shadow-emerald-950/50">
+              <Lock className="w-8 h-8 text-emerald-400" />
+            </div>
+            <h2 className="text-xl font-bold text-white mb-2">Horský deník je uzamčen</h2>
+            <p className="text-xs sm:text-sm text-stone-400 mb-6">
+              Pro přístup k výpravám, GPS mapám a fotografiím zadejte bezpečnostní heslo / PIN kód.
+            </p>
+            <button
+              onClick={() => setIsPinModalOpen(true)}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2"
+            >
+              <Unlock className="w-4 h-4" />
+              <span>Odemknout deník PINem</span>
+            </button>
+          </div>
+        </div>
+      ) : serverError && routes.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-[60vh] text-center">
+          <div className="max-w-md w-full bg-red-950/40 border border-red-900/80 rounded-3xl p-8 shadow-2xl backdrop-blur-sm">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3 animate-pulse" />
+            <h3 className="text-lg font-bold text-white mb-2">Server není dostupný (Offline)</h3>
+            <p className="text-xs text-red-300 mb-4">{serverError}</p>
+            <div className="text-[11px] text-stone-400 bg-stone-950/80 border border-stone-800 rounded-xl p-3 mb-6 text-left">
+              <strong className="text-stone-300 block mb-0.5">Vše výhradně ze serveru:</strong>
+              Žádná data se neukládají ani nenačítají lokálně. Žádné zástupné výchozí aktivity se nezobrazují.
+            </div>
+            <button
+              onClick={() => fetchRoutes(false)}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow flex items-center justify-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Opakovat načtení ze serveru
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Stats Summary Banner */}
+          <section className="bg-stone-900/40 border-b border-stone-800/60 py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div className="bg-stone-950/60 border border-stone-800/80 p-3 rounded-2xl">
@@ -695,7 +741,7 @@ export const App: React.FC = () => {
                                   <Camera className="w-3.5 h-3.5 text-emerald-400" />
                                   <span>
                                     {firstPhoto.width && firstPhoto.height ? `${firstPhoto.width} × ${firstPhoto.height} px` : 'Originál'}
-                                    {firstPhoto.width && (firstPhoto.width >= 3600 || firstPhoto.height >= 2100) ? ' (4K)' : ''}
+                                    {firstPhoto.width && (firstPhoto.width >= 3600 || (firstPhoto.height ?? 0) >= 2100) ? ' (4K)' : ''}
                                     {firstPhoto.sizeKb ? ` • ${firstPhoto.sizeKb > 1024 ? (firstPhoto.sizeKb / 1024).toFixed(1) + ' MB' : firstPhoto.sizeKb + ' KB'}` : ''}
                                   </span>
                                 </div>
@@ -754,13 +800,15 @@ export const App: React.FC = () => {
           )}
         </div>
       </main>
+      </>
+      )}
 
       {/* Footer */}
       <footer className="border-t border-stone-800/80 py-6 text-center text-xs text-stone-500 bg-stone-950">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <span>Horský Deník • Evidence horských výprav a GPX tras</span>
           <span className="text-stone-600">
-            Zabezpečené cloudové úložiště Firebase (Full HD WebP optimalizace)
+            Zabezpečené centrální úložiště (Originální Ultra HD rozlišení fotografií)
           </span>
         </div>
       </footer>
@@ -779,10 +827,18 @@ export const App: React.FC = () => {
 
       {/* PIN Security Modal */}
       <PinModal
-        isOpen={isPinModalOpen}
-        onClose={() => setIsPinModalOpen(false)}
+        isOpen={!isUnlocked || isPinModalOpen}
+        required={!isUnlocked}
+        onClose={() => {
+          if (isUnlocked) {
+            setIsPinModalOpen(false);
+          }
+        }}
         onSuccess={() => {
           setIsUnlocked(true);
+          try {
+            sessionStorage.setItem('horsky_denik_session_unlocked', 'true');
+          } catch {}
           setIsPinModalOpen(false);
         }}
         storedPin={storedPin}

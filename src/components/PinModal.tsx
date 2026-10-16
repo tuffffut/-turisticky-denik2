@@ -7,6 +7,7 @@ interface PinModalProps {
   onSuccess: () => void;
   storedPin: string;
   onUpdatePin?: (newPin: string) => void;
+  required?: boolean;
 }
 
 export const PinModal: React.FC<PinModalProps> = ({
@@ -15,6 +16,7 @@ export const PinModal: React.FC<PinModalProps> = ({
   onSuccess,
   storedPin,
   onUpdatePin,
+  required = false,
 }) => {
   const [pinInput, setPinInput] = useState('');
   const [error, setError] = useState(false);
@@ -89,12 +91,14 @@ export const PinModal: React.FC<PinModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <div className="bg-stone-900 border border-stone-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl relative animate-fadeIn">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-white rounded-lg hover:bg-stone-800 transition"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {!required && (
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-white rounded-lg hover:bg-stone-800 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
 
         <div className="text-center mb-5">
           <div className="inline-flex p-3 bg-emerald-950/80 border border-emerald-800/60 rounded-2xl text-emerald-400 mb-2.5 shadow-lg shadow-emerald-950/50">
@@ -168,19 +172,21 @@ export const PinModal: React.FC<PinModalProps> = ({
             </div>
 
             <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 py-2.5 rounded-xl border border-stone-800 text-stone-400 hover:text-stone-200 hover:bg-stone-800 text-sm font-medium transition"
-              >
-                Host (pouze čtení)
-              </button>
+              {!required && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-2.5 rounded-xl border border-stone-800 text-stone-400 hover:text-stone-200 hover:bg-stone-800 text-sm font-medium transition"
+                >
+                  Zavřít
+                </button>
+              )}
               <button
                 type="submit"
-                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-1.5"
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2"
               >
                 <Unlock className="w-4 h-4" />
-                Odemknout deník
+                <span>Odemknout Horský deník</span>
               </button>
             </div>
 
