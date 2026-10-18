@@ -496,33 +496,35 @@ export const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2.5">
-            {/* View Mode toggles */}
-            <div className="hidden md:flex bg-stone-950 border border-stone-800 p-1 rounded-xl">
-              <button
-                onClick={() => setViewMode('split')}
-                className={`px-3 py-1 text-xs font-medium rounded-lg transition ${
-                  viewMode === 'split' ? 'bg-stone-800 text-white' : 'text-stone-400 hover:text-white'
-                }`}
-              >
-                Rozděleno
-              </button>
-              <button
-                onClick={() => setViewMode('map')}
-                className={`px-3 py-1 text-xs font-medium rounded-lg transition ${
-                  viewMode === 'map' ? 'bg-stone-800 text-white' : 'text-stone-400 hover:text-white'
-                }`}
-              >
-                Mapa
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`px-3 py-1 text-xs font-medium rounded-lg transition ${
-                  viewMode === 'list' ? 'bg-stone-800 text-white' : 'text-stone-400 hover:text-white'
-                }`}
-              >
-                Seznam
-              </button>
-            </div>
+            {/* View Mode toggles - only when unlocked */}
+            {isUnlocked && (
+              <div className="hidden md:flex bg-stone-950 border border-stone-800 p-1 rounded-xl">
+                <button
+                  onClick={() => setViewMode('split')}
+                  className={`px-3 py-1 text-xs font-medium rounded-lg transition ${
+                    viewMode === 'split' ? 'bg-stone-800 text-white' : 'text-stone-400 hover:text-white'
+                  }`}
+                >
+                  Rozděleno
+                </button>
+                <button
+                  onClick={() => setViewMode('map')}
+                  className={`px-3 py-1 text-xs font-medium rounded-lg transition ${
+                    viewMode === 'map' ? 'bg-stone-800 text-white' : 'text-stone-400 hover:text-white'
+                  }`}
+                >
+                  Mapa
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`px-3 py-1 text-xs font-medium rounded-lg transition ${
+                    viewMode === 'list' ? 'bg-stone-800 text-white' : 'text-stone-400 hover:text-white'
+                  }`}
+                >
+                  Seznam
+                </button>
+              </div>
+            )}
 
             {/* PIN Lock toggle */}
             <button
@@ -616,10 +618,20 @@ export const App: React.FC = () => {
                   placeholder="••••"
                   className="w-full text-center tracking-[0.5em] text-2xl font-bold bg-stone-950 border border-stone-800 rounded-xl py-3 text-stone-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-700"
                 />
-                <div className="text-center mt-2">
+                <div className="text-center mt-2 flex items-center justify-center gap-2">
                   <span className="text-[11px] text-stone-500">
                     Výchozí přístupový PIN: <strong className="text-emerald-400 font-mono">1234</strong>
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPinInput('1234');
+                      setPinError(false);
+                    }}
+                    className="text-[10px] text-emerald-400 hover:text-emerald-300 underline font-semibold"
+                  >
+                    Vyplnit 1234
+                  </button>
                 </div>
                 {pinError && (
                   <div className="flex items-center justify-center gap-1.5 text-xs text-red-400 mt-2 bg-red-950/60 border border-red-900/50 py-1.5 px-3 rounded-lg">
@@ -661,7 +673,7 @@ export const App: React.FC = () => {
                 className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2 mt-2"
               >
                 <Unlock className="w-4 h-4" />
-                <span>Odemknout Horský deník</span>
+                <span>Odemknout Horský deník (PIN 1234)</span>
               </button>
             </form>
           </div>
@@ -978,13 +990,9 @@ export const App: React.FC = () => {
 
       {/* PIN Security Modal */}
       <PinModal
-        isOpen={!isUnlocked || isPinModalOpen}
-        required={!isUnlocked}
-        onClose={() => {
-          if (isUnlocked) {
-            setIsPinModalOpen(false);
-          }
-        }}
+        isOpen={isPinModalOpen}
+        required={false}
+        onClose={() => setIsPinModalOpen(false)}
         onSuccess={() => {
           setIsUnlocked(true);
           try {

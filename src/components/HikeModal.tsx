@@ -1219,7 +1219,11 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                     ) : (
                       /* Spacious Grid View */
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                        {currentPhotos.map((photo, idx) => (
+                        {currentPhotos.map((photo, idx) => {
+                          const w = typeof photo === 'object' ? photo?.width : undefined;
+                          const h = typeof photo === 'object' ? photo?.height : undefined;
+                          const sizeKb = typeof photo === 'object' ? photo?.sizeKb : undefined;
+                          return (
                           <div
                             key={idx}
                             onClick={() => {
@@ -1234,6 +1238,12 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                               className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                               loading="lazy"
                             />
+                            {/* Prominent Resolution Badge in Grid */}
+                            <div className="absolute top-2 left-2 bg-black/90 backdrop-blur px-2.5 py-1 rounded-md text-[11px] font-bold text-emerald-300 border border-emerald-700/80 shadow flex items-center gap-1.5 z-10">
+                              <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>{w && h ? `${w} × ${h} px` : 'Plná kvalita'}</span>
+                              {sizeKb ? ` • ${sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' MB' : sizeKb + ' KB'}` : ''}
+                            </div>
                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
                               <span className="text-xs text-white font-semibold bg-black/75 px-3 py-1.5 rounded-xl backdrop-blur border border-stone-700 flex items-center gap-1.5">
                                 <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
@@ -1254,7 +1264,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                               </button>
                             )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )
                   ) : (

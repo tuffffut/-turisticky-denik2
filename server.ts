@@ -277,6 +277,40 @@ async function startServer() {
     next();
   });
 
+  // Killer script for any stale service workers across all browsers
+  const killServiceWorkerScript = `
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+});
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      .then(() => self.registration.unregister())
+      .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then((clients) => {
+        clients.forEach((c) => {
+          if (c.url && 'navigate' in c) {
+            c.navigate(c.url);
+          }
+        });
+      })
+  );
+});
+self.addEventListener('fetch', (e) => {
+  e.respondWith(fetch(e.request));
+});
+`.trim();
+
+  // Explicit endpoints to kill any lingering service worker from previous PWA installations
+  app.get(['/sw.js', '/registerSW.js', '/dev-sw.js', '/service-worker.js', /^\/workbox-.*\.js$/], (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    return res.send(killServiceWorkerScript);
+  });
+
   // Strict anti-caching middleware for dynamic API routes and HTML documents
   app.use((req, res, next) => {
     if (req.path.startsWith('/api/') || req.path === '/' || req.path.endsWith('.html')) {
@@ -285,6 +319,7 @@ async function startServer() {
         'Pragma': 'no-cache',
         'Expires': '0',
         'Surrogate-Control': 'no-store',
+        'Clear-Site-Data': '"cache"',
       });
     }
     next();
