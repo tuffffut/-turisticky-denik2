@@ -314,6 +314,9 @@ self.addEventListener('fetch', (e) => {
   // Strict anti-caching middleware for dynamic API routes and HTML documents
   // Strict anti-caching middleware for dynamic API routes, scripts and HTML documents
   app.use((req, res, next) => {
+    if (req.path === '/' || req.path.startsWith('/api/')) {
+      console.log(`[REQUEST] ${req.method} ${req.url} - IP: ${req.ip || req.socket.remoteAddress} - UA: ${req.headers['user-agent']?.slice(0, 50)}`);
+    }
     if (
       req.path.startsWith('/api/') ||
       req.path === '/' ||
