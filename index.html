@@ -6,40 +6,40 @@
     <script>
       (function() {
         try {
+          var purged = false;
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function(regs) {
-              for (var i = 0; i < regs.length; i++) regs[i].unregister();
-            });
-          }
-          if ('caches' in window) {
-            caches.keys().then(function(names) {
-              for (var i = 0; i < names.length; i++) caches.delete(names[i]);
+              if (regs && regs.length > 0) {
+                for (var i = 0; i < regs.length; i++) regs[i].unregister();
+                purged = true;
+              }
+              if ('caches' in window) {
+                caches.keys().then(function(names) {
+                  if (names && names.length > 0) {
+                    for (var i = 0; i < names.length; i++) caches.delete(names[i]);
+                    purged = true;
+                  }
+                  if (purged && !sessionStorage.getItem('__sw_purged_reloaded')) {
+                    sessionStorage.setItem('__sw_purged_reloaded', '1');
+                    window.location.reload();
+                  }
+                });
+              }
             });
           }
           localStorage.removeItem('horsky_denik_unlocked');
           localStorage.removeItem('isUnlocked');
-          sessionStorage.clear();
         } catch (e) {}
       })();
     </script>
     <title>Horský Deník – Evidence výprav a GPX tras</title>
     <meta name="description" content="Evidence horských výprav a túr s GPX trasami, interaktivní mapou, výškovými profily a zabezpečením dvojitým PINem." />
     <meta name="theme-color" content="#0c0a09" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Horský Deník" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta property="og:title" content="Horský Deník – Evidence výprav a GPX tras" />
-    <meta property="og:description" content="Evidence horských výprav a túr s GPX trasami, interaktivní mapou, výškovými profily a zabezpečením dvojitým PINem." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   </head>
   <body class="bg-stone-950 text-stone-100 antialiased selection:bg-emerald-600 selection:text-white">
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/main.tsx?v=20261018c"></script>
   </body>
 </html>

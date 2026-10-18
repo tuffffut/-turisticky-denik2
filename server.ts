@@ -312,14 +312,23 @@ self.addEventListener('fetch', (e) => {
   });
 
   // Strict anti-caching middleware for dynamic API routes and HTML documents
+  // Strict anti-caching middleware for dynamic API routes, scripts and HTML documents
   app.use((req, res, next) => {
-    if (req.path.startsWith('/api/') || req.path === '/' || req.path.endsWith('.html')) {
+    if (
+      req.path.startsWith('/api/') ||
+      req.path === '/' ||
+      req.path.endsWith('.html') ||
+      req.path.endsWith('.tsx') ||
+      req.path.endsWith('.ts') ||
+      req.path.endsWith('.jsx') ||
+      req.path.endsWith('.js')
+    ) {
       res.set({
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
         'Pragma': 'no-cache',
         'Expires': '0',
         'Surrogate-Control': 'no-store',
-        'Clear-Site-Data': '"cache"',
+        'Clear-Site-Data': '"cache", "storage"',
       });
     }
     next();
