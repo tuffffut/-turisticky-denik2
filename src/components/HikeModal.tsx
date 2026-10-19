@@ -337,7 +337,11 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
           setFormData((prev) => ({ ...prev, photos: updated }));
           if (targetHikeId) {
-            await onSave({ ...route, ...formData, photos: updated });
+            try {
+              await onSave({ ...route, ...formData, photos: updated });
+            } catch (saveErr) {
+              console.warn('Uloženo lokálně, server nedostupný:', saveErr);
+            }
           }
 
           setActivePhotoIndex((prev) => Math.max(0, Math.min(prev, updated.length - 1)));
@@ -348,13 +352,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
             setLightboxOpen(false);
           }
         } catch (err: any) {
-          setFeedbackDialog({
-            type: 'error',
-            title: 'Chyba při mazání',
-            message: err.message,
-            confirmLabel: 'Zavřít',
-            onConfirm: () => setFeedbackDialog(null),
-          });
+          console.warn('Upozornění při mazání fotografie:', err);
         }
       },
       cancelLabel: 'Zrušit',
@@ -823,28 +821,46 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                   return (
                     <div className="space-y-3">
                       {isPartialTrack && (
-                        <div className="bg-amber-950/40 border border-amber-800/60 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-200">
+                        <div className="bg-amber-950/40 border border-amber-800/60 rounded-2xl p-4 flex flex-col gap-3 text-amber-200">
                           <div className="flex items-start gap-2.5">
                             <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                             <div className="text-xs">
                               <span className="font-semibold block text-amber-300">
                                 Upozornění: GPX trasa je zkrácená (zaznamenáno pouze {ptsDistKm.toFixed(1)} km z celkových {totalRecordedKm} km)
                               </span>
-                              <span className="text-stone-400 block mt-0.5">
-                                Původní synchronizace z Garminu uložila pouze prvních {pts.length} bodů. Můžete nahrát kompletní originální GPX soubor přímo sem.
+                              <span className="text-stone-300 block mt-0.5">
+                                Původní import z Garminu uložil pouze {pts.length} bodů trasy. Můžete si přímo z Garmin Connect stáhnout originální plný GPX soubor a nahrát ho sem.
                               </span>
                             </div>
                           </div>
-                          {canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => gpxInputRef.current?.click()}
-                              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-stone-950 text-xs font-bold rounded-xl transition shadow flex items-center gap-1.5 shrink-0"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                              Nahrát celou GPX trasu
-                            </button>
-                          )}
+
+                          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-amber-900/40">
+                            {(() => {
+                              const garminId = formData.garminActivityId || route?.garminActivityId || (route?.id && route.id.startsWith('garmin-') ? route.id.replace('garmin-', '') : null);
+                              return garminId ? (
+                                <a
+                                  href={`https://connect.garmin.com/modern/activity/${garminId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1.5 bg-stone-900 hover:bg-stone-800 border border-amber-700/60 text-amber-300 text-xs font-medium rounded-xl transition flex items-center gap-1.5 shadow"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                  Otevřít v Garmin Connect
+                                </a>
+                              ) : null;
+                            })()}
+
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => gpxInputRef.current?.click()}
+                                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-stone-950 text-xs font-bold rounded-xl transition shadow flex items-center gap-1.5"
+                              >
+                                <Upload className="w-3.5 h-3.5" />
+                                Nahrát plný GPX soubor
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )}
 

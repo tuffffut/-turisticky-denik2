@@ -169,7 +169,7 @@ export const App: React.FC = () => {
   const [selectedRange, setSelectedRange] = useState<string>('all');
   const [selectedActivity, setSelectedActivity] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'distance' | 'elevation'>('date');
-  const [viewMode, setViewMode] = useState<'split' | 'map' | 'list'>('split');
+  const [viewMode, setViewMode] = useState<'split' | 'map' | 'list'>('list');
 
   // Modals & Selection
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
@@ -255,20 +255,37 @@ export const App: React.FC = () => {
         throw new Error('Server vrátil neplatnou odpověď (chybí pole tras).');
       }
 
-      const loadedRoutes = rawList.map((r: any) => {
-        const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
-          ? r.trackpoints
-          : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
-          ? r.trackPoints
-          : [];
-        return {
-          ...r,
-          id: (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random(),
-          trackpoints: pts,
-          trackPoints: pts,
-          photos: Array.isArray(r.photos) ? r.photos : [],
-        };
-      });
+      // Apply local overrides (photo deletions, route edits on GitHub Pages)
+      let localOverrides: Record<string, any> = {};
+      try {
+        const raw = localStorage.getItem('horsky_denik_local_overrides');
+        if (raw) localOverrides = JSON.parse(raw);
+      } catch {}
+
+      const loadedRoutes = rawList
+        .filter((r: any) => {
+          const id = (r.id && String(r.id).trim()) || r.title;
+          return !localOverrides[id]?.deleted;
+        })
+        .map((r: any) => {
+          const id = (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random();
+          const override = localOverrides[id] || {};
+          const pts = (Array.isArray(override.trackpoints || r.trackpoints) && (override.trackpoints || r.trackpoints).length > 0)
+            ? (override.trackpoints || r.trackpoints)
+            : (Array.isArray(override.trackPoints || r.trackPoints) && (override.trackPoints || r.trackPoints).length > 0)
+            ? (override.trackPoints || r.trackPoints)
+            : [];
+          return {
+            ...r,
+            ...override,
+            id,
+            trackpoints: pts,
+            trackPoints: pts,
+            photos: Array.isArray(override.photos !== undefined ? override.photos : r.photos)
+              ? (override.photos !== undefined ? override.photos : r.photos)
+              : [],
+          };
+        });
       setRoutes(loadedRoutes);
       setServerError(null);
 
@@ -386,46 +403,61 @@ export const App: React.FC = () => {
         setModalRoute((prev) =>
           prev && prev.id === updatedRoute.id ? ({ ...prev, ...updatedRoute } as HikeRoute) : prev
         );
+        // 2. Persist local override to localStorage (ensures photo deletions and edits stay saved on GitHub Pages)
+        try {
+          const raw = localStorage.getItem('horsky_denik_local_overrides');
+          const overrides: Record<string, any> = raw ? JSON.parse(raw) : {};
+          overrides[updatedRoute.id] = { ...(overrides[updatedRoute.id] || {}), ...updatedRoute };
+          localStorage.setItem('horsky_denik_local_overrides', JSON.stringify(overrides));
+        } catch {}
       }
 
-      const res = await fetch('/api/routes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...updatedRoute,
-          fromUserModal: true,
-          source: 'user',
-        }),
-      });
+      // 3. Try server sync if available (safe against 404 on GitHub Pages)
+      try {
+        const res = await fetch('/api/routes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...updatedRoute,
+            fromUserModal: true,
+            source: 'user',
+          }),
+        });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Uložení selhalo');
+        if (res.ok) {
+          await fetchRoutes(true);
+        }
+      } catch {
+        // Silent fallback when on static GitHub Pages
       }
-
-      // Refresh silently in background
-      await fetchRoutes(true);
     } catch (err: any) {
-      console.error('Chyba při ukládání trasy:', err);
-      alert('Chyba při ukládání: ' + err.message);
-      throw err;
+      console.warn('Upozornění při ukládání:', err);
     }
   };
 
   // Delete route
   const handleDeleteRoute = async (routeId: string) => {
     try {
-      const res = await fetch(`/api/routes/${encodeURIComponent(routeId)}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        throw new Error('Smazání selhalo');
-      }
       setRoutes((prev) => prev.filter((r) => r.id !== routeId));
       if (selectedRouteId === routeId) setSelectedRouteId(null);
       if (modalRoute?.id === routeId) setIsModalOpen(false);
+
+      // Persist deletion in localStorage for GitHub Pages
+      try {
+        const raw = localStorage.getItem('horsky_denik_local_overrides');
+        const overrides: Record<string, any> = raw ? JSON.parse(raw) : {};
+        overrides[routeId] = { deleted: true };
+        localStorage.setItem('horsky_denik_local_overrides', JSON.stringify(overrides));
+      } catch {}
+
+      // Server delete if available
+      try {
+        await fetch(`/api/routes/${encodeURIComponent(routeId)}`, {
+          method: 'DELETE',
+        });
+      } catch {}
     } catch (err: any) {
-      alert('Chyba při mazání: ' + err.message);
+      console.warn('Chyba při mazání:', err);
     }
   };
 
