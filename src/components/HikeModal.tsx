@@ -323,7 +323,20 @@ export const HikeModal: React.FC<HikeModalProps> = ({
             ? removed.id
             : typeof removed === 'string' && removed.startsWith('/api/photos/')
             ? removed.replace('/api/photos/', '').split('?')[0]
+            : typeof removed === 'string'
+            ? removed
             : null;
+
+          if (photoId) {
+            try {
+              const raw = localStorage.getItem('horsky_denik_deleted_photos');
+              const list: string[] = raw ? JSON.parse(raw) : [];
+              if (!list.includes(photoId)) {
+                list.push(photoId);
+                localStorage.setItem('horsky_denik_deleted_photos', JSON.stringify(list));
+              }
+            } catch {}
+          }
 
           if (targetHikeId && photoId) {
             try {

@@ -681,6 +681,10 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         fs.mkdirSync(dataDir, { recursive: true });
       }
       fs.writeFileSync(routesCachePath, JSON.stringify(routes, null, 2));
+
+      // Also persist to public/routes-cache.json so static builds / GitHub Pages remain in sync
+      const publicPath = path.join(process.cwd(), 'public', 'routes-cache.json');
+      fs.writeFileSync(publicPath, JSON.stringify(routes, null, 2));
     } catch (e) {
       console.warn('Nelze uložit routes-cache.json:', e);
     }

@@ -255,11 +255,17 @@ export const App: React.FC = () => {
         throw new Error('Server vrátil neplatnou odpověď (chybí pole tras).');
       }
 
-      // Apply local overrides (photo deletions, route edits on GitHub Pages)
+      // Apply local overrides and permanently deleted photos (GitHub Pages durability)
       let localOverrides: Record<string, any> = {};
+      let deletedPhotoSet = new Set<string>();
       try {
         const raw = localStorage.getItem('horsky_denik_local_overrides');
         if (raw) localOverrides = JSON.parse(raw);
+        const delRaw = localStorage.getItem('horsky_denik_deleted_photos');
+        if (delRaw) {
+          const list = JSON.parse(delRaw);
+          deletedPhotoSet = new Set(Array.isArray(list) ? list : []);
+        }
       } catch {}
 
       const loadedRoutes = rawList
@@ -275,15 +281,22 @@ export const App: React.FC = () => {
             : (Array.isArray(override.trackPoints || r.trackPoints) && (override.trackPoints || r.trackPoints).length > 0)
             ? (override.trackPoints || r.trackPoints)
             : [];
+
+          const basePhotos = Array.isArray(override.photos !== undefined ? override.photos : r.photos)
+            ? (override.photos !== undefined ? override.photos : r.photos)
+            : [];
+          const cleanPhotos = basePhotos.filter((p: any) => {
+            const pId = typeof p === 'object' && p?.id ? p.id : typeof p === 'string' ? p : '';
+            return !deletedPhotoSet.has(pId);
+          });
+
           return {
             ...r,
             ...override,
             id,
             trackpoints: pts,
             trackPoints: pts,
-            photos: Array.isArray(override.photos !== undefined ? override.photos : r.photos)
-              ? (override.photos !== undefined ? override.photos : r.photos)
-              : [],
+            photos: cleanPhotos,
           };
         });
       setRoutes(loadedRoutes);
@@ -403,13 +416,17 @@ export const App: React.FC = () => {
         setModalRoute((prev) =>
           prev && prev.id === updatedRoute.id ? ({ ...prev, ...updatedRoute } as HikeRoute) : prev
         );
-        // 2. Persist local override to localStorage (ensures photo deletions and edits stay saved on GitHub Pages)
+        // 2. Persist lightweight override to localStorage (prevents quota exceeded error)
         try {
           const raw = localStorage.getItem('horsky_denik_local_overrides');
           const overrides: Record<string, any> = raw ? JSON.parse(raw) : {};
-          overrides[updatedRoute.id] = { ...(overrides[updatedRoute.id] || {}), ...updatedRoute };
+          const prevItem = overrides[updatedRoute.id] || {};
+          const { trackpoints, trackPoints, gpxRawXml, ...lightRoute } = updatedRoute as any;
+          overrides[updatedRoute.id] = { ...prevItem, ...lightRoute };
           localStorage.setItem('horsky_denik_local_overrides', JSON.stringify(overrides));
-        } catch {}
+        } catch (e) {
+          console.warn('Nelze zapsat do localStorage:', e);
+        }
       }
 
       // 3. Try server sync if available (safe against 404 on GitHub Pages)
