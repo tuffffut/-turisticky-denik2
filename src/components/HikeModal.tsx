@@ -574,8 +574,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       }
       return photo;
     }
-    // Prioritize direct 4K dataUrl, then rawUrl, then url
-    return photo.dataUrl || photo.rawUrl || photo.url || '';
+    // Prioritize direct 4K dataUrl, then rawUrl, then static photos directory, then url
+    return photo.dataUrl || photo.rawUrl || (photo.id ? `./photos/${photo.id}.jpg` : '') || photo.url || '';
   };
 
   const handleDownloadCurrentPhoto = () => {

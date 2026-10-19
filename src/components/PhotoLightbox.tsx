@@ -51,7 +51,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
     if (typeof currentItem === 'string') {
       setResolvedSrc(currentItem);
     } else {
-      setResolvedSrc(currentItem.url || currentItem.rawUrl || currentItem.dataUrl || '');
+      setResolvedSrc(currentItem.dataUrl || currentItem.rawUrl || (currentItem.id ? `./photos/${currentItem.id}.jpg` : '') || currentItem.url || '');
     }
   }, [currentItem]);
 

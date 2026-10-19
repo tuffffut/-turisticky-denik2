@@ -96,7 +96,7 @@ const PhotoCardPreview: React.FC<PhotoCardPreviewProps> = ({ photo, title, photo
       ? photo.startsWith('/api/photos/')
         ? `${photo}?raw=1`
         : photo
-      : photo?.dataUrl || photo?.rawUrl || photo?.url || '';
+      : photo?.dataUrl || photo?.rawUrl || (photo?.id ? `./photos/${photo.id}.jpg` : '') || photo?.url || '';
 
   const sizeKb = typeof photo === 'object' ? photo?.sizeKb : undefined;
 
@@ -212,30 +212,50 @@ export const App: React.FC = () => {
     }
   };
 
-  // Fetch routes from central server/Firestore
+  // Fetch routes from central server/Firestore with static fallback for GitHub Pages
   const fetchRoutes = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
       setServerError(null);
-      const res = await fetch(`/api/routes?_t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-        },
-      });
+      let res: Response;
+      let isFallback = false;
+      try {
+        res = await fetch(`/api/routes?_t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+          },
+        });
+      } catch {
+        res = await fetch('./routes-cache.json');
+        isFallback = true;
+      }
 
       if (!res.ok) {
+        if (!isFallback) {
+          const fallbackRes = await fetch('./routes-cache.json').catch(() => null);
+          if (fallbackRes && fallbackRes.ok) {
+            const fallbackJson = await fallbackRes.json();
+            const fallbackList = Array.isArray(fallbackJson) ? fallbackJson : fallbackJson.routes || [];
+            if (fallbackList.length > 0) {
+              setRoutes(fallbackList);
+              setServerError(null);
+              return;
+            }
+          }
+        }
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || `Chyba serveru (${res.status}: ${res.statusText})`);
       }
 
       const data = await res.json();
-      if (!data || !Array.isArray(data.routes)) {
+      const rawList = Array.isArray(data) ? data : data.routes;
+      if (!rawList || !Array.isArray(rawList)) {
         throw new Error('Server vrátil neplatnou odpověď (chybí pole tras).');
       }
 
-      const loadedRoutes = data.routes.map((r: any) => {
+      const loadedRoutes = rawList.map((r: any) => {
         const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
           ? r.trackpoints
           : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
