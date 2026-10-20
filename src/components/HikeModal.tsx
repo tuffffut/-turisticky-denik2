@@ -30,6 +30,7 @@ import { POPULAR_MOUNTAIN_RANGES, detectMountainRangeFromCoords } from '../utils
 import { ElevationProfile } from './ElevationProfile';
 import { PhotoLightbox } from './PhotoLightbox';
 import { uploadPhotoToStorage } from '../utils/photoOptimizer';
+import { saveRouteTrackpoints } from '../utils/dbStorage';
 
 interface HikeModalProps {
   route: HikeRoute | null;
@@ -518,6 +519,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       // Auto-save immediately if updating existing hike so track is immediately permanent
       const targetId = formData.id || route?.id;
       if (targetId) {
+        await saveRouteTrackpoints(targetId, points);
         await onSave({
           ...route,
           ...updatedFormData,

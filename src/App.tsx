@@ -21,12 +21,16 @@ import {
   RefreshCw,
   Award,
   AlertCircle,
+  Settings,
+  Upload,
 } from 'lucide-react';
 import { HikeRoute, HikeStats, ActivityType } from './types';
 import { POPULAR_MOUNTAIN_RANGES } from './utils/mountainRanges';
 import { HikeMap } from './components/HikeMap';
 import { HikeModal } from './components/HikeModal';
 import { PinModal } from './components/PinModal';
+import { SettingsModal } from './components/SettingsModal';
+import { saveRouteTrackpoints, getRouteTrackpoints } from './utils/dbStorage';
 
 function getActivityTimeScore(route: HikeRoute): number {
   if (!route.date) return 0;
@@ -176,6 +180,8 @@ export const App: React.FC = () => {
   const [modalRoute, setModalRoute] = useState<HikeRoute | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isNewHikeModal, setIsNewHikeModal] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const gpxNavInputRef = React.useRef<HTMLInputElement>(null);
 
   // Security & PIN - ALWAYS starts locked on every reload and page load!
   const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
@@ -267,46 +273,56 @@ export const App: React.FC = () => {
         }
       } catch {}
 
-      const loadedRoutes = rawList
-        .filter((r: any) => {
-          const id = (r.id && String(r.id).trim()) || r.title;
-          return !localOverrides[id]?.deleted;
-        })
-        .map((r: any) => {
-          const id = (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random();
-          const override = localOverrides[id] || {};
-          const pts = (Array.isArray(override.trackpoints || r.trackpoints) && (override.trackpoints || r.trackpoints).length > 0)
-            ? (override.trackpoints || r.trackpoints)
-            : (Array.isArray(override.trackPoints || r.trackPoints) && (override.trackPoints || r.trackPoints).length > 0)
-            ? (override.trackPoints || r.trackPoints)
-            : [];
+      const loadedRoutes = await Promise.all(
+        rawList
+          .filter((r: any) => {
+            const id = (r.id && String(r.id).trim()) || r.title;
+            return !localOverrides[id]?.deleted;
+          })
+          .map(async (r: any) => {
+            const id = (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random();
+            const override = localOverrides[id] || {};
+            let pts = (Array.isArray(override.trackpoints || r.trackpoints) && (override.trackpoints || r.trackpoints).length > 0)
+              ? (override.trackpoints || r.trackpoints)
+              : (Array.isArray(override.trackPoints || r.trackPoints) && (override.trackPoints || r.trackPoints).length > 0)
+              ? (override.trackPoints || r.trackPoints)
+              : [];
 
-          const basePhotos = Array.isArray(override.photos !== undefined ? override.photos : r.photos)
-            ? (override.photos !== undefined ? override.photos : r.photos)
-            : [];
-          const cleanPhotos = basePhotos.filter((p: any) => {
-            if (!p) return false;
-            const pId = typeof p === 'object' && p?.id ? p.id : '';
-            const pUrl = typeof p === 'object' && p?.url ? p.url : typeof p === 'string' ? p : '';
-            const pRaw = typeof p === 'object' && p?.rawUrl ? p.rawUrl : '';
-            const pName = typeof p === 'object' && p?.name ? p.name : '';
-            return !(
-              (pId && deletedPhotoSet.has(pId)) ||
-              (pUrl && deletedPhotoSet.has(pUrl)) ||
-              (pRaw && deletedPhotoSet.has(pRaw)) ||
-              (pName && deletedPhotoSet.has(pName))
-            );
-          });
+            // Restore full 7991+ point GPX track from IndexedDB if stored
+            try {
+              const fullPts = await getRouteTrackpoints(id);
+              if (fullPts && Array.isArray(fullPts) && fullPts.length > pts.length) {
+                pts = fullPts;
+              }
+            } catch {}
 
-          return {
-            ...r,
-            ...override,
-            id,
-            trackpoints: pts,
-            trackPoints: pts,
-            photos: cleanPhotos,
-          };
-        });
+            const basePhotos = Array.isArray(override.photos !== undefined ? override.photos : r.photos)
+              ? (override.photos !== undefined ? override.photos : r.photos)
+              : [];
+            const cleanPhotos = basePhotos.filter((p: any) => {
+              if (!p) return false;
+              const pId = typeof p === 'object' && p?.id ? p.id : '';
+              const pUrl = typeof p === 'object' && p?.url ? p.url : typeof p === 'string' ? p : '';
+              const pRaw = typeof p === 'object' && p?.rawUrl ? p.rawUrl : '';
+              const pName = typeof p === 'object' && p?.name ? p.name : '';
+              return !(
+                (pId && deletedPhotoSet.has(pId)) ||
+                (pUrl && deletedPhotoSet.has(pUrl)) ||
+                (pRaw && deletedPhotoSet.has(pRaw)) ||
+                (pName && deletedPhotoSet.has(pName))
+              );
+            });
+
+            return {
+              ...r,
+              ...override,
+              id,
+              trackpoints: pts,
+              trackPoints: pts,
+              photos: cleanPhotos,
+            };
+          })
+      );
       setRoutes(loadedRoutes);
       setServerError(null);
 
@@ -424,6 +440,13 @@ export const App: React.FC = () => {
         setModalRoute((prev) =>
           prev && prev.id === updatedRoute.id ? ({ ...prev, ...updatedRoute } as HikeRoute) : prev
         );
+
+        // Save full trackpoints to IndexedDB so 7991+ points remain 100% persistent across reloads
+        const pts = updatedRoute.trackpoints || updatedRoute.trackPoints;
+        if (Array.isArray(pts) && pts.length > 0) {
+          saveRouteTrackpoints(updatedRoute.id, pts).catch(() => {});
+        }
+
         // 2. Persist lightweight override to localStorage (prevents quota exceeded error)
         try {
           const raw = localStorage.getItem('horsky_denik_local_overrides');
@@ -512,6 +535,157 @@ export const App: React.FC = () => {
     });
     setIsNewHikeModal(true);
     setIsModalOpen(true);
+  };
+
+  const handleExportBackup = () => {
+    try {
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(routes, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `horsky_denik_zaloha_${new Date().toISOString().split('T')[0]}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch (e: any) {
+      alert('Chyba při exportu zálohy: ' + e.message);
+    }
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const imported = JSON.parse(text);
+        const list = Array.isArray(imported) ? imported : imported.routes;
+        if (Array.isArray(list) && list.length > 0) {
+          setRoutes(list);
+          for (const r of list) {
+            if (r.id && (r.trackpoints || r.trackPoints)) {
+              await saveRouteTrackpoints(r.id, r.trackpoints || r.trackPoints);
+            }
+          }
+          alert(`Úspěšně importováno ${list.length} výprav ze zálohy!`);
+          setIsSettingsOpen(false);
+        }
+      } catch (err: any) {
+        alert('Chyba při importu zálohy: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleClearCache = () => {
+    if (confirm('Opravdu chcete vyčistit lokální mezipaměť prohlížeče a načíst čerstvá data?')) {
+      try {
+        localStorage.removeItem('horsky_denik_local_overrides');
+        localStorage.removeItem('horsky_denik_deleted_photos');
+        sessionStorage.clear();
+      } catch {}
+      fetchRoutes(false);
+      setIsSettingsOpen(false);
+    }
+  };
+
+  const handleQuickGpxNavUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(text, 'text/xml');
+      const pointNodes = xmlDoc.querySelectorAll('trkpt, rtept, wpt');
+
+      const points: any[] = [];
+      let minEle = Infinity;
+      let maxEle = -Infinity;
+      let totalDist = 0;
+      let totalAscent = 0;
+      let totalDescent = 0;
+
+      for (let i = 0; i < pointNodes.length; i++) {
+        const node = pointNodes[i];
+        const lat = parseFloat(node.getAttribute('lat') || '');
+        const lng = parseFloat(node.getAttribute('lon') || node.getAttribute('lng') || '');
+        if (isNaN(lat) || isNaN(lng)) continue;
+
+        const eleNode = node.querySelector('ele');
+        const ele = eleNode ? parseFloat(eleNode.textContent || '') : undefined;
+        const timeNode = node.querySelector('time');
+        const time = timeNode ? timeNode.textContent?.trim() : undefined;
+
+        if (points.length > 0) {
+          const p1 = points[points.length - 1];
+          const dLat = ((lat - p1.lat) * Math.PI) / 180;
+          const dLon = ((lng - p1.lng) * Math.PI) / 180;
+          const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos((p1.lat * Math.PI) / 180) *
+              Math.cos((lat * Math.PI) / 180) *
+              Math.sin(dLon / 2) ** 2;
+          const d = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          totalDist += d;
+
+          if (p1.ele !== undefined && ele !== undefined) {
+            const diff = ele - p1.ele;
+            if (diff > 0.8) totalAscent += diff;
+            else if (diff < -0.8) totalDescent += Math.abs(diff);
+          }
+        }
+
+        if (ele !== undefined && !isNaN(ele)) {
+          if (ele < minEle) minEle = ele;
+          if (ele > maxEle) maxEle = ele;
+        }
+
+        points.push({
+          lat,
+          lng,
+          ele: ele !== undefined ? Math.round(ele) : undefined,
+          time,
+          distFromStartKm: Math.round(totalDist * 100) / 100,
+        });
+      }
+
+      if (points.length === 0) {
+        alert('V souboru GPX nebyly nalezeny žádné body trasy.');
+        return;
+      }
+
+      const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+      const newRouteId = 'route_' + Date.now();
+      const detectedDate = points[0]?.time ? String(points[0].time).slice(0, 10) : new Date().toISOString().split('T')[0];
+
+      // Save full 7991+ points to IndexedDB
+      await saveRouteTrackpoints(newRouteId, points);
+
+      const newRoute: HikeRoute = {
+        id: newRouteId,
+        title: cleanTitle,
+        mountainRange: 'Krkonoše',
+        date: detectedDate,
+        activityType: 'hiking',
+        distanceKm: Math.round(totalDist * 10) / 10,
+        elevationGainM: Math.round(totalAscent),
+        elevationLossM: Math.round(totalDescent),
+        highestPointM: maxEle > -Infinity ? Math.round(maxEle) : 1000,
+        lowestPointM: minEle < Infinity ? Math.round(minEle) : 500,
+        trackpoints: points,
+        trackPoints: points,
+        photos: [],
+        description: `Importováno z GPX souboru ${file.name} (${points.length} GPS bodů).`,
+      };
+
+      await handleSaveRoute(newRoute);
+      handleOpenDetail(newRoute);
+    } catch (err: any) {
+      alert('Chyba při nahrání GPX: ' + err.message);
+    } finally {
+      if (gpxNavInputRef.current) gpxNavInputRef.current.value = '';
+    }
   };
 
   const activeMountainRanges = useMemo(() => {
@@ -628,6 +802,39 @@ export const App: React.FC = () => {
                 {isUnlocked ? 'Odemčeno (zamknout)' : 'Zamčeno'}
               </span>
             </button>
+
+            {/* Settings button - always available when unlocked */}
+            {isUnlocked && (
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-2 sm:px-3 sm:py-1.5 rounded-xl border border-stone-800 bg-stone-900/80 hover:bg-stone-800 text-stone-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition"
+                title="Nastavení aplikace, VOP a zálohování"
+              >
+                <Settings className="w-4 h-4 text-emerald-400" />
+                <span className="hidden sm:inline">Nastavení & VOP</span>
+              </button>
+            )}
+
+            {/* Quick GPX Upload button */}
+            {isUnlocked && (
+              <>
+                <button
+                  onClick={() => gpxNavInputRef.current?.click()}
+                  className="px-2.5 sm:px-3 py-1.5 bg-stone-800 hover:bg-stone-700 border border-stone-700 text-stone-200 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap shadow"
+                  title="Rychle nahrát kompletní GPX soubor přímo z Garminu"
+                >
+                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">Nahrát GPX</span>
+                </button>
+                <input
+                  ref={gpxNavInputRef}
+                  type="file"
+                  accept=".gpx"
+                  onChange={handleQuickGpxNavUpload}
+                  className="hidden"
+                />
+              </>
+            )}
 
             {/* Add Hike button */}
             {isUnlocked && (
@@ -1079,6 +1286,18 @@ export const App: React.FC = () => {
         }}
         storedPin={storedPin}
         onUpdatePin={handleUpdatePin}
+      />
+
+      {/* Settings & VOP Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        storedPin={storedPin}
+        onUpdatePin={handleUpdatePin}
+        routesCount={routes.length}
+        onExportBackup={handleExportBackup}
+        onImportBackup={handleImportBackup}
+        onClearCache={handleClearCache}
       />
     </div>
   );

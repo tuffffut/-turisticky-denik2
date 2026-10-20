@@ -1145,9 +1145,17 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         console.error('[API /api/routes] Chyba při ukládání na disk serveru:', cacheErr);
       }
 
-      // 2. Also sync to Firestore cloud database in background (safe against quota issues)
+      // 2. Also sync to Firestore cloud database in background (safe against quota and 1MB size issues)
       if (db) {
-        setDoc(doc(db, 'hikes', routeId), cleanHikeForDb)
+        const firestoreHike = { ...cleanHikeForDb };
+        const rawPts = firestoreHike.trackpoints || firestoreHike.trackPoints;
+        if (Array.isArray(rawPts) && rawPts.length > 1000) {
+          const step = Math.ceil(rawPts.length / 1000);
+          const sampled = rawPts.filter((_, idx) => idx % step === 0 || idx === rawPts.length - 1);
+          firestoreHike.trackpoints = sampled;
+          firestoreHike.trackPoints = sampled;
+        }
+        setDoc(doc(db, 'hikes', routeId), firestoreHike)
           .then(() => console.log(`[API /api/routes] Trasa ${routeId} synchronizována do Firestore.`))
           .catch((dbErr) => console.warn('[API /api/routes] Firestore varování při zápisu:', dbErr.message));
       }

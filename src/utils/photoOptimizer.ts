@@ -166,8 +166,11 @@ export async function optimizePhoto(
   });
 }
 
+import { savePhotoBlob } from './dbStorage';
+
 /**
  * Uploads/prepares an optimized 4K photo for direct, robust storage.
+ * Works seamlessly with full-stack Node.js server AND with static GitHub Pages hosting.
  */
 export async function uploadPhotoToStorage(
   file: File,
@@ -177,35 +180,50 @@ export async function uploadPhotoToStorage(
   const optimized = await optimizePhoto(file, 3840, 0.90);
   const photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
 
-  const res = await fetch('/api/photos/upload', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      hikeId: hikeId || '',
-      dataUrl: optimized.dataUrl,
-      name: file.name || 'foto.jpg',
-      caption: caption || '',
-      width: optimized.width,
-      height: optimized.height,
-      sizeKb: optimized.sizeKb,
-    }),
-  });
+  // 1. Try server upload if available
+  let serverPhoto: any = null;
+  try {
+    const res = await fetch('/api/photos/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hikeId: hikeId || '',
+        dataUrl: optimized.dataUrl,
+        name: file.name || 'foto.jpg',
+        caption: caption || '',
+        width: optimized.width,
+        height: optimized.height,
+        sizeKb: optimized.sizeKb,
+      }),
+    });
 
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || `Chyba při nahrávání na server (${res.status} ${res.statusText})`);
+    if (res.ok) {
+      serverPhoto = await res.json();
+    } else if (res.status === 405) {
+      console.log('[Storage] Běží statický režim GitHub Pages (405) - ukládám fotografii do trvalého úložiště prohlížeče.');
+    }
+  } catch {
+    console.log('[Storage] Server nedostupný - ukládám do lokálního úložiště prohlížeče.');
   }
 
-  const serverPhoto = await res.json();
+  // 2. Always persist photo dataUrl to IndexedDB for offline / GitHub Pages durability
+  await savePhotoBlob(photoId, optimized.dataUrl, {
+    name: file.name,
+    width: optimized.width,
+    height: optimized.height,
+    sizeKb: optimized.sizeKb,
+  });
+
   return {
-    id: serverPhoto.id || photoId,
-    url: serverPhoto.url || `/api/photos/${photoId}`,
-    rawUrl: serverPhoto.rawUrl || `/api/photos/${photoId}?raw=1`,
-    name: serverPhoto.name || file.name,
+    id: serverPhoto?.id || photoId,
+    url: serverPhoto?.url || optimized.dataUrl,
+    rawUrl: serverPhoto?.rawUrl || optimized.dataUrl,
+    dataUrl: optimized.dataUrl,
+    name: serverPhoto?.name || file.name,
     caption: caption || '',
-    width: serverPhoto.width || optimized.width,
-    height: serverPhoto.height || optimized.height,
-    sizeKb: serverPhoto.sizeKb || optimized.sizeKb,
+    width: serverPhoto?.width || optimized.width,
+    height: serverPhoto?.height || optimized.height,
+    sizeKb: serverPhoto?.sizeKb || optimized.sizeKb,
     source: 'user',
     createdAt: new Date().toISOString(),
   };
