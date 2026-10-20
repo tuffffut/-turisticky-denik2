@@ -30,7 +30,7 @@ import { POPULAR_MOUNTAIN_RANGES, detectMountainRangeFromCoords } from '../utils
 import { ElevationProfile } from './ElevationProfile';
 import { PhotoLightbox } from './PhotoLightbox';
 import { uploadPhotoToStorage } from '../utils/photoOptimizer';
-import { saveRouteTrackpoints } from '../utils/dbStorage';
+import { saveRouteTrackpoints, saveRoutePhotos } from '../utils/dbStorage';
 
 interface HikeModalProps {
   route: HikeRoute | null;
@@ -212,6 +212,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       // Always save changes immediately to persist photos so they are never lost
       if (targetHikeId) {
         setUploadStatus('Ukládám trvalý odkaz k výpravě do cloudové databáze...');
+        await saveRoutePhotos(targetHikeId, newPhotosList);
         await onSave({
           ...route,
           ...formData,
@@ -355,6 +356,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
           setFormData((prev) => ({ ...prev, photos: updated }));
           if (targetHikeId) {
+            await saveRoutePhotos(targetHikeId, updated);
             try {
               await onSave({ ...route, ...formData, photos: updated });
             } catch (saveErr) {

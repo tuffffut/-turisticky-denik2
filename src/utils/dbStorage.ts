@@ -112,3 +112,44 @@ export async function getPhotoBlob(photoId: string): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Persists the entire photo array for a route into IndexedDB (supports multi-MB full 4K photos).
+ */
+export async function saveRoutePhotos(routeId: string, photos: any[]): Promise<void> {
+  if (!routeId || !Array.isArray(photos)) return;
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_ROUTES, 'readwrite');
+      const store = tx.objectStore(STORE_ROUTES);
+      store.put({ id: routeId, photos, updatedAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] Nelze uložit fotky výpravy do IndexedDB:', err);
+  }
+}
+
+/**
+ * Retrieves the persisted photo array for a route from IndexedDB.
+ */
+export async function getRoutePhotos(routeId: string): Promise<any[] | null> {
+  if (!routeId) return null;
+  try {
+    const db = await openDB();
+    return await new Promise<any[] | null>((resolve) => {
+      const tx = db.transaction(STORE_ROUTES, 'readonly');
+      const store = tx.objectStore(STORE_ROUTES);
+      const req = store.get(routeId);
+      req.onsuccess = () => {
+        resolve(req.result?.photos || null);
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+

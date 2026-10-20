@@ -30,7 +30,7 @@ import { HikeMap } from './components/HikeMap';
 import { HikeModal } from './components/HikeModal';
 import { PinModal } from './components/PinModal';
 import { SettingsModal } from './components/SettingsModal';
-import { saveRouteTrackpoints, getRouteTrackpoints } from './utils/dbStorage';
+import { saveRouteTrackpoints, getRouteTrackpoints, saveRoutePhotos, getRoutePhotos } from './utils/dbStorage';
 
 function getActivityTimeScore(route: HikeRoute): number {
   if (!route.date) return 0;
@@ -296,10 +296,18 @@ export const App: React.FC = () => {
               }
             } catch {}
 
-            const basePhotos = Array.isArray(override.photos !== undefined ? override.photos : r.photos)
+            // Restore custom photos from IndexedDB if stored
+            let routePhotos = Array.isArray(override.photos !== undefined ? override.photos : r.photos)
               ? (override.photos !== undefined ? override.photos : r.photos)
               : [];
-            const cleanPhotos = basePhotos.filter((p: any) => {
+            try {
+              const customPhotos = await getRoutePhotos(id);
+              if (customPhotos && Array.isArray(customPhotos) && customPhotos.length > 0) {
+                routePhotos = customPhotos;
+              }
+            } catch {}
+
+            const cleanPhotos = routePhotos.filter((p: any) => {
               if (!p) return false;
               const pId = typeof p === 'object' && p?.id ? p.id : '';
               const pUrl = typeof p === 'object' && p?.url ? p.url : typeof p === 'string' ? p : '';
@@ -447,12 +455,26 @@ export const App: React.FC = () => {
           saveRouteTrackpoints(updatedRoute.id, pts).catch(() => {});
         }
 
+        // Save full photos to IndexedDB so uploaded photos NEVER disappear
+        if (Array.isArray(updatedRoute.photos)) {
+          saveRoutePhotos(updatedRoute.id, updatedRoute.photos).catch(() => {});
+        }
+
         // 2. Persist lightweight override to localStorage (prevents quota exceeded error)
         try {
           const raw = localStorage.getItem('horsky_denik_local_overrides');
           const overrides: Record<string, any> = raw ? JSON.parse(raw) : {};
           const prevItem = overrides[updatedRoute.id] || {};
           const { trackpoints, trackPoints, gpxRawXml, ...lightRoute } = updatedRoute as any;
+          if (Array.isArray(lightRoute.photos)) {
+            lightRoute.photos = lightRoute.photos.map((p: any) => {
+              if (typeof p === 'object' && p?.dataUrl) {
+                const { dataUrl, ...rest } = p;
+                return rest;
+              }
+              return p;
+            });
+          }
           overrides[updatedRoute.id] = { ...prevItem, ...lightRoute };
           localStorage.setItem('horsky_denik_local_overrides', JSON.stringify(overrides));
         } catch (e) {
