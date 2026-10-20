@@ -568269,18 +568269,6 @@
     "date": "2026-10-13",
     "photos": [
       {
-        "id": "photo_modling_anninger_4k",
-        "url": "/api/photos/photo_modling_anninger_4k",
-        "rawUrl": "/api/photos/photo_modling_anninger_4k?raw=1",
-        "name": "modling_foehrenberge_4k.jpg",
-        "caption": "Vídeňský les a vyhlídka na Anninger u Mödling v plném 4K Ultra HD (3840 × 2160 px, 1.1 MB)",
-        "width": 3840,
-        "height": 2160,
-        "sizeKb": 1144,
-        "source": "user",
-        "createdAt": "2026-10-13T19:08:00.000Z"
-      },
-      {
         "id": "photo_modling_liechtenstein_4k",
         "url": "/api/photos/photo_modling_liechtenstein_4k",
         "rawUrl": "/api/photos/photo_modling_liechtenstein_4k?raw=1",

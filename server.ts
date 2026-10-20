@@ -942,9 +942,10 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       const routeId = (id && String(id).trim()) || `hike-garmin-${Date.now()}`;
       console.log(`[API /api/routes] Zpracovávám trasu ${routeId}: "${title || ''}"`);
 
-      // 1. Fetch existing route data if updating
-      let existingData: any = null;
-      if (db) {
+      // 1. Fetch existing route data if updating (local cache first for instant response)
+      const local = getLocalRoutes();
+      let existingData: any = local.find((r: any) => r.id === routeId) || null;
+      if (!existingData && db) {
         try {
           const existingDocSnap = await getDoc(doc(db, 'hikes', routeId));
           if (existingDocSnap.exists()) {
@@ -953,10 +954,6 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         } catch (dbErr: any) {
           console.warn('[API /api/routes] Chyba při čtení existující trasy z Firestore:', dbErr.message);
         }
-      }
-      if (!existingData) {
-        const local = getLocalRoutes();
-        existingData = local.find((r: any) => r.id === routeId) || null;
       }
 
       const host = req.get('host') || 'localhost:3000';
@@ -1408,14 +1405,11 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         console.warn('[API DELETE photo] Cache chyba:', cacheErr.message);
       }
 
-      // 4. Update route in Firestore in background
+      // 4. Update route in Firestore in background (non-blocking)
       if (db) {
-        try {
-          await updateDoc(doc(db, 'hikes', id), { photos: updatedPhotos });
-          console.log(`[API /api/routes/:id/photos/:photoId] Firestore výprava ${id} aktualizována (zbývá fotek: ${updatedPhotos.length})`);
-        } catch (dbErr: any) {
-          console.warn('[API DELETE photo] Firestore chyba (nebude blokovat klienta):', dbErr.message);
-        }
+        updateDoc(doc(db, 'hikes', id), { photos: updatedPhotos })
+          .then(() => console.log(`[API /api/routes/:id/photos/:photoId] Firestore výprava ${id} aktualizována.`))
+          .catch((dbErr) => console.warn('[API DELETE photo] Firestore varování (neblokuje klienta):', dbErr.message));
       }
 
       return res.json({ success: true, photos: updatedPhotos, message: 'Fotografie byla trvale smazána.' });

@@ -232,25 +232,24 @@ export const App: React.FC = () => {
         isFallback = true;
       }
 
+      let rawList: any[] = [];
       if (!res.ok) {
         if (!isFallback) {
           const fallbackRes = await fetch('./routes-cache.json').catch(() => null);
           if (fallbackRes && fallbackRes.ok) {
             const fallbackJson = await fallbackRes.json();
-            const fallbackList = Array.isArray(fallbackJson) ? fallbackJson : fallbackJson.routes || [];
-            if (fallbackList.length > 0) {
-              setRoutes(fallbackList);
-              setServerError(null);
-              return;
-            }
+            rawList = Array.isArray(fallbackJson) ? fallbackJson : fallbackJson.routes || [];
           }
         }
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || `Chyba serveru (${res.status}: ${res.statusText})`);
+        if (!rawList || rawList.length === 0) {
+          const errJson = await res.json().catch(() => ({}));
+          throw new Error(errJson.error || `Chyba serveru (${res.status}: ${res.statusText})`);
+        }
+      } else {
+        const data = await res.json();
+        rawList = Array.isArray(data) ? data : data.routes;
       }
 
-      const data = await res.json();
-      const rawList = Array.isArray(data) ? data : data.routes;
       if (!rawList || !Array.isArray(rawList)) {
         throw new Error('Server vrátil neplatnou odpověď (chybí pole tras).');
       }
@@ -286,8 +285,17 @@ export const App: React.FC = () => {
             ? (override.photos !== undefined ? override.photos : r.photos)
             : [];
           const cleanPhotos = basePhotos.filter((p: any) => {
-            const pId = typeof p === 'object' && p?.id ? p.id : typeof p === 'string' ? p : '';
-            return !deletedPhotoSet.has(pId);
+            if (!p) return false;
+            const pId = typeof p === 'object' && p?.id ? p.id : '';
+            const pUrl = typeof p === 'object' && p?.url ? p.url : typeof p === 'string' ? p : '';
+            const pRaw = typeof p === 'object' && p?.rawUrl ? p.rawUrl : '';
+            const pName = typeof p === 'object' && p?.name ? p.name : '';
+            return !(
+              (pId && deletedPhotoSet.has(pId)) ||
+              (pUrl && deletedPhotoSet.has(pUrl)) ||
+              (pRaw && deletedPhotoSet.has(pRaw)) ||
+              (pName && deletedPhotoSet.has(pName))
+            );
           });
 
           return {

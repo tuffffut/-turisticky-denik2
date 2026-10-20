@@ -319,24 +319,28 @@ export const HikeModal: React.FC<HikeModalProps> = ({
           const removed = updated.splice(index, 1)[0];
           const targetHikeId = formData.id || route?.id;
 
-          const photoId = typeof removed === 'object' && removed?.id
-            ? removed.id
-            : typeof removed === 'string' && removed.startsWith('/api/photos/')
-            ? removed.replace('/api/photos/', '').split('?')[0]
-            : typeof removed === 'string'
-            ? removed
-            : null;
+          const pId = typeof removed === 'object' && removed?.id ? removed.id : '';
+          const pUrl = typeof removed === 'object' && removed?.url ? removed.url : typeof removed === 'string' ? removed : '';
+          const pRaw = typeof removed === 'object' && removed?.rawUrl ? removed.rawUrl : '';
+          const pName = typeof removed === 'object' && removed?.name ? removed.name : '';
+          const identifiers = [pId, pUrl, pRaw, pName].filter(Boolean);
 
-          if (photoId) {
-            try {
-              const raw = localStorage.getItem('horsky_denik_deleted_photos');
-              const list: string[] = raw ? JSON.parse(raw) : [];
-              if (!list.includes(photoId)) {
-                list.push(photoId);
-                localStorage.setItem('horsky_denik_deleted_photos', JSON.stringify(list));
+          try {
+            const raw = localStorage.getItem('horsky_denik_deleted_photos');
+            const list: string[] = raw ? JSON.parse(raw) : [];
+            let changed = false;
+            for (const id of identifiers) {
+              if (!list.includes(id)) {
+                list.push(id);
+                changed = true;
               }
-            } catch {}
-          }
+            }
+            if (changed) {
+              localStorage.setItem('horsky_denik_deleted_photos', JSON.stringify(list));
+            }
+          } catch {}
+
+          const photoId = pId || (pUrl.startsWith('/api/photos/') ? pUrl.replace('/api/photos/', '').split('?')[0] : null);
 
           if (targetHikeId && photoId) {
             try {
