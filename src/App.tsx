@@ -260,81 +260,33 @@ export const App: React.FC = () => {
         throw new Error('Server vrátil neplatnou odpověď (chybí pole tras).');
       }
 
-      // Apply local overrides and permanently deleted photos (GitHub Pages durability)
-      let localOverrides: Record<string, any> = {};
-      let deletedPhotoSet = new Set<string>();
+      // Clean stale legacy overrides so every browser strictly reflects GitHub / server state
       try {
-        const raw = localStorage.getItem('horsky_denik_local_overrides');
-        if (raw) localOverrides = JSON.parse(raw);
-        const delRaw = localStorage.getItem('horsky_denik_deleted_photos');
-        if (delRaw) {
-          const list = JSON.parse(delRaw);
-          deletedPhotoSet = new Set(Array.isArray(list) ? list : []);
-        }
+        localStorage.removeItem('horsky_denik_local_overrides');
+        localStorage.removeItem('horsky_denik_deleted_photos');
       } catch {}
 
-      const loadedRoutes = await Promise.all(
-        rawList
-          .filter((r: any) => {
-            const id = (r.id && String(r.id).trim()) || r.title;
-            return !localOverrides[id]?.deleted;
-          })
-          .map(async (r: any) => {
-            const id = (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random();
-            const override = localOverrides[id] || {};
-            let pts = (Array.isArray(override.trackpoints || r.trackpoints) && (override.trackpoints || r.trackpoints).length > 0)
-              ? (override.trackpoints || r.trackpoints)
-              : (Array.isArray(override.trackPoints || r.trackPoints) && (override.trackPoints || r.trackPoints).length > 0)
-              ? (override.trackPoints || r.trackPoints)
-              : [];
+      const loadedRoutes = rawList.map((r: any) => {
+        const id = (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random();
+        const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
+          ? r.trackpoints
+          : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
+          ? r.trackPoints
+          : [];
 
-            // Restore full 7991+ point GPX track from IndexedDB if stored
-            try {
-              const fullPts = await getRouteTrackpoints(id);
-              if (fullPts && Array.isArray(fullPts) && fullPts.length > pts.length) {
-                pts = fullPts;
-              }
-            } catch {}
+        return {
+          ...r,
+          id,
+          trackpoints: pts,
+          trackPoints: pts,
+          photos: Array.isArray(r.photos) ? r.photos : [],
+        };
+      });
 
-            // Restore custom photos from IndexedDB if stored
-            let routePhotos = Array.isArray(override.photos !== undefined ? override.photos : r.photos)
-              ? (override.photos !== undefined ? override.photos : r.photos)
-              : [];
-            try {
-              const customPhotos = await getRoutePhotos(id);
-              if (customPhotos && Array.isArray(customPhotos) && customPhotos.length > 0) {
-                routePhotos = customPhotos;
-              }
-            } catch {}
-
-            const cleanPhotos = routePhotos.filter((p: any) => {
-              if (!p) return false;
-              const pId = typeof p === 'object' && p?.id ? p.id : '';
-              const pUrl = typeof p === 'object' && p?.url ? p.url : typeof p === 'string' ? p : '';
-              const pRaw = typeof p === 'object' && p?.rawUrl ? p.rawUrl : '';
-              const pName = typeof p === 'object' && p?.name ? p.name : '';
-              return !(
-                (pId && deletedPhotoSet.has(pId)) ||
-                (pUrl && deletedPhotoSet.has(pUrl)) ||
-                (pRaw && deletedPhotoSet.has(pRaw)) ||
-                (pName && deletedPhotoSet.has(pName))
-              );
-            });
-
-            return {
-              ...r,
-              ...override,
-              id,
-              trackpoints: pts,
-              trackPoints: pts,
-              photos: cleanPhotos,
-            };
-          })
-      );
       setRoutes(loadedRoutes);
       setServerError(null);
 
-      // Keep active modal route perfectly in sync
+      // Keep active modal route in sync
       setModalRoute((prev) => {
         if (!prev) return null;
         const fresh = loadedRoutes.find((r: HikeRoute) => r.id === prev.id);
@@ -449,38 +401,9 @@ export const App: React.FC = () => {
           prev && prev.id === updatedRoute.id ? ({ ...prev, ...updatedRoute } as HikeRoute) : prev
         );
 
-        // Save full trackpoints to IndexedDB so 7991+ points remain 100% persistent across reloads
-        const pts = updatedRoute.trackpoints || updatedRoute.trackPoints;
-        if (Array.isArray(pts) && pts.length > 0) {
-          saveRouteTrackpoints(updatedRoute.id, pts).catch(() => {});
-        }
-
-        // Save full photos to IndexedDB so uploaded photos NEVER disappear
-        if (Array.isArray(updatedRoute.photos)) {
-          saveRoutePhotos(updatedRoute.id, updatedRoute.photos).catch(() => {});
-        }
-
-        // 2. Persist lightweight override to localStorage (prevents quota exceeded error)
-        try {
-          const raw = localStorage.getItem('horsky_denik_local_overrides');
-          const overrides: Record<string, any> = raw ? JSON.parse(raw) : {};
-          const prevItem = overrides[updatedRoute.id] || {};
-          const { trackpoints, trackPoints, gpxRawXml, ...lightRoute } = updatedRoute as any;
-          if (Array.isArray(lightRoute.photos)) {
-            lightRoute.photos = lightRoute.photos.map((p: any) => {
-              if (typeof p === 'object' && p?.dataUrl) {
-                const { dataUrl, ...rest } = p;
-                return rest;
-              }
-              return p;
-            });
-          }
-          overrides[updatedRoute.id] = { ...prevItem, ...lightRoute };
-          localStorage.setItem('horsky_denik_local_overrides', JSON.stringify(overrides));
-        } catch (e) {
-          console.warn('Nelze zapsat do localStorage:', e);
-        }
       }
+
+      // 2. Synchronize to server (authoritative central storage)
 
       // 3. Try server sync if available (safe against 404 on GitHub Pages)
       try {
