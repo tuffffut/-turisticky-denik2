@@ -96,35 +96,41 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   const pendingFilesRef = useRef<File[] | null>(null);
   const [isReplacingActivePhoto, setIsReplacingActivePhoto] = useState(false);
 
-  // Synchronize formData whenever selected route or modal state changes
+  const lastOpenedRouteIdRef = useRef<string | null>(null);
+
+  // Synchronize formData ONLY when modal opens or a different route is selected
   useEffect(() => {
-    if (route) {
-      setFormData(route);
-      setActivePhotoIndex((prev) => {
-        const photosLen = (route.photos || []).length;
-        if (photosLen === 0) return 0;
-        return prev < photosLen ? prev : 0;
-      });
-      setIsEditing(isNew);
-    } else {
-      setFormData({
-        title: '',
-        mountainRange: 'Krkonoše',
-        date: new Date().toISOString().split('T')[0],
-        activityType: 'hiking',
-        distanceKm: 0,
-        elevationGainM: 0,
-        elevationLossM: 0,
-        highestPointM: 0,
-        duration: '',
-        description: '',
-        externalAlbumUrl: '',
-        photos: [],
-      });
-      setActivePhotoIndex(0);
-      setIsEditing(isNew);
+    if (!isOpen) {
+      lastOpenedRouteIdRef.current = null;
+      return;
     }
-  }, [route, isOpen, isNew]);
+    const currentId = route?.id || (isNew ? '__new__' : null);
+    if (currentId && currentId !== lastOpenedRouteIdRef.current) {
+      lastOpenedRouteIdRef.current = currentId;
+      if (route) {
+        setFormData(route);
+        setActivePhotoIndex(0);
+        setIsEditing(isNew);
+      } else {
+        setFormData({
+          title: '',
+          mountainRange: 'Krkonoše',
+          date: new Date().toISOString().split('T')[0],
+          activityType: 'hiking',
+          distanceKm: 0,
+          elevationGainM: 0,
+          elevationLossM: 0,
+          highestPointM: 0,
+          duration: '',
+          description: '',
+          externalAlbumUrl: '',
+          photos: [],
+        });
+        setActivePhotoIndex(0);
+        setIsEditing(isNew);
+      }
+    }
+  }, [isOpen, route?.id, isNew]);
 
   const currentPhotos = Array.isArray(formData.photos)
     ? formData.photos

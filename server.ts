@@ -779,50 +779,51 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       console.warn('Nelze uložit fotku na disk:', fsErr);
     }
 
-    // 2. Save to Firestore hike_photos collection (with chunking if needed)
+    // 2. Save to Firestore hike_photos collection in background (non-blocking)
     if (db) {
-      try {
-        const CHUNK_SIZE = 700 * 1024;
-        if (dataUrl.length <= CHUNK_SIZE) {
-          await setDoc(doc(db, 'hike_photos', photoId), {
-            id: photoId,
-            hikeId: hikeId || '',
-            dataUrl,
-            name,
-            caption,
-            width: width || null,
-            height: height || null,
-            sizeKb: sizeKb || null,
-            isChunked: false,
-            createdAt: new Date().toISOString(),
-          });
-        } else {
-          const totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
-          await setDoc(doc(db, 'hike_photos', photoId), {
-            id: photoId,
-            hikeId: hikeId || '',
-            dataUrlChunk0: dataUrl.substring(0, CHUNK_SIZE),
-            totalChunks,
-            isChunked: true,
-            name,
-            caption,
-            width: width || null,
-            height: height || null,
-            sizeKb: sizeKb || null,
-            createdAt: new Date().toISOString(),
-          });
-          for (let i = 1; i < totalChunks; i++) {
-            const chunkStr = dataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-            await setDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`), {
-              chunkIndex: i,
-              data: chunkStr,
+      (async () => {
+        try {
+          const CHUNK_SIZE = 700 * 1024;
+          if (dataUrl.length <= CHUNK_SIZE) {
+            await setDoc(doc(db, 'hike_photos', photoId), {
+              id: photoId,
+              hikeId: hikeId || '',
+              dataUrl,
+              name,
+              caption,
+              width: width || null,
+              height: height || null,
+              sizeKb: sizeKb || null,
+              isChunked: false,
+              createdAt: new Date().toISOString(),
             });
+          } else {
+            const totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
+            await setDoc(doc(db, 'hike_photos', photoId), {
+              id: photoId,
+              hikeId: hikeId || '',
+              dataUrlChunk0: dataUrl.substring(0, CHUNK_SIZE),
+              totalChunks,
+              isChunked: true,
+              name,
+              caption,
+              width: width || null,
+              height: height || null,
+              sizeKb: sizeKb || null,
+              createdAt: new Date().toISOString(),
+            });
+            for (let i = 1; i < totalChunks; i++) {
+              const chunkStr = dataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+              await setDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`), {
+                chunkIndex: i,
+                data: chunkStr,
+              });
+            }
           }
+        } catch (dbErr: any) {
+          console.warn('[savePhotoDataUrl] Firestore varování (neblokuje klienta):', dbErr.message);
         }
-        console.log(`[savePhotoDataUrl] Fotografie ${photoId} uložena do Firestore.`);
-      } catch (dbErr: any) {
-        console.warn('[savePhotoDataUrl] Chyba při zápisu do Firestore:', dbErr.message);
-      }
+      })().catch(() => {});
     }
 
     return {
@@ -1378,15 +1379,14 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       const { id, photoId } = req.params;
       console.log(`[API /api/routes/:id/photos/:photoId] Trvale odstraňuji fotku ${photoId} z výpravy ${id}`);
 
-      // 1. Delete physical files from disk
+      // 1. Delete physical files from disk (both data/photos and public/photos)
       const binPath = path.join(photosDir, `${photoId}.bin`);
       const jsonPath = path.join(photosDir, `${photoId}.json`);
-      if (fs.existsSync(binPath)) {
-        try { fs.unlinkSync(binPath); } catch {}
-      }
-      if (fs.existsSync(jsonPath)) {
-        try { fs.unlinkSync(jsonPath); } catch {}
-      }
+      const pubJpgPath = path.join(process.cwd(), 'public', 'photos', `${photoId}.jpg`);
+      const pubBinPath = path.join(process.cwd(), 'public', 'photos', `${photoId}.bin`);
+      [binPath, jsonPath, pubJpgPath, pubBinPath].forEach((p) => {
+        try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
+      });
 
       // 2. Delete from Firestore collection hike_photos
       if (db) {
@@ -1401,8 +1401,14 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         if (rIdx >= 0) {
           const currentPhotos = local[rIdx].photos || [];
           updatedPhotos = currentPhotos.filter((p: any) => {
+            if (!p) return false;
             if (typeof p === 'string') return p !== photoId && !p.includes(photoId);
-            if (typeof p === 'object' && p !== null) return p.id !== photoId && p.url !== `/api/photos/${photoId}` && p.rawUrl !== `/api/photos/${photoId}?raw=1`;
+            if (typeof p === 'object') {
+              if (p.id === photoId) return false;
+              if (p.url && (p.url === photoId || p.url.includes(photoId))) return false;
+              if (p.rawUrl && (p.rawUrl === photoId || p.rawUrl.includes(photoId))) return false;
+              if (p.name && (p.name === photoId || p.name.includes(photoId))) return false;
+            }
             return true;
           });
           local[rIdx].photos = updatedPhotos;

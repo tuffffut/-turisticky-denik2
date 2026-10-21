@@ -530155,20 +530155,7 @@
     },
     "duration": "10m",
     "title": "Brno Turistika",
-    "photos": [
-      {
-        "caption": "Turistika a skalní vyhlídky v okolí Brna v plném rozlišení (1376 × 768 px, 1.0 MB)",
-        "createdAt": "2026-10-12T14:30:06.017Z",
-        "width": 1376,
-        "rawUrl": "/api/photos/photo_brno_moravian_karst_hd?raw=1",
-        "sizeKb": 1115,
-        "name": "brno_turistika_vyhlidka_hd.jpg",
-        "url": "/api/photos/photo_brno_moravian_karst_hd",
-        "height": 768,
-        "source": "user",
-        "id": "photo_brno_moravian_karst_hd"
-      }
-    ],
+    "photos": [],
     "date": "2026-09-17",
     "distanceKm": 0.83,
     "mountainRange": "Brno a okolí",
@@ -568267,20 +568254,7 @@
   {
     "createdAt": "2026-10-11T22:41:43.042267Z",
     "date": "2026-10-13",
-    "photos": [
-      {
-        "id": "photo_modling_liechtenstein_4k",
-        "url": "/api/photos/photo_modling_liechtenstein_4k",
-        "rawUrl": "/api/photos/photo_modling_liechtenstein_4k?raw=1",
-        "name": "modling_burg_liechtenstein_4k.jpg",
-        "caption": "Hrad Liechtenstein a skalní vyhlídky u Mödling v plném 4K Ultra HD (3840 × 2160 px, 1.2 MB)",
-        "width": 3840,
-        "height": 2160,
-        "sizeKb": 1189,
-        "source": "user",
-        "createdAt": "2026-10-13T19:08:00.000Z"
-      }
-    ],
+    "photos": [],
     "elevationGainM": 420,
     "elevationLossM": 100,
     "description": "Automaticky synchronizováno z Garmin Connect.",
@@ -572936,7 +572910,8 @@
         "ele": 221.4,
         "lng": 16.273298
       }
-    ]
+    ],
+    "activityType": "hiking"
   },
   {
     "id": "garmin-6281835168",
