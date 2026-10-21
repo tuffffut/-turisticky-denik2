@@ -568254,7 +568254,13 @@
   {
     "createdAt": "2026-10-11T22:41:43.042267Z",
     "date": "2026-10-13",
-    "photos": [],
+    "photos": [
+      {
+        "id": "test_photo_123",
+        "url": "/api/photos/test_photo_123",
+        "name": "test.jpg"
+      }
+    ],
     "elevationGainM": 420,
     "elevationLossM": 100,
     "description": "Automaticky synchronizováno z Garmin Connect.",
