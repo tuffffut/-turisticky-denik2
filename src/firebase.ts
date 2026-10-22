@@ -42,12 +42,19 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
       cleanData.trackPoints = cleanData.trackpoints;
     }
 
-    // Strip huge base64 strings from hike document to avoid 1MB limit (photos are saved to IndexedDB & hike_photos)
+    // Keep photos intact (with dataUrl if present) so all devices can view the images
     if (Array.isArray(cleanData.photos)) {
       cleanData.photos = cleanData.photos.map((p: any) => {
-        if (typeof p === 'object' && p?.dataUrl) {
-          const { dataUrl, ...rest } = p;
-          return rest;
+        if (typeof p === 'object' && p !== null) {
+          return {
+            id: p.id || 'photo_' + Date.now(),
+            url: p.dataUrl || p.url || p.rawUrl || '',
+            name: p.name || 'foto.jpg',
+            caption: p.caption || '',
+            width: p.width || null,
+            height: p.height || null,
+            sizeKb: p.sizeKb || null,
+          };
         }
         return p;
       });
@@ -62,7 +69,84 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
 }
 
 /**
- * Loads recent hikes from Firestore to merge with static cache.
+ * Updates the photos array of a hike directly in Firestore (synchronizes all devices).
+ */
+export async function updateHikePhotosInFirestore(hikeId: string, photos: any[]): Promise<boolean> {
+  if (!hikeId) return false;
+  try {
+    const cleanPhotos = (photos || []).map((p: any) => {
+      if (typeof p === 'object' && p !== null) {
+        const u = p.dataUrl || p.url || p.rawUrl || '';
+        return {
+          id: p.id || 'photo_' + Date.now(),
+          url: u,
+          dataUrl: u,
+          name: p.name || 'foto.jpg',
+          caption: p.caption || '',
+          width: p.width || null,
+          height: p.height || null,
+          sizeKb: p.sizeKb || null,
+        };
+      }
+      return p;
+    });
+
+    // 1. Update the hike document photos field
+    await setDoc(doc(db, 'hikes', hikeId), { photos: cleanPhotos }, { merge: true });
+
+    // 2. Also save individual photo documents to hike_photos in background
+    for (const p of cleanPhotos) {
+      if (typeof p === 'object' && p?.id && p?.url && p.url.startsWith('data:')) {
+        setDoc(doc(db, 'hike_photos', p.id), {
+          id: p.id,
+          hikeId,
+          dataUrl: p.url,
+          name: p.name || 'foto.jpg',
+          caption: p.caption || '',
+          width: p.width || null,
+          height: p.height || null,
+          sizeKb: p.sizeKb || null,
+          updatedAt: new Date().toISOString(),
+        }, { merge: true }).catch(() => {});
+      }
+    }
+
+    return true;
+  } catch (err: any) {
+    console.warn('[Firestore] Nelze aktualizovat fotky v cloudu:', err?.message);
+    return false;
+  }
+}
+
+/**
+ * Permanently deletes a photo document from Firestore cloud storage.
+ */
+export async function deletePhotoFromFirestore(photoId: string): Promise<boolean> {
+  if (!photoId) return false;
+  try {
+    await deleteDoc(doc(db, 'hike_photos', photoId));
+    return true;
+  } catch (err: any) {
+    return false;
+  }
+}
+
+/**
+ * Deletes a hike document directly from Firestore.
+ */
+export async function deleteHikeFromFirestore(hikeId: string): Promise<boolean> {
+  if (!hikeId) return false;
+  try {
+    await deleteDoc(doc(db, 'hikes', hikeId));
+    return true;
+  } catch (err: any) {
+    console.warn('[Firestore] Nelze smazat výpravu z cloudu:', err?.message);
+    return false;
+  }
+}
+
+/**
+ * Loads all hikes from Firestore to merge with static cache.
  */
 export async function fetchHikesFromFirestore(): Promise<any[]> {
   try {

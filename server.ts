@@ -7,6 +7,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, updateDoc, writeBatch } from 'firebase/firestore';
 import { detectMountainRangeFromCoords, isSuspectMountainRange } from './src/utils/mountainRanges';
 import ExifReader from 'exifreader';
+import cors from 'cors';
 
 // Helper for distance calculation
 function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -258,6 +259,9 @@ function detectRangeFromCoords(lat: number, lng: number): string {
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Enable CORS for all clients (including GitHub Pages and external mobile browsers)
+  app.use(cors({ origin: true, credentials: true }));
 
   // Middleware for parsing JSON & URL-encoded (support 4K/high-res photo uploads and GPX data)
   app.use(express.json({ limit: '100mb' }));
@@ -840,85 +844,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     };
   }
 
-  // Helper to migrate legacy inline base64 photos in Firestore to standalone /api/photos/:id
-  async function migrateLegacyPhotos() {
-    if (!db) return;
-    try {
-      const snap = await getDocs(collection(db, 'hikes'));
-      let migratedCount = 0;
-      for (const d of snap.docs) {
-        const data = d.data();
-        if (Array.isArray(data.photos) && data.photos.length > 0) {
-          let hasBase64 = false;
-          for (const p of data.photos) {
-            if (typeof p === 'string' && p.startsWith('data:')) {
-              hasBase64 = true;
-              break;
-            }
-            if (typeof p === 'object' && p !== null) {
-              if ((p.dataUrl && p.dataUrl.startsWith('data:')) || (p.url && p.url.startsWith('data:'))) {
-                hasBase64 = true;
-                break;
-              }
-            }
-          }
-          if (hasBase64) {
-            console.log(`[Migrace fotek] Migruji inline fotky pro trasu ${d.id} ("${data.title}")...`);
-            const cleanPhotos: any[] = [];
-            for (let i = 0; i < data.photos.length; i++) {
-              const p = data.photos[i];
-              if (typeof p === 'string') {
-                if (p.startsWith('data:')) {
-                  const saved = await savePhotoDataUrl(p, d.id, { name: `foto_${i + 1}.jpg` });
-                  cleanPhotos.push(saved);
-                } else {
-                  cleanPhotos.push(p);
-                }
-              } else if (typeof p === 'object' && p !== null) {
-                const pObj = { ...p };
-                const b64 = (pObj.dataUrl && pObj.dataUrl.startsWith('data:'))
-                  ? pObj.dataUrl
-                  : (pObj.url && pObj.url.startsWith('data:'))
-                  ? pObj.url
-                  : null;
-                if (b64) {
-                  const saved = await savePhotoDataUrl(b64, d.id, {
-                    name: pObj.name || `foto_${i + 1}.jpg`,
-                    caption: pObj.caption || '',
-                    width: pObj.width,
-                    height: pObj.height,
-                    sizeKb: pObj.sizeKb,
-                  });
-                  cleanPhotos.push({
-                    ...pObj,
-                    id: pObj.id || saved.id,
-                    url: saved.url,
-                    rawUrl: saved.rawUrl,
-                    dataUrl: undefined,
-                  });
-                } else {
-                  const { dataUrl, ...rest } = pObj;
-                  cleanPhotos.push(rest);
-                }
-              }
-            }
-            await updateDoc(doc(db, 'hikes', d.id), { photos: cleanPhotos });
-            migratedCount++;
-          }
-        }
-      }
-      if (migratedCount > 0) {
-        console.log(`[Migrace fotek] Úspěšně zmigrováno ${migratedCount} tras s inline fotkami do /api/photos/`);
-      }
-    } catch (err: any) {
-      console.warn('[Migrace fotek] Chyba při migraci:', err.message);
-    }
-  }
+  // Photo migration disabled: Preserve dataUrls and URLs so GitHub Pages and external devices maintain full photo visibility.
 
-  // Trigger migration in background
-  setTimeout(() => {
-    migrateLegacyPhotos().catch(err => console.warn('Migrace fotek selhala:', err));
-  }, 1000);
 
   // 5. Garmin Integration API: Receive uploaded routes from Python script
   // Handles requests from upload_to_hiking_diary:
@@ -1055,7 +982,13 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         if (typeof p === 'string') {
           if (p.startsWith('data:')) {
             const saved = await savePhotoDataUrl(p, routeId, { name: `foto_${i + 1}.jpg` });
-            normalizedPhotos.push(saved);
+            normalizedPhotos.push({
+              id: saved.id,
+              url: p,
+              rawUrl: p,
+              dataUrl: p,
+              name: `foto_${i + 1}.jpg`,
+            });
           } else {
             normalizedPhotos.push(p);
           }
@@ -1078,13 +1011,16 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
             normalizedPhotos.push({
               ...pObj,
               id: pObj.id || saved.id,
-              url: saved.url,
-              rawUrl: saved.rawUrl,
-              dataUrl: undefined,
+              url: b64,
+              rawUrl: b64,
+              dataUrl: b64,
+              name: pObj.name || saved.name,
+              width: pObj.width || saved.width,
+              height: pObj.height || saved.height,
+              sizeKb: pObj.sizeKb || saved.sizeKb,
             });
           } else {
-            const { dataUrl, ...rest } = pObj;
-            normalizedPhotos.push(rest);
+            normalizedPhotos.push(pObj);
           }
         }
       }
@@ -1178,7 +1114,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
   app.post('/api/routes', handleSaveRoute);
   app.post('/api/hikes', handleSaveRoute);
 
-  // GET /api/routes: List all routes directly from central server storage
+  // GET /api/routes: List all routes directly from central server storage (synced with Firestore)
   app.get('/api/routes', async (req, res) => {
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
@@ -1187,7 +1123,36 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       'Surrogate-Control': 'no-store',
     });
     try {
-      const routes = getLocalRoutes();
+      let routes = getLocalRoutes();
+
+      // Background sync with Firestore so new Garmin activities (e.g. Kouty) or photos are merged
+      if (db) {
+        getDocs(collection(db, 'hikes')).then((snap) => {
+          let changed = false;
+          const current = getLocalRoutes();
+          const map = new Map(current.map((r: any) => [r.id, r]));
+          snap.forEach((d) => {
+            const data = d.data();
+            if (!map.has(d.id)) {
+              current.unshift({ ...data, id: d.id });
+              map.set(d.id, data);
+              changed = true;
+            } else {
+              const existing = map.get(d.id);
+              if (Array.isArray(data.photos) && JSON.stringify(data.photos) !== JSON.stringify(existing.photos)) {
+                existing.photos = data.photos;
+                changed = true;
+              }
+            }
+          });
+          if (changed) {
+            current.sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
+            saveLocalRoutes(current);
+            console.log(`[API /api/routes] Z Firestore sesynchronizováno ${current.length} tras.`);
+          }
+        }).catch(() => {});
+      }
+
       return res.json({ routes });
     } catch (err: any) {
       console.error('[API /api/routes] Chyba při čtení tras ze serveru:', err);

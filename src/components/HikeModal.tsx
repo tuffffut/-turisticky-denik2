@@ -30,7 +30,8 @@ import { POPULAR_MOUNTAIN_RANGES, detectMountainRangeFromCoords } from '../utils
 import { ElevationProfile } from './ElevationProfile';
 import { PhotoLightbox } from './PhotoLightbox';
 import { uploadPhotoToStorage } from '../utils/photoOptimizer';
-import { saveRouteTrackpoints, saveRoutePhotos } from '../utils/dbStorage';
+import { saveRouteTrackpoints } from '../utils/dbStorage';
+import { updateHikePhotosInFirestore, deletePhotoFromFirestore } from '../firebase';
 
 interface HikeModalProps {
   route: HikeRoute | null;
@@ -217,8 +218,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
       // Always save changes immediately to persist photos so they are never lost
       if (targetHikeId) {
-        setUploadStatus('Ukládám trvalý odkaz k výpravě do cloudové databáze...');
-        await saveRoutePhotos(targetHikeId, newPhotosList);
+        setUploadStatus('Ukládám fotografii do centrální cloudové databáze...');
+        await updateHikePhotosInFirestore(targetHikeId, newPhotosList);
         await onSave({
           ...route,
           ...formData,
@@ -329,27 +330,17 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
           const pId = typeof removed === 'object' && removed?.id ? removed.id : '';
           const pUrl = typeof removed === 'object' && removed?.url ? removed.url : typeof removed === 'string' ? removed : '';
-          const pRaw = typeof removed === 'object' && removed?.rawUrl ? removed.rawUrl : '';
-          const pName = typeof removed === 'object' && removed?.name ? removed.name : '';
-          const identifiers = [pId, pUrl, pRaw, pName].filter(Boolean);
-
-          try {
-            const raw = localStorage.getItem('horsky_denik_deleted_photos');
-            const list: string[] = raw ? JSON.parse(raw) : [];
-            let changed = false;
-            for (const id of identifiers) {
-              if (!list.includes(id)) {
-                list.push(id);
-                changed = true;
-              }
-            }
-            if (changed) {
-              localStorage.setItem('horsky_denik_deleted_photos', JSON.stringify(list));
-            }
-          } catch {}
-
           const photoId = pId || (pUrl.startsWith('/api/photos/') ? pUrl.replace('/api/photos/', '').split('?')[0] : null);
 
+          // 1. Permanently delete from Firestore cloud database across all devices
+          if (targetHikeId) {
+            await updateHikePhotosInFirestore(targetHikeId, updated);
+            if (photoId) {
+              await deletePhotoFromFirestore(photoId);
+            }
+          }
+
+          // 2. Delete from Node.js server storage if available
           if (targetHikeId && photoId) {
             try {
               await fetch(`/api/routes/${encodeURIComponent(targetHikeId)}/photos/${encodeURIComponent(photoId)}`, {
@@ -362,11 +353,10 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
           setFormData((prev) => ({ ...prev, photos: updated }));
           if (targetHikeId) {
-            await saveRoutePhotos(targetHikeId, updated);
             try {
-              await onSave({ ...route, ...formData, photos: updated });
+              await onSave({ ...route, ...formData, id: targetHikeId, photos: updated });
             } catch (saveErr) {
-              console.warn('Uloženo lokálně, server nedostupný:', saveErr);
+              console.warn('Uloženo do cloudu:', saveErr);
             }
           }
 

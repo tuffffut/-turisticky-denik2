@@ -30,8 +30,7 @@ import { HikeMap } from './components/HikeMap';
 import { HikeModal } from './components/HikeModal';
 import { PinModal } from './components/PinModal';
 import { SettingsModal } from './components/SettingsModal';
-import { saveRouteTrackpoints, getRouteTrackpoints, saveRoutePhotos, getRoutePhotos } from './utils/dbStorage';
-import { syncHikeToFirestore } from './firebase';
+import { syncHikeToFirestore, fetchHikesFromFirestore, deleteHikeFromFirestore } from './firebase';
 
 function getActivityTimeScore(route: HikeRoute): number {
   if (!route.date) return 0;
@@ -267,41 +266,21 @@ export const App: React.FC = () => {
         localStorage.removeItem('horsky_denik_deleted_photos');
       } catch {}
 
-      const loadedRoutes = await Promise.all(
-        rawList.map(async (r: any) => {
-          const id = (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random();
-          let pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
-            ? r.trackpoints
-            : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
-            ? r.trackPoints
-            : [];
-          let photos = Array.isArray(r.photos) ? r.photos : [];
-
-          // Restore any custom photos saved in IndexedDB
-          try {
-            const localPhotos = await getRoutePhotos(id);
-            if (localPhotos && Array.isArray(localPhotos) && localPhotos.length > 0) {
-              photos = localPhotos;
-            }
-          } catch {}
-
-          // Restore any full trackpoints saved in IndexedDB
-          try {
-            const localTrack = await getRouteTrackpoints(id);
-            if (localTrack && Array.isArray(localTrack) && localTrack.length > pts.length) {
-              pts = localTrack;
-            }
-          } catch {}
-
-          return {
-            ...r,
-            id,
-            trackpoints: pts,
-            trackPoints: pts,
-            photos,
-          };
-        })
-      );
+      const loadedRoutes: HikeRoute[] = rawList.map((r: any) => {
+        const id = (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random();
+        const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
+          ? r.trackpoints
+          : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
+          ? r.trackPoints
+          : [];
+        return {
+          ...r,
+          id,
+          trackpoints: pts,
+          trackPoints: pts,
+          photos: Array.isArray(r.photos) ? r.photos : [],
+        };
+      });
 
       setRoutes(loadedRoutes);
       setServerError(null);
@@ -312,6 +291,38 @@ export const App: React.FC = () => {
         const fresh = loadedRoutes.find((r: HikeRoute) => r.id === prev.id);
         return fresh || prev;
       });
+
+      // Synchronize live cloud updates from Firestore (new Garmin activities e.g. Kouty, updated photos across devices)
+      fetchHikesFromFirestore()
+        .then((cloudHikes) => {
+          if (cloudHikes && cloudHikes.length > 0) {
+            setRoutes((prev) => {
+              const map = new Map(prev.map((r) => [r.id, r]));
+              let changed = false;
+              for (const ch of cloudHikes) {
+                if (!map.has(ch.id)) {
+                  map.set(ch.id, {
+                    ...ch,
+                    trackpoints: ch.trackpoints || ch.trackPoints || [],
+                    trackPoints: ch.trackpoints || ch.trackPoints || [],
+                    photos: Array.isArray(ch.photos) ? ch.photos : [],
+                  } as HikeRoute);
+                  changed = true;
+                } else {
+                  const existing = map.get(ch.id)!;
+                  if (Array.isArray(ch.photos) && JSON.stringify(ch.photos) !== JSON.stringify(existing.photos)) {
+                    map.set(ch.id, { ...existing, photos: ch.photos });
+                    changed = true;
+                  }
+                }
+              }
+              if (!changed) return prev;
+              const updated = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+              return updated;
+            });
+          }
+        })
+        .catch(() => {});
     } catch (err: any) {
       console.error('Chyba při načítání tras ze serveru:', err);
       // Strictly clear routes to satisfy "nic lokálně, vše jen ze serveru"
@@ -421,20 +432,13 @@ export const App: React.FC = () => {
           prev && prev.id === updatedRoute.id ? ({ ...prev, ...updatedRoute } as HikeRoute) : prev
         );
 
-        // 2. Persist photos & trackpoints in IndexedDB (durability on GitHub Pages)
-        if (Array.isArray(updatedRoute.photos)) {
-          await saveRoutePhotos(updatedRoute.id, updatedRoute.photos);
-        }
-        const pts = updatedRoute.trackpoints || updatedRoute.trackPoints;
-        if (Array.isArray(pts) && pts.length > 0) {
-          await saveRouteTrackpoints(updatedRoute.id, pts);
-        }
-
-        // 3. Sync to Cloud Firestore in background (so all devices see the hike)
-        syncHikeToFirestore(updatedRoute.id, updatedRoute).catch(() => {});
+        // 2. Sync to Cloud Firestore (so all devices and browsers immediately see the changes)
+        await syncHikeToFirestore(updatedRoute.id, updatedRoute).catch((err) => {
+          console.warn('Firestore cloud sync varování:', err);
+        });
       }
 
-      // 4. Try server sync if available (safe against 404 on GitHub Pages)
+      // 3. Try server sync if available (safe against 404 on GitHub Pages)
       try {
         const res = await fetch('/api/routes', {
           method: 'POST',
@@ -464,9 +468,8 @@ export const App: React.FC = () => {
       if (selectedRouteId === routeId) setSelectedRouteId(null);
       if (modalRoute?.id === routeId) setIsModalOpen(false);
 
-      // Clean from IndexedDB
-      saveRoutePhotos(routeId, []).catch(() => {});
-      saveRouteTrackpoints(routeId, []).catch(() => {});
+      // Delete from Cloud Firestore across all devices
+      await deleteHikeFromFirestore(routeId).catch(() => {});
 
       // Server delete if available
       try {
