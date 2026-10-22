@@ -1114,6 +1114,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
   app.post('/api/routes', handleSaveRoute);
   app.post('/api/hikes', handleSaveRoute);
 
+  let lastFirestoreSyncTime = 0;
+
   // GET /api/routes: List all routes directly from central server storage (synced with Firestore)
   app.get('/api/routes', async (req, res) => {
     res.set({
@@ -1125,8 +1127,11 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     try {
       let routes = getLocalRoutes();
 
-      // Background sync with Firestore so new Garmin activities (e.g. Kouty) or photos are merged
-      if (db) {
+      // Throttled background sync with Firestore (at most once every 10 mins or explicit ?sync=1)
+      const now = Date.now();
+      const shouldSync = req.query.sync === '1' || (now - lastFirestoreSyncTime > 10 * 60 * 1000);
+      if (db && shouldSync) {
+        lastFirestoreSyncTime = now;
         getDocs(collection(db, 'hikes')).then((snap) => {
           let changed = false;
           const current = getLocalRoutes();
@@ -1139,7 +1144,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
               changed = true;
             } else {
               const existing = map.get(d.id);
-              if (Array.isArray(data.photos) && JSON.stringify(data.photos) !== JSON.stringify(existing.photos)) {
+              // Only update photos from Firestore if Firestore has photos and existing has none
+              if (Array.isArray(data.photos) && data.photos.length > 0 && (!existing.photos || existing.photos.length === 0)) {
                 existing.photos = data.photos;
                 changed = true;
               }

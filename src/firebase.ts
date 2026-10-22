@@ -35,20 +35,24 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
       if (v !== undefined) cleanData[k] = v;
     }
 
-    // Guard against 1MB Firestore limit for trackpoints
-    if (Array.isArray(cleanData.trackpoints) && cleanData.trackpoints.length > 800) {
-      const step = Math.ceil(cleanData.trackpoints.length / 800);
+    // Strip large raw XML to never exceed Firestore 1MB document limit
+    delete cleanData.gpxRawXml;
+    delete cleanData.trackPoints;
+
+    // Guard against Firestore 1MB document limit: sample trackpoints to max 300 points
+    if (Array.isArray(cleanData.trackpoints) && cleanData.trackpoints.length > 300) {
+      const step = Math.ceil(cleanData.trackpoints.length / 300);
       cleanData.trackpoints = cleanData.trackpoints.filter((_: any, i: number) => i % step === 0 || i === cleanData.trackpoints.length - 1);
-      cleanData.trackPoints = cleanData.trackpoints;
     }
 
-    // Keep photos intact (with dataUrl if present) so all devices can view the images
+    // Keep photos clean with single url reference
     if (Array.isArray(cleanData.photos)) {
       cleanData.photos = cleanData.photos.map((p: any) => {
         if (typeof p === 'object' && p !== null) {
+          const u = p.dataUrl || p.url || p.rawUrl || '';
           return {
             id: p.id || 'photo_' + Date.now(),
-            url: p.dataUrl || p.url || p.rawUrl || '',
+            url: u,
             name: p.name || 'foto.jpg',
             caption: p.caption || '',
             width: p.width || null,
@@ -80,7 +84,6 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
         return {
           id: p.id || 'photo_' + Date.now(),
           url: u,
-          dataUrl: u,
           name: p.name || 'foto.jpg',
           caption: p.caption || '',
           width: p.width || null,

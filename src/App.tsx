@@ -100,7 +100,9 @@ const PhotoCardPreview: React.FC<PhotoCardPreviewProps> = ({ photo, title, photo
       ? photo.startsWith('/api/photos/')
         ? `${photo}?raw=1`
         : photo
-      : photo?.dataUrl || photo?.rawUrl || (photo?.id ? `./photos/${photo.id}.jpg` : '') || photo?.url || '';
+      : (photo?.url && (photo.url.startsWith('data:') || photo.url.startsWith('http') || photo.url.startsWith('/api/photos/')))
+      ? photo.url
+      : photo?.dataUrl || photo?.rawUrl || photo?.url || (photo?.id ? `./photos/${photo.id}.jpg` : '');
 
   const sizeKb = typeof photo === 'object' ? photo?.sizeKb : undefined;
 
@@ -310,9 +312,14 @@ export const App: React.FC = () => {
                   changed = true;
                 } else {
                   const existing = map.get(ch.id)!;
-                  if (Array.isArray(ch.photos) && JSON.stringify(ch.photos) !== JSON.stringify(existing.photos)) {
-                    map.set(ch.id, { ...existing, photos: ch.photos });
-                    changed = true;
+                  // Only overwrite if cloud has photos or if both have photos with differences
+                  if (Array.isArray(ch.photos)) {
+                    if (ch.photos.length > 0 || (!existing.photos || existing.photos.length === 0)) {
+                      if (JSON.stringify(ch.photos) !== JSON.stringify(existing.photos)) {
+                        map.set(ch.id, { ...existing, photos: ch.photos });
+                        changed = true;
+                      }
+                    }
                   }
                 }
               }
@@ -343,7 +350,7 @@ export const App: React.FC = () => {
 
     fetchRoutes(false);
 
-    // Live multi-device sync: auto-refresh when tab gains focus or screen turns on
+    // Live multi-device sync: refresh when tab gains focus or screen turns on
     const handleFocus = () => {
       fetchRoutes(true);
     };
@@ -356,17 +363,9 @@ export const App: React.FC = () => {
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Periodic live sync every 15 seconds when active
-    const pollInterval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        fetchRoutes(true);
-      }
-    }, 15000);
-
     return () => {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(pollInterval);
     };
   }, []);
 

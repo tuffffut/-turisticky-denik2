@@ -241,8 +241,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         type: 'success',
         title: '✅ Fotografie úspěšně uložena',
         message: total === 1
-          ? `Fotografie ${infoText ? `(${infoText})` : ''} byla úspěšně uložena do cloudové databáze v plné 4K Ultra HD kvalitě!`
-          : `${total} fotografií bylo úspěšně uloženo do cloudové databáze v plné kvalitě!`,
+          ? `Fotografie ${infoText ? `(${infoText})` : ''} byla úspěšně nahrána a uložena na server.`
+          : `${total} fotografií bylo úspěšně nahráno a uloženo na server.`,
         confirmLabel: 'Skvělé',
         onConfirm: () => setFeedbackDialog(null),
       });
@@ -589,8 +589,11 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       }
       return photo;
     }
-    // Prioritize direct 4K dataUrl, then rawUrl, then static photos directory, then url
-    return photo.dataUrl || photo.rawUrl || (photo.id ? `./photos/${photo.id}.jpg` : '') || photo.url || '';
+    // Prioritize direct dataUrl / image url, then static photos directory as fallback
+    if (photo.url && (photo.url.startsWith('data:') || photo.url.startsWith('http') || photo.url.startsWith('/api/photos/'))) {
+      return photo.url;
+    }
+    return photo.dataUrl || photo.rawUrl || photo.url || (photo.id ? `./photos/${photo.id}.jpg` : '');
   };
 
   const handleDownloadCurrentPhoto = () => {
