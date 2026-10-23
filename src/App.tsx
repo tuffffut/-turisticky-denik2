@@ -265,21 +265,37 @@ export const App: React.FC = () => {
         throw new Error('Server vrátil neplatnou odpověď (chybí pole tras).');
       }
 
-      const loadedRoutes: HikeRoute[] = rawList.map((r: any) => {
-        const id = (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random();
-        const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
-          ? r.trackpoints
-          : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
-          ? r.trackPoints
-          : [];
-        return {
-          ...r,
-          id,
-          trackpoints: pts,
-          trackPoints: pts,
-          photos: Array.isArray(r.photos) ? r.photos : [],
-        };
-      });
+      const loadedRoutes: HikeRoute[] = rawList
+        .filter((r: any) => r && typeof r === 'object')
+        .map((r: any) => {
+          const id = (r.id && String(r.id).trim()) || 'route_' + Math.random().toString(36).substring(2, 8);
+          const title = (r.title && typeof r.title === 'string' && r.title.trim())
+            ? r.title.trim()
+            : (r.name && typeof r.name === 'string' && r.name.trim())
+            ? r.name.trim()
+            : 'Horská výprava';
+          const range = (r.mountainRange && typeof r.mountainRange === 'string' && r.mountainRange.trim())
+            ? r.mountainRange.trim()
+            : 'Krkonoše';
+          const desc = (r.description && typeof r.description === 'string')
+            ? r.description
+            : '';
+          const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
+            ? r.trackpoints
+            : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
+            ? r.trackPoints
+            : [];
+          return {
+            ...r,
+            id,
+            title,
+            mountainRange: range,
+            description: desc,
+            trackpoints: pts,
+            trackPoints: pts,
+            photos: Array.isArray(r.photos) ? r.photos : [],
+          };
+        });
 
       setRoutes(loadedRoutes);
       setServerError(null);
@@ -299,9 +315,18 @@ export const App: React.FC = () => {
               const map = new Map(prev.map((r) => [r.id, r]));
               let changed = false;
               for (const ch of cloudHikes) {
+                if (!ch || typeof ch !== 'object') continue;
+                const chTitle = (ch.title && typeof ch.title === 'string' && ch.title.trim())
+                  ? ch.title.trim()
+                  : 'Horská výprava';
+                const chRange = (ch.mountainRange && typeof ch.mountainRange === 'string') ? ch.mountainRange : 'Krkonoše';
                 if (!map.has(ch.id)) {
                   map.set(ch.id, {
                     ...ch,
+                    id: ch.id,
+                    title: chTitle,
+                    mountainRange: chRange,
+                    description: ch.description || '',
                     trackpoints: ch.trackpoints || ch.trackPoints || [],
                     trackPoints: ch.trackpoints || ch.trackPoints || [],
                     photos: Array.isArray(ch.photos) ? ch.photos : [],
@@ -390,7 +415,11 @@ export const App: React.FC = () => {
       (max, r) => Math.max(max, r.highestPointM || 0),
       0
     );
-    const rangesSet = new Set(routes.map((r) => r.mountainRange).filter(Boolean));
+    const rangesSet = new Set(
+      routes
+        .map((r) => r?.mountainRange)
+        .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+    );
     return {
       totalHikes,
       totalDistanceKm,
@@ -402,12 +431,19 @@ export const App: React.FC = () => {
 
   // Filtered & sorted routes
   const filteredRoutes = useMemo(() => {
+    const q = (searchQuery || '').toLowerCase().trim();
     return routes
       .filter((route) => {
+        if (!route) return false;
+        const title = (route.title || '').toLowerCase();
+        const range = (route.mountainRange || '').toLowerCase();
+        const desc = (route.description || '').toLowerCase();
+
         const matchesSearch =
-          route.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          route.mountainRange?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          route.description?.toLowerCase().includes(searchQuery.toLowerCase());
+          !q ||
+          title.includes(q) ||
+          range.includes(q) ||
+          desc.includes(q);
 
         const matchesRange =
           selectedRange === 'all' || route.mountainRange === selectedRange;
@@ -661,8 +697,14 @@ export const App: React.FC = () => {
   };
 
   const activeMountainRanges = useMemo(() => {
-    const list = Array.from(new Set(routes.map((r) => r.mountainRange).filter(Boolean)));
-    return list.sort();
+    const list = Array.from(
+      new Set(
+        routes
+          .map((r) => r?.mountainRange)
+          .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+      )
+    );
+    return list.sort((a, b) => a.localeCompare(b, 'cs'));
   }, [routes]);
 
   // Blocking Full-Screen Error if server failed to respond and no routes are available
@@ -1147,7 +1189,7 @@ export const App: React.FC = () => {
                           {/* Card top badges */}
                           <div className="flex items-center justify-between gap-2 mb-2">
                             <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/80 border border-emerald-800/50 px-2.5 py-0.5 rounded-full truncate">
-                              {route.mountainRange}
+                              {route.mountainRange || 'Hory'}
                             </span>
                             {route.date && (
                               <span className="text-xs text-stone-400 flex items-center gap-1 whitespace-nowrap">
@@ -1160,7 +1202,7 @@ export const App: React.FC = () => {
 
                           {/* Title */}
                           <h4 className="text-base font-bold text-white group-hover:text-emerald-300 transition line-clamp-2 mb-3">
-                            {route.title}
+                            {route.title || 'Horská výprava'}
                           </h4>
 
                           {/* Photo preview banner with guaranteed resolution */}

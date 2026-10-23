@@ -601614,15 +601614,15 @@
     "photos": [
       {
         "rawUrl": "/api/photos/photo_dolni_morava_skywalk_hd?raw=1",
-        "source": "user",
-        "height": 768,
-        "createdAt": "2026-10-12T14:30:05.989Z",
-        "caption": "Horský hřeben Králického Sněžníku a Stezka v oblacích v plném rozlišení (1376 × 768 px, 1.0 MB)",
-        "id": "photo_dolni_morava_skywalk_hd",
-        "url": "/api/photos/photo_dolni_morava_skywalk_hd",
-        "sizeKb": 1084,
         "width": 1376,
-        "name": "dolni_morava_kralicky_sneznik_hd.jpg"
+        "sizeKb": 1084,
+        "height": 768,
+        "source": "user",
+        "name": "dolni_morava_kralicky_sneznik_hd.jpg",
+        "createdAt": "2026-10-12T14:30:05.989Z",
+        "url": "/api/photos/photo_dolni_morava_skywalk_hd",
+        "caption": "Horský hřeben Králického Sněžníku a Stezka v oblacích v plném rozlišení (1376 × 768 px, 1.0 MB)",
+        "id": "photo_dolni_morava_skywalk_hd"
       }
     ],
     "lowestPointM": 876,
@@ -698839,10 +698839,5 @@
         "lng": 16.53248
       }
     ]
-  },
-  {
-    "test": true,
-    "updatedAt": "2026-10-22T19:24:30.412Z",
-    "id": "test_unauth_write_check"
   }
 ]
