@@ -12,6 +12,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { HikePhotoItem } from '../types';
+import { API_BASE_URL } from '../utils/apiConfig';
 
 interface PhotoLightboxProps {
   photos: (string | HikePhotoItem)[];
@@ -49,10 +50,11 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
   const loadPhotoSrc = useCallback(() => {
     if (!currentItem) return;
     if (typeof currentItem === 'string') {
-      setResolvedSrc(currentItem);
+      const s = currentItem.startsWith('/api/photos/') ? `${API_BASE_URL}${currentItem}` : currentItem;
+      setResolvedSrc(s);
     } else {
       const u = (currentItem.url && (currentItem.url.startsWith('data:') || currentItem.url.startsWith('http') || currentItem.url.startsWith('/api/photos/')))
-        ? currentItem.url
+        ? (currentItem.url.startsWith('/api/photos/') ? `${API_BASE_URL}${currentItem.url}` : currentItem.url)
         : currentItem.dataUrl || currentItem.rawUrl || currentItem.url || (currentItem.id ? `./photos/${currentItem.id}.jpg` : '');
       setResolvedSrc(u);
     }

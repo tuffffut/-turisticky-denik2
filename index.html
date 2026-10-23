@@ -3,35 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <script>
-      (function() {
-        try {
-          var purged = false;
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(regs) {
-              if (regs && regs.length > 0) {
-                for (var i = 0; i < regs.length; i++) regs[i].unregister();
-                purged = true;
-              }
-              if ('caches' in window) {
-                caches.keys().then(function(names) {
-                  if (names && names.length > 0) {
-                    for (var i = 0; i < names.length; i++) caches.delete(names[i]);
-                    purged = true;
-                  }
-                  if (purged && !sessionStorage.getItem('__sw_purged_reloaded')) {
-                    sessionStorage.setItem('__sw_purged_reloaded', '1');
-                    window.location.reload();
-                  }
-                });
-              }
-            });
-          }
-          localStorage.removeItem('horsky_denik_unlocked');
-          localStorage.removeItem('isUnlocked');
-        } catch (e) {}
-      })();
-    </script>
+
     <title>Horský Deník – Evidence výprav a GPX tras</title>
     <meta name="description" content="Evidence horských výprav a túr s GPX trasami, interaktivní mapou, výškovými profily a zabezpečením dvojitým PINem." />
     <meta name="theme-color" content="#0c0a09" />

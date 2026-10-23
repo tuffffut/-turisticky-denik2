@@ -1,4 +1,5 @@
 import { HikePhotoItem } from '../types';
+import { API_BASE_URL } from './apiConfig';
 
 export interface OptimizedPhotoResult {
   dataUrl: string;
@@ -143,11 +144,9 @@ export async function optimizePhoto(
   });
 }
 
-import { savePhotoBlob } from './dbStorage';
-
 /**
- * Uploads/prepares an optimized 4K photo for direct, robust storage.
- * Works seamlessly with full-stack Node.js server AND with static GitHub Pages hosting.
+ * Uploads an optimized photo strictly to the central server storage.
+ * If server upload fails (e.g. quota, network, server error), an explicit error is thrown.
  */
 export async function uploadPhotoToStorage(
   file: File,
@@ -157,54 +156,40 @@ export async function uploadPhotoToStorage(
   // Optimize to max 1280px, crisp 75% JPEG (~45-70 KB).
   // Guaranteed ultra-fast upload, instant rendering on all devices, and 100% reliable cloud storage.
   const optimized = await optimizePhoto(file, 1280, 0.75);
-  const photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
 
-  // 1. Try server upload if available
-  let serverPhoto: any = null;
-  try {
-    const res = await fetch('/api/photos/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        hikeId: hikeId || '',
-        dataUrl: optimized.dataUrl,
-        name: file.name || 'foto.jpg',
-        caption: caption || '',
-        width: optimized.width,
-        height: optimized.height,
-        sizeKb: optimized.sizeKb,
-      }),
-    });
-
-    if (res.ok) {
-      serverPhoto = await res.json();
-    }
-  } catch {
-    // Server unavailable or static GitHub Pages mode
-  }
-
-  // 2. Persist to storage
-  try {
-    await savePhotoBlob(photoId, optimized.dataUrl, {
-      name: file.name,
+  // Upload strictly to central server
+  const res = await fetch(`${API_BASE_URL}/api/photos/upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      hikeId: hikeId || '',
+      dataUrl: optimized.dataUrl,
+      name: file.name || 'foto.jpg',
+      caption: caption || '',
       width: optimized.width,
       height: optimized.height,
       sizeKb: optimized.sizeKb,
-    });
-  } catch {}
+    }),
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Chyba serveru při nahrávání fotografie (HTTP ${res.status}: ${res.statusText})`);
+  }
+
+  const serverPhoto = await res.json();
 
   return {
-    id: serverPhoto?.id || photoId,
-    // Use dataUrl directly so all devices and static GitHub Pages render the photo seamlessly
-    url: optimized.dataUrl,
-    rawUrl: optimized.dataUrl,
+    id: serverPhoto.id,
+    url: serverPhoto.url || `/api/photos/${serverPhoto.id}`,
+    rawUrl: serverPhoto.rawUrl || `/api/photos/${serverPhoto.id}?raw=1`,
     dataUrl: optimized.dataUrl,
-    name: serverPhoto?.name || file.name,
+    name: serverPhoto.name || file.name,
     caption: caption || '',
-    width: serverPhoto?.width || optimized.width,
-    height: serverPhoto?.height || optimized.height,
-    sizeKb: serverPhoto?.sizeKb || optimized.sizeKb,
+    width: serverPhoto.width || optimized.width,
+    height: serverPhoto.height || optimized.height,
+    sizeKb: serverPhoto.sizeKb || optimized.sizeKb,
     source: 'user',
-    createdAt: new Date().toISOString(),
+    createdAt: serverPhoto.createdAt || new Date().toISOString(),
   };
 }

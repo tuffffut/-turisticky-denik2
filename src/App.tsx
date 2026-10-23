@@ -31,6 +31,7 @@ import { HikeModal } from './components/HikeModal';
 import { PinModal } from './components/PinModal';
 import { SettingsModal } from './components/SettingsModal';
 import { syncHikeToFirestore, fetchHikesFromFirestore, deleteHikeFromFirestore } from './firebase';
+import { API_BASE_URL } from './utils/apiConfig';
 
 function getActivityTimeScore(route: HikeRoute): number {
   if (!route.date) return 0;
@@ -98,10 +99,10 @@ const PhotoCardPreview: React.FC<PhotoCardPreviewProps> = ({ photo, title, photo
   const src =
     typeof photo === 'string'
       ? photo.startsWith('/api/photos/')
-        ? `${photo}?raw=1`
+        ? `${API_BASE_URL}${photo}?raw=1`
         : photo
       : (photo?.url && (photo.url.startsWith('data:') || photo.url.startsWith('http') || photo.url.startsWith('/api/photos/')))
-      ? photo.url
+      ? (photo.url.startsWith('/api/photos/') ? `${API_BASE_URL}${photo.url}` : photo.url)
       : photo?.dataUrl || photo?.rawUrl || photo?.url || (photo?.id ? `./photos/${photo.id}.jpg` : '');
 
   const sizeKb = typeof photo === 'object' ? photo?.sizeKb : undefined;
@@ -197,7 +198,7 @@ export const App: React.FC = () => {
   const handleUnlockSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     try {
-      const res = await fetch('/api/security/verify', {
+      const res = await fetch(`${API_BASE_URL}/api/security/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin: pinInput }),
@@ -228,7 +229,7 @@ export const App: React.FC = () => {
       let res: Response;
       let isFallback = false;
       try {
-        res = await fetch(`/api/routes?_t=${Date.now()}`, {
+        res = await fetch(`${API_BASE_URL}/api/routes?_t=${Date.now()}`, {
           cache: 'no-store',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -236,14 +237,16 @@ export const App: React.FC = () => {
           },
         });
       } catch {
-        res = await fetch('./routes-cache.json');
+        res = await fetch(`${API_BASE_URL}/routes-cache.json`).catch(() => fetch('./routes-cache.json'));
         isFallback = true;
       }
 
       let rawList: any[] = [];
       if (!res.ok) {
         if (!isFallback) {
-          const fallbackRes = await fetch('./routes-cache.json').catch(() => null);
+          const fallbackRes = await fetch(`${API_BASE_URL}/routes-cache.json`)
+            .catch(() => fetch('./routes-cache.json'))
+            .catch(() => null);
           if (fallbackRes && fallbackRes.ok) {
             const fallbackJson = await fallbackRes.json();
             rawList = Array.isArray(fallbackJson) ? fallbackJson : fallbackJson.routes || [];
@@ -261,12 +264,6 @@ export const App: React.FC = () => {
       if (!rawList || !Array.isArray(rawList)) {
         throw new Error('Server vrátil neplatnou odpověď (chybí pole tras).');
       }
-
-      // Clean stale legacy overrides so every browser strictly reflects GitHub / server state
-      try {
-        localStorage.removeItem('horsky_denik_local_overrides');
-        localStorage.removeItem('horsky_denik_deleted_photos');
-      } catch {}
 
       const loadedRoutes: HikeRoute[] = rawList.map((r: any) => {
         const id = (r.id && String(r.id).trim()) || r.title || 'route_' + Math.random();
@@ -294,7 +291,7 @@ export const App: React.FC = () => {
         return fresh || prev;
       });
 
-      // Synchronize live cloud updates from Firestore (new Garmin activities e.g. Kouty, updated photos across devices)
+      // Synchronize live cloud updates from Firestore (new Garmin activities e.g. Kouty, updated photos & descriptions)
       fetchHikesFromFirestore()
         .then((cloudHikes) => {
           if (cloudHikes && cloudHikes.length > 0) {
@@ -312,27 +309,32 @@ export const App: React.FC = () => {
                   changed = true;
                 } else {
                   const existing = map.get(ch.id)!;
-                  // Only overwrite if cloud has photos or if both have photos with differences
-                  if (Array.isArray(ch.photos)) {
-                    if (ch.photos.length > 0 || (!existing.photos || existing.photos.length === 0)) {
-                      if (JSON.stringify(ch.photos) !== JSON.stringify(existing.photos)) {
-                        map.set(ch.id, { ...existing, photos: ch.photos });
-                        changed = true;
-                      }
+                  let itemChanged = false;
+                  const merged = { ...existing };
+                  if (ch.description !== undefined && ch.description !== existing.description) {
+                    merged.description = ch.description;
+                    itemChanged = true;
+                  }
+                  if (Array.isArray(ch.photos) && ch.photos.length > 0) {
+                    if (!existing.photos || existing.photos.length === 0 || JSON.stringify(ch.photos) !== JSON.stringify(existing.photos)) {
+                      merged.photos = ch.photos;
+                      itemChanged = true;
                     }
+                  }
+                  if (itemChanged) {
+                    map.set(ch.id, merged);
+                    changed = true;
                   }
                 }
               }
               if (!changed) return prev;
-              const updated = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-              return updated;
+              return Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             });
           }
         })
         .catch(() => {});
     } catch (err: any) {
       console.error('Chyba při načítání tras ze serveru:', err);
-      // Strictly clear routes to satisfy "nic lokálně, vše jen ze serveru"
       setRoutes([]);
       setServerError(err.message || 'Nepodařilo se navázat spojení se serverem. Žádná data se nenačítají lokálně.');
     } finally {
@@ -341,11 +343,14 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Invalidate any legacy persistent unlock flags so PIN is strictly required across all browsers on reload
+    // Strictly purge all local storage caches to prevent discrepancies across devices
     try {
+      localStorage.removeItem('horsky_denik_user_mods');
+      localStorage.removeItem('horsky_denik_routes_cache');
+      localStorage.removeItem('horsky_denik_local_overrides');
+      localStorage.removeItem('horsky_denik_deleted_photos');
       localStorage.removeItem('horsky_denik_unlocked');
-      sessionStorage.removeItem('horsky_denik_session_unlocked');
-      sessionStorage.removeItem('horsky_denik_unlocked');
+      sessionStorage.clear();
     } catch {}
 
     fetchRoutes(false);
@@ -419,66 +424,61 @@ export const App: React.FC = () => {
       });
   }, [routes, searchQuery, selectedRange, selectedActivity, sortBy]);
 
-  // Save or update route
+  // Save or update route (strictly server & cloud, throws error if save fails)
   const handleSaveRoute = async (updatedRoute: Partial<HikeRoute>) => {
-    try {
-      // 1. Optimistic update so UI reflects changes instantly (photos removed/added, etc.)
-      if (updatedRoute.id) {
-        setRoutes((prev) =>
-          prev.map((r) => (r.id === updatedRoute.id ? ({ ...r, ...updatedRoute } as HikeRoute) : r))
-        );
-        setModalRoute((prev) =>
-          prev && prev.id === updatedRoute.id ? ({ ...prev, ...updatedRoute } as HikeRoute) : prev
-        );
-
-        // 2. Sync to Cloud Firestore (so all devices and browsers immediately see the changes)
-        await syncHikeToFirestore(updatedRoute.id, updatedRoute).catch((err) => {
-          console.warn('Firestore cloud sync varování:', err);
-        });
-      }
-
-      // 3. Try server sync if available (safe against 404 on GitHub Pages)
-      try {
-        const res = await fetch('/api/routes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...updatedRoute,
-            fromUserModal: true,
-            source: 'user',
-          }),
-        });
-
-        if (res.ok) {
-          await fetchRoutes(true);
-        }
-      } catch {
-        // Silent fallback when on static GitHub Pages
-      }
-    } catch (err: any) {
-      console.warn('Upozornění při ukládání:', err);
+    if (!updatedRoute.id) {
+      throw new Error('Chybí identifikátor výpravy.');
     }
+
+    // 1. Save to central server
+    const res = await fetch(`${API_BASE_URL}/api/routes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...updatedRoute,
+        fromUserModal: true,
+        source: 'user',
+      }),
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || `Chyba serveru při ukládání výpravy (${res.status}: ${res.statusText})`);
+    }
+
+    const savedResult = await res.json();
+    const finalRoute = savedResult?.route || updatedRoute;
+
+    // 2. Sync to Cloud Firestore (throws if quota exceeded or network failed)
+    await syncHikeToFirestore(updatedRoute.id, finalRoute);
+
+    // 3. Update in-memory state strictly after successful server and cloud persistence
+    setRoutes((prev) =>
+      prev.map((r) => (r.id === updatedRoute.id ? ({ ...r, ...finalRoute } as HikeRoute) : r))
+    );
+    setModalRoute((prev) =>
+      prev && prev.id === updatedRoute.id ? ({ ...prev, ...finalRoute } as HikeRoute) : prev
+    );
   };
 
-  // Delete route
+  // Delete route (strictly server & cloud, throws error if delete fails)
   const handleDeleteRoute = async (routeId: string) => {
-    try {
-      setRoutes((prev) => prev.filter((r) => r.id !== routeId));
-      if (selectedRouteId === routeId) setSelectedRouteId(null);
-      if (modalRoute?.id === routeId) setIsModalOpen(false);
-
-      // Delete from Cloud Firestore across all devices
-      await deleteHikeFromFirestore(routeId).catch(() => {});
-
-      // Server delete if available
-      try {
-        await fetch(`/api/routes/${encodeURIComponent(routeId)}`, {
-          method: 'DELETE',
-        });
-      } catch {}
-    } catch (err: any) {
-      console.warn('Chyba při mazání:', err);
+    // 1. Delete on central server
+    const res = await fetch(`${API_BASE_URL}/api/routes/${encodeURIComponent(routeId)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || `Chyba při mazání výpravy ze serveru (HTTP ${res.status})`);
     }
+
+    // 2. Delete from Cloud Firestore
+    await deleteHikeFromFirestore(routeId);
+
+    // 3. Update in-memory state
+    setRoutes((prev) => prev.filter((r) => r.id !== routeId));
+    if (selectedRouteId === routeId) setSelectedRouteId(null);
+    if (modalRoute?.id === routeId) setIsModalOpen(false);
   };
 
   const handleOpenDetail = (route: HikeRoute) => {

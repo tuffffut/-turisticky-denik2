@@ -45,11 +45,11 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
       cleanData.trackpoints = cleanData.trackpoints.filter((_: any, i: number) => i % step === 0 || i === cleanData.trackpoints.length - 1);
     }
 
-    // Keep photos clean with single url reference
+    // Keep photos lightweight with permanent server URL reference (/api/photos/:id), never huge base64 in the main document
     if (Array.isArray(cleanData.photos)) {
       cleanData.photos = cleanData.photos.map((p: any) => {
         if (typeof p === 'object' && p !== null) {
-          const u = p.dataUrl || p.url || p.rawUrl || '';
+          const u = p.url && !p.url.startsWith('data:') ? p.url : p.id ? `/api/photos/${p.id}` : '';
           return {
             id: p.id || 'photo_' + Date.now(),
             url: u,
@@ -67,8 +67,12 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
     await setDoc(doc(db, 'hikes', hikeId), cleanData, { merge: true });
     return true;
   } catch (err: any) {
-    console.warn('[Firestore] Varování při ukládání do cloudu:', err?.message || err);
-    return false;
+    console.error('[Firestore] Chyba při ukládání do cloudu:', err);
+    let msg = err?.message || 'Chyba při zápisu do cloudové databáze';
+    if (/quota/i.test(msg)) {
+      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded). Data nelze uložit na cloud.';
+    }
+    throw new Error(msg);
   }
 }
 
@@ -80,7 +84,7 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
   try {
     const cleanPhotos = (photos || []).map((p: any) => {
       if (typeof p === 'object' && p !== null) {
-        const u = p.dataUrl || p.url || p.rawUrl || '';
+        const u = p.url && !p.url.startsWith('data:') ? p.url : p.id ? `/api/photos/${p.id}` : '';
         return {
           id: p.id || 'photo_' + Date.now(),
           url: u,
@@ -94,30 +98,15 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
       return p;
     });
 
-    // 1. Update the hike document photos field
     await setDoc(doc(db, 'hikes', hikeId), { photos: cleanPhotos }, { merge: true });
-
-    // 2. Also save individual photo documents to hike_photos in background
-    for (const p of cleanPhotos) {
-      if (typeof p === 'object' && p?.id && p?.url && p.url.startsWith('data:')) {
-        setDoc(doc(db, 'hike_photos', p.id), {
-          id: p.id,
-          hikeId,
-          dataUrl: p.url,
-          name: p.name || 'foto.jpg',
-          caption: p.caption || '',
-          width: p.width || null,
-          height: p.height || null,
-          sizeKb: p.sizeKb || null,
-          updatedAt: new Date().toISOString(),
-        }, { merge: true }).catch(() => {});
-      }
-    }
-
     return true;
   } catch (err: any) {
-    console.warn('[Firestore] Nelze aktualizovat fotky v cloudu:', err?.message);
-    return false;
+    console.error('[Firestore] Nelze aktualizovat fotky v cloudu:', err);
+    let msg = err?.message || 'Chyba při aktualizaci fotek na cloudu';
+    if (/quota/i.test(msg)) {
+      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded). Fotky nelze uložit.';
+    }
+    throw new Error(msg);
   }
 }
 

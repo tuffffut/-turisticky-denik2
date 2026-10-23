@@ -32,6 +32,7 @@ import { PhotoLightbox } from './PhotoLightbox';
 import { uploadPhotoToStorage } from '../utils/photoOptimizer';
 import { saveRouteTrackpoints } from '../utils/dbStorage';
 import { updateHikePhotosInFirestore, deletePhotoFromFirestore } from '../firebase';
+import { API_BASE_URL } from '../utils/apiConfig';
 
 interface HikeModalProps {
   route: HikeRoute | null;
@@ -219,16 +220,19 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       // Always save changes immediately to persist photos so they are never lost
       if (targetHikeId) {
         setUploadStatus('Ukládám fotografii do centrální cloudové databáze...');
-        await updateHikePhotosInFirestore(targetHikeId, newPhotosList);
         await onSave({
           ...route,
           ...formData,
           id: targetHikeId,
           photos: newPhotosList,
         });
+        await updateHikePhotosInFirestore(targetHikeId, newPhotosList);
       }
 
-      // Ensure view stays on the newly uploaded photo
+      setFormData((prev) => ({
+        ...prev,
+        photos: newPhotosList,
+      }));
       setActivePhotoIndex(newActiveIndex);
       setUploadStatus('');
 
@@ -248,11 +252,12 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       });
     } catch (err: any) {
       console.error('Chyba při nahrávání fotky:', err);
+      setUploadStatus('');
       setFeedbackDialog({
         type: 'error',
         title: '❌ Chyba při ukládání fotografie',
         message: err.message || 'Neznámá chyba při komunikaci se serverem',
-        details: 'Fotografie nebyla do databáze uložena. Zkontrolujte prosím připojení k internetu a zkuste to znovu.',
+        details: 'Fotografie nebyla uložena na server ani do databáze. Zkontrolujte prosím připojení nebo limit databáze.',
         confirmLabel: 'Zavřít',
         onConfirm: () => setFeedbackDialog(null),
       });
@@ -332,18 +337,17 @@ export const HikeModal: React.FC<HikeModalProps> = ({
           const pUrl = typeof removed === 'object' && removed?.url ? removed.url : typeof removed === 'string' ? removed : '';
           const photoId = pId || (pUrl.startsWith('/api/photos/') ? pUrl.replace('/api/photos/', '').split('?')[0] : null);
 
-          // 1. Permanently delete from Firestore cloud database across all devices
           if (targetHikeId) {
+            await onSave({ ...route, ...formData, id: targetHikeId, photos: updated });
             await updateHikePhotosInFirestore(targetHikeId, updated);
             if (photoId) {
               await deletePhotoFromFirestore(photoId);
             }
           }
 
-          // 2. Delete from Node.js server storage if available
           if (targetHikeId && photoId) {
             try {
-              await fetch(`/api/routes/${encodeURIComponent(targetHikeId)}/photos/${encodeURIComponent(photoId)}`, {
+              await fetch(`${API_BASE_URL}/api/routes/${encodeURIComponent(targetHikeId)}/photos/${encodeURIComponent(photoId)}`, {
                 method: 'DELETE',
               });
             } catch (delErr) {
@@ -352,14 +356,6 @@ export const HikeModal: React.FC<HikeModalProps> = ({
           }
 
           setFormData((prev) => ({ ...prev, photos: updated }));
-          if (targetHikeId) {
-            try {
-              await onSave({ ...route, ...formData, id: targetHikeId, photos: updated });
-            } catch (saveErr) {
-              console.warn('Uloženo do cloudu:', saveErr);
-            }
-          }
-
           setActivePhotoIndex((prev) => Math.max(0, Math.min(prev, updated.length - 1)));
           if (lightboxIndex >= updated.length) {
             setLightboxIndex(Math.max(0, updated.length - 1));
@@ -368,7 +364,14 @@ export const HikeModal: React.FC<HikeModalProps> = ({
             setLightboxOpen(false);
           }
         } catch (err: any) {
-          console.warn('Upozornění při mazání fotografie:', err);
+          console.error('Chyba při mazání fotografie:', err);
+          setFeedbackDialog({
+            type: 'error',
+            title: '❌ Chyba při mazání fotografie',
+            message: err.message || 'Fotografii se nepodařilo smazat ze serveru.',
+            confirmLabel: 'Zavřít',
+            onConfirm: () => setFeedbackDialog(null),
+          });
         }
       },
       cancelLabel: 'Zrušit',
@@ -585,12 +588,15 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   const getPhotoThumbnail = (photo: string | HikePhotoItem) => {
     if (typeof photo === 'string') {
       if (photo.startsWith('/api/photos/')) {
-        return `${photo}?raw=1`;
+        return `${API_BASE_URL}${photo}?raw=1`;
       }
       return photo;
     }
     // Prioritize direct dataUrl / image url, then static photos directory as fallback
     if (photo.url && (photo.url.startsWith('data:') || photo.url.startsWith('http') || photo.url.startsWith('/api/photos/'))) {
+      if (photo.url.startsWith('/api/photos/')) {
+        return `${API_BASE_URL}${photo.url}`;
+      }
       return photo.url;
     }
     return photo.dataUrl || photo.rawUrl || photo.url || (photo.id ? `./photos/${photo.id}.jpg` : '');
@@ -605,22 +611,23 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
     if (typeof currentPhoto === 'string') {
       if (currentPhoto.startsWith('/api/photos/')) {
-        downloadUrl = `${currentPhoto}${currentPhoto.includes('?') ? '&' : '?'}download=1`;
+        downloadUrl = `${API_BASE_URL}${currentPhoto}${currentPhoto.includes('?') ? '&' : '?'}download=1`;
       } else {
         downloadUrl = currentPhoto;
       }
     } else {
       fileName = currentPhoto.name || 'foto.jpg';
       if (currentPhoto.url && currentPhoto.url.startsWith('/api/photos/')) {
-        downloadUrl = `${currentPhoto.url}${currentPhoto.url.includes('?') ? '&' : '?'}download=1`;
+        downloadUrl = `${API_BASE_URL}${currentPhoto.url}${currentPhoto.url.includes('?') ? '&' : '?'}download=1`;
       } else if (currentPhoto.rawUrl) {
-        downloadUrl = currentPhoto.rawUrl.includes('download=1')
-          ? currentPhoto.rawUrl
-          : `${currentPhoto.rawUrl}&download=1`;
+        const raw = currentPhoto.rawUrl.startsWith('/api/photos/') ? `${API_BASE_URL}${currentPhoto.rawUrl}` : currentPhoto.rawUrl;
+        downloadUrl = raw.includes('download=1')
+          ? raw
+          : `${raw}&download=1`;
       } else if (currentPhoto.dataUrl) {
         downloadUrl = currentPhoto.dataUrl;
       } else if (currentPhoto.url) {
-        downloadUrl = currentPhoto.url;
+        downloadUrl = currentPhoto.url.startsWith('/api/photos/') ? `${API_BASE_URL}${currentPhoto.url}` : currentPhoto.url;
       }
     }
 

@@ -335,7 +335,6 @@ self.addEventListener('fetch', (e) => {
         'Pragma': 'no-cache',
         'Expires': '0',
         'Surrogate-Control': 'no-store',
-        'Clear-Site-Data': '"cache", "storage"',
       });
     }
     next();
@@ -689,6 +688,12 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       // Also persist to public/routes-cache.json so static builds / GitHub Pages remain in sync
       const publicPath = path.join(process.cwd(), 'public', 'routes-cache.json');
       fs.writeFileSync(publicPath, JSON.stringify(routes, null, 2));
+
+      // Also persist to dist/routes-cache.json if dist directory exists
+      const distDir = path.join(process.cwd(), 'dist');
+      if (fs.existsSync(distDir)) {
+        fs.writeFileSync(path.join(distDir, 'routes-cache.json'), JSON.stringify(routes, null, 2));
+      }
     } catch (e) {
       console.warn('Nelze uložit routes-cache.json:', e);
     }
@@ -1144,10 +1149,15 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
               changed = true;
             } else {
               const existing = map.get(d.id);
-              // Only update photos from Firestore if Firestore has photos and existing has none
-              if (Array.isArray(data.photos) && data.photos.length > 0 && (!existing.photos || existing.photos.length === 0)) {
-                existing.photos = data.photos;
+              if (data.description !== undefined && data.description !== existing.description) {
+                existing.description = data.description;
                 changed = true;
+              }
+              if (Array.isArray(data.photos) && data.photos.length > 0) {
+                if (!existing.photos || existing.photos.length === 0 || JSON.stringify(data.photos) !== JSON.stringify(existing.photos)) {
+                  existing.photos = data.photos;
+                  changed = true;
+                }
               }
             }
           });
@@ -1600,6 +1610,17 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
+  });
+
+  // Serve routes-cache.json directly from fresh server storage
+  app.get(['/routes-cache.json', '/data/routes-cache.json'], (req, res) => {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
+    const routes = getLocalRoutes();
+    return res.json(routes);
   });
 
   // Vite middleware for dev or static serving for production / dist fallback
