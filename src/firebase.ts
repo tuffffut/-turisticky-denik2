@@ -25,7 +25,64 @@ export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 /**
- * Saves a hike document directly to Firestore from the browser (works on GitHub Pages).
+ * Saves a photo document directly to Firestore hike_photos collection.
+ * Works seamlessly across all devices, mobile browsers, and static hosts (GitHub Pages).
+ */
+export async function savePhotoToFirestore(
+  photoId: string,
+  photoData: {
+    id: string;
+    hikeId?: string;
+    dataUrl: string;
+    name?: string;
+    caption?: string;
+    width?: number | null;
+    height?: number | null;
+    sizeKb?: number | null;
+  }
+): Promise<void> {
+  if (!photoId || !photoData.dataUrl) return;
+  try {
+    await setDoc(doc(db, 'hike_photos', photoId), {
+      id: photoId,
+      hikeId: photoData.hikeId || '',
+      dataUrl: photoData.dataUrl,
+      name: photoData.name || 'foto.jpg',
+      caption: photoData.caption || '',
+      width: photoData.width || null,
+      height: photoData.height || null,
+      sizeKb: photoData.sizeKb || null,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[Firestore] Chyba při ukládání fotografie do cloudu:', err);
+    let msg = err?.message || 'Chyba při zápisu fotografie do databáze';
+    if (/quota/i.test(msg)) {
+      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded). Fotografie nemohla být uložena.';
+    }
+    throw new Error(msg);
+  }
+}
+
+/**
+ * Fetches a photo dataUrl directly from Firestore hike_photos by photoId.
+ */
+export async function fetchPhotoFromFirestore(photoId: string): Promise<string | null> {
+  if (!photoId) return null;
+  try {
+    const snap = await getDoc(doc(db, 'hike_photos', photoId));
+    if (snap.exists()) {
+      const data = snap.data();
+      return data?.dataUrl || null;
+    }
+  } catch (err) {
+    console.warn(`[Firestore] Nelze načíst fotografii ${photoId} z cloudu:`, err);
+  }
+  return null;
+}
+
+/**
+ * Saves a hike document directly to Firestore from the browser (works on GitHub Pages and all devices).
  */
 export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promise<boolean> {
   if (!hikeId || !hikeData) return false;
@@ -45,20 +102,37 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
       cleanData.trackpoints = cleanData.trackpoints.filter((_: any, i: number) => i % step === 0 || i === cleanData.trackpoints.length - 1);
     }
 
-    // Keep photos lightweight with permanent server URL reference (/api/photos/:id), never huge base64 in the main document
+    // Process and preserve photos with their optimized dataUrls (up to ~350KB per photo)
+    // Also backs up each individual photo into hike_photos collection
     if (Array.isArray(cleanData.photos)) {
       cleanData.photos = cleanData.photos.map((p: any) => {
         if (typeof p === 'object' && p !== null) {
-          const u = p.url && !p.url.startsWith('data:') ? p.url : p.id ? `/api/photos/${p.id}` : '';
-          return {
-            id: p.id || 'photo_' + Date.now(),
-            url: u,
+          const photoId = p.id || 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+          const item: any = {
+            id: photoId,
+            url: p.url || `/api/photos/${photoId}`,
+            rawUrl: p.rawUrl || `/api/photos/${photoId}?raw=1`,
             name: p.name || 'foto.jpg',
             caption: p.caption || '',
             width: p.width || null,
             height: p.height || null,
             sizeKb: p.sizeKb || null,
           };
+          if (p.dataUrl && typeof p.dataUrl === 'string') {
+            item.dataUrl = p.dataUrl;
+            // Back up photo to dedicated hike_photos document asynchronously
+            savePhotoToFirestore(photoId, {
+              id: photoId,
+              hikeId,
+              dataUrl: p.dataUrl,
+              name: p.name,
+              caption: p.caption,
+              width: p.width,
+              height: p.height,
+              sizeKb: p.sizeKb,
+            }).catch(() => {});
+          }
+          return item;
         }
         return p;
       });
@@ -84,16 +158,31 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
   try {
     const cleanPhotos = (photos || []).map((p: any) => {
       if (typeof p === 'object' && p !== null) {
-        const u = p.url && !p.url.startsWith('data:') ? p.url : p.id ? `/api/photos/${p.id}` : '';
-        return {
-          id: p.id || 'photo_' + Date.now(),
-          url: u,
+        const photoId = p.id || 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        const item: any = {
+          id: photoId,
+          url: p.url || `/api/photos/${photoId}`,
+          rawUrl: p.rawUrl || `/api/photos/${photoId}?raw=1`,
           name: p.name || 'foto.jpg',
           caption: p.caption || '',
           width: p.width || null,
           height: p.height || null,
           sizeKb: p.sizeKb || null,
         };
+        if (p.dataUrl && typeof p.dataUrl === 'string') {
+          item.dataUrl = p.dataUrl;
+          savePhotoToFirestore(photoId, {
+            id: photoId,
+            hikeId,
+            dataUrl: p.dataUrl,
+            name: p.name,
+            caption: p.caption,
+            width: p.width,
+            height: p.height,
+            sizeKb: p.sizeKb,
+          }).catch(() => {});
+        }
+        return item;
       }
       return p;
     });

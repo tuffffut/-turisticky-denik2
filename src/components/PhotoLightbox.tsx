@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { HikePhotoItem } from '../types';
 import { API_BASE_URL } from '../utils/apiConfig';
+import { fetchPhotoFromFirestore } from '../firebase';
 
 interface PhotoLightboxProps {
   photos: (string | HikePhotoItem)[];
@@ -50,13 +51,32 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
   const loadPhotoSrc = useCallback(() => {
     if (!currentItem) return;
     if (typeof currentItem === 'string') {
-      const s = currentItem.startsWith('/api/photos/') ? `${API_BASE_URL}${currentItem}` : currentItem;
-      setResolvedSrc(s);
+      if (currentItem.startsWith('data:') || currentItem.startsWith('http')) {
+        setResolvedSrc(currentItem);
+      } else {
+        const s = currentItem.startsWith('/api/photos/') ? `${API_BASE_URL}${currentItem}` : currentItem;
+        setResolvedSrc(s);
+      }
     } else {
-      const u = (currentItem.url && (currentItem.url.startsWith('data:') || currentItem.url.startsWith('http') || currentItem.url.startsWith('/api/photos/')))
-        ? (currentItem.url.startsWith('/api/photos/') ? `${API_BASE_URL}${currentItem.url}` : currentItem.url)
-        : currentItem.dataUrl || currentItem.rawUrl || currentItem.url || (currentItem.id ? `./photos/${currentItem.id}.jpg` : '');
-      setResolvedSrc(u);
+      if (currentItem.dataUrl) {
+        setResolvedSrc(currentItem.dataUrl);
+      } else if (currentItem.url && (currentItem.url.startsWith('data:') || currentItem.url.startsWith('http'))) {
+        setResolvedSrc(currentItem.url);
+      } else if (currentItem.id) {
+        fetchPhotoFromFirestore(currentItem.id).then((dUrl) => {
+          if (dUrl) {
+            setResolvedSrc(dUrl);
+          } else {
+            const fallback = currentItem.url?.startsWith('/api/photos/')
+              ? `${API_BASE_URL}${currentItem.url}`
+              : currentItem.rawUrl || currentItem.url || '';
+            setResolvedSrc(fallback);
+          }
+        });
+      } else {
+        const u = currentItem.rawUrl || currentItem.url || '';
+        setResolvedSrc(u);
+      }
     }
   }, [currentItem]);
 

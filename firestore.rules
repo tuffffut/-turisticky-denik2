@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Hikes collection: Allows read and write for the diary app
+    match /hikes/{hikeId} {
+      allow read, write: if true;
+    }
+
+    // Photos collection: Allows permanent storage and retrieval of hike photos
+    match /hike_photos/{photoId} {
+      allow read, write: if true;
+      match /chunks/{chunkId} {
+        allow read, write: if true;
+      }
+    }
+
+    // App settings (e.g. security PIN configuration)
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+
+    // Default catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

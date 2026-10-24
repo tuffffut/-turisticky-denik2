@@ -30,7 +30,7 @@ import { HikeMap } from './components/HikeMap';
 import { HikeModal } from './components/HikeModal';
 import { PinModal } from './components/PinModal';
 import { SettingsModal } from './components/SettingsModal';
-import { syncHikeToFirestore, fetchHikesFromFirestore, deleteHikeFromFirestore } from './firebase';
+import { syncHikeToFirestore, fetchHikesFromFirestore, deleteHikeFromFirestore, fetchPhotoFromFirestore } from './firebase';
 import { API_BASE_URL } from './utils/apiConfig';
 
 function getActivityTimeScore(route: HikeRoute): number {
@@ -96,14 +96,30 @@ const PhotoCardPreview: React.FC<PhotoCardPreviewProps> = ({ photo, title, photo
     return null;
   });
 
+  const [firestoreSrc, setFirestoreSrc] = useState<string>('');
+
+  const photoId = typeof photo === 'object' ? photo?.id : undefined;
+  const directDataUrl = typeof photo === 'object' ? photo?.dataUrl : undefined;
+
+  useEffect(() => {
+    if (!directDataUrl && photoId && !firestoreSrc) {
+      fetchPhotoFromFirestore(photoId).then((dUrl) => {
+        if (dUrl) setFirestoreSrc(dUrl);
+      });
+    }
+  }, [photoId, directDataUrl, firestoreSrc]);
+
   const src =
     typeof photo === 'string'
-      ? photo.startsWith('/api/photos/')
-        ? `${API_BASE_URL}${photo}?raw=1`
-        : photo
-      : (photo?.url && (photo.url.startsWith('data:') || photo.url.startsWith('http') || photo.url.startsWith('/api/photos/')))
-      ? (photo.url.startsWith('/api/photos/') ? `${API_BASE_URL}${photo.url}` : photo.url)
-      : photo?.dataUrl || photo?.rawUrl || photo?.url || (photo?.id ? `./photos/${photo.id}.jpg` : '');
+      ? photo.startsWith('data:') || photo.startsWith('http')
+        ? photo
+        : firestoreSrc || (photo.startsWith('/api/photos/') ? `${API_BASE_URL}${photo}?raw=1` : photo)
+      : directDataUrl ||
+        firestoreSrc ||
+        (photo?.url && (photo.url.startsWith('data:') || photo.url.startsWith('http')) ? photo.url : '') ||
+        photo?.rawUrl ||
+        (photo?.url && photo.url.startsWith('/api/photos/') ? `${API_BASE_URL}${photo.url}` : '') ||
+        '';
 
   const sizeKb = typeof photo === 'object' ? photo?.sizeKb : undefined;
 
@@ -460,35 +476,46 @@ export const App: React.FC = () => {
       });
   }, [routes, searchQuery, selectedRange, selectedActivity, sortBy]);
 
-  // Save or update route (strictly server & cloud, throws error if save fails)
+  // Save or update route (persists directly to Cloud Firestore, then syncs with server cache)
   const handleSaveRoute = async (updatedRoute: Partial<HikeRoute>) => {
     if (!updatedRoute.id) {
       throw new Error('Chybí identifikátor výpravy.');
     }
 
-    // 1. Save to central server
-    const res = await fetch(`${API_BASE_URL}/api/routes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...updatedRoute,
-        fromUserModal: true,
-        source: 'user',
-      }),
-    });
+    // 1. Authoritative Cloud Persistence: Save directly to Cloud Firestore
+    // Throws clear error if quota exceeded or network failed
+    await syncHikeToFirestore(updatedRoute.id, updatedRoute);
 
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error || `Chyba serveru při ukládání výpravy (${res.status}: ${res.statusText})`);
+    let finalRoute = updatedRoute;
+
+    // 2. Also sync to local server storage if available (safe timeout)
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3500);
+      const serverEndpoint = API_BASE_URL ? `${API_BASE_URL}/api/routes` : '/api/routes';
+      const res = await fetch(serverEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...updatedRoute,
+          fromUserModal: true,
+          source: 'user',
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const savedResult = await res.json().catch(() => null);
+        if (savedResult?.route) {
+          finalRoute = savedResult.route;
+        }
+      }
+    } catch {
+      // Local server is unreachable or CORS blocked - Cloud Firestore has already saved the route
+      console.log('[handleSaveRoute] Místní server nedostupný, uloženo přímo do Firestore.');
     }
 
-    const savedResult = await res.json();
-    const finalRoute = savedResult?.route || updatedRoute;
-
-    // 2. Sync to Cloud Firestore (throws if quota exceeded or network failed)
-    await syncHikeToFirestore(updatedRoute.id, finalRoute);
-
-    // 3. Update in-memory state strictly after successful server and cloud persistence
+    // 3. Update in-memory state strictly after successful cloud persistence
     setRoutes((prev) =>
       prev.map((r) => (r.id === updatedRoute.id ? ({ ...r, ...finalRoute } as HikeRoute) : r))
     );
@@ -497,19 +524,24 @@ export const App: React.FC = () => {
     );
   };
 
-  // Delete route (strictly server & cloud, throws error if delete fails)
+  // Delete route (strictly cloud & server, throws error if delete fails)
   const handleDeleteRoute = async (routeId: string) => {
-    // 1. Delete on central server
-    const res = await fetch(`${API_BASE_URL}/api/routes/${encodeURIComponent(routeId)}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error || `Chyba při mazání výpravy ze serveru (HTTP ${res.status})`);
-    }
-
-    // 2. Delete from Cloud Firestore
+    // 1. Delete from Cloud Firestore
     await deleteHikeFromFirestore(routeId);
+
+    // 2. Also notify local server if available
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
+      const serverEndpoint = API_BASE_URL
+        ? `${API_BASE_URL}/api/routes/${encodeURIComponent(routeId)}`
+        : `/api/routes/${encodeURIComponent(routeId)}`;
+      await fetch(serverEndpoint, {
+        method: 'DELETE',
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+    } catch {}
 
     // 3. Update in-memory state
     setRoutes((prev) => prev.filter((r) => r.id !== routeId));

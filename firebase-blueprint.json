@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "hike": {
+      "title": "Hike",
+      "description": "A hiking route or outdoor activity in the diary",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "mountainRange": { "type": "string" },
+        "activityType": { "type": "string" },
+        "distanceKm": { "type": "number" },
+        "elevationGainM": { "type": "number" },
+        "elevationLossM": { "type": "number" },
+        "duration": { "type": "string" },
+        "description": { "type": "string" },
+        "photos": { "type": "array" },
+        "trackpoints": { "type": "array" }
+      },
+      "required": ["id", "title"]
+    },
+    "hikePhoto": {
+      "title": "HikePhoto",
+      "description": "A photo item for a hike stored permanently in the cloud",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "hikeId": { "type": "string" },
+        "dataUrl": { "type": "string" },
+        "name": { "type": "string" },
+        "caption": { "type": "string" },
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "sizeKb": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "dataUrl"]
+    },
+    "setting": {
+      "title": "Setting",
+      "description": "App settings and access configuration",
+      "type": "object",
+      "properties": {
+        "pin": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/hikes/{hikeId}": {
+      "schema": "hike",
+      "description": "Collection of all hikes"
+    },
+    "/hike_photos/{photoId}": {
+      "schema": "hikePhoto",
+      "description": "Collection of hike photos"
+    },
+    "/settings/{settingId}": {
+      "schema": "setting",
+      "description": "App settings documents"
+    }
+  }
+}
