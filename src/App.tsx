@@ -229,7 +229,10 @@ export const App: React.FC = () => {
     const clean = pinInput.trim();
     if (!clean) return;
 
-    if (clean === adminPin || clean === '0303') {
+    const currentAdminPin = adminPin || '0303';
+    const currentReaderPin = readerPin || '1234';
+
+    if (clean === currentAdminPin) {
       setUserRole('admin');
       setIsUnlocked(true);
       setPinError(false);
@@ -239,7 +242,7 @@ export const App: React.FC = () => {
       return;
     }
 
-    if (clean === readerPin || clean === '1234') {
+    if (clean === currentReaderPin) {
       setUserRole('reader');
       setIsUnlocked(true);
       setPinError(false);
@@ -639,7 +642,7 @@ export const App: React.FC = () => {
 
   const handleAddNewHike = () => {
     if (!canEdit) {
-      alert('Pouze správce (administrátor) může přidávat nové výpravy. Zadejte heslo administrátora (0303).');
+      alert('Pouze správce (administrátor) může přidávat nové výpravy. Přihlaste se heslem správce.');
       handleLock();
       return;
     }
@@ -1018,34 +1021,16 @@ export const App: React.FC = () => {
       {/* Content conditional on unlock state and server health */}
       {!isUnlocked ? (
         <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 min-h-[75vh] select-none">
-          <div className="max-w-md w-full bg-stone-900 border border-stone-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative text-center">
+          <div className="max-w-sm w-full bg-stone-900 border border-stone-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative text-center">
             <div className="inline-flex p-3.5 bg-emerald-950/80 border border-emerald-800/60 rounded-2xl text-emerald-400 mb-3 shadow-lg shadow-emerald-950/50">
               <Lock className="w-7 h-7 text-emerald-400" />
             </div>
             <h2 className="text-xl font-bold text-white mb-1">
-              Horský deník • Přístup
+              Horský deník
             </h2>
-            <p className="text-xs text-stone-400 mb-4">
-              Zadejte heslo / PIN pro přístup na tomto zařízení. Po zadání zůstane toto zařízení trvale přihlášeno.
+            <p className="text-xs text-stone-400 mb-5">
+              Zadejte přístupové heslo nebo PIN pro vstup do deníku.
             </p>
-
-            {/* Role options overview */}
-            <div className="grid grid-cols-2 gap-2 text-left mb-4">
-              <div className="p-2.5 bg-stone-950/80 border border-stone-800 rounded-xl">
-                <div className="text-xs font-bold text-amber-300 flex items-center gap-1 mb-0.5">
-                  👑 Správce
-                </div>
-                <div className="text-[11px] text-stone-400">Úpravy, mazání a nahrávání GPX i fotek</div>
-                <div className="text-[10px] text-stone-500 font-mono mt-1">Výchozí PIN: <span className="text-amber-400 font-bold">0303</span></div>
-              </div>
-              <div className="p-2.5 bg-stone-950/80 border border-stone-800 rounded-xl">
-                <div className="text-xs font-bold text-emerald-300 flex items-center gap-1 mb-0.5">
-                  📖 Čtenář
-                </div>
-                <div className="text-[11px] text-stone-400">Prohlížení tras, map, výšek a fotek</div>
-                <div className="text-[10px] text-stone-500 font-mono mt-1">Výchozí PIN: <span className="text-emerald-400 font-bold">1234</span></div>
-              </div>
-            </div>
 
             <form onSubmit={handleUnlockSubmit} className="space-y-4">
               <div>
@@ -1053,7 +1038,7 @@ export const App: React.FC = () => {
                   type="password"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={8}
+                  maxLength={12}
                   value={pinInput}
                   onChange={(e) => {
                     setPinError(false);
@@ -1064,34 +1049,10 @@ export const App: React.FC = () => {
                   className="w-full text-center tracking-[0.5em] text-2xl font-bold bg-stone-950 border border-stone-800 rounded-xl py-3 text-stone-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-700"
                 />
 
-                {/* Quick Fill Buttons */}
-                <div className="flex items-center justify-center gap-2 mt-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPinInput('0303');
-                      setPinError(false);
-                    }}
-                    className="px-2.5 py-1 text-xs bg-amber-950/60 hover:bg-amber-900/60 border border-amber-800/60 text-amber-300 rounded-lg font-medium transition"
-                  >
-                    👑 Vyplnit 0303 (Správce)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPinInput('1234');
-                      setPinError(false);
-                    }}
-                    className="px-2.5 py-1 text-xs bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-300 rounded-lg font-medium transition"
-                  >
-                    📖 Vyplnit 1234 (Čtenář)
-                  </button>
-                </div>
-
                 {pinError && (
-                  <div className="flex items-center justify-center gap-1.5 text-xs text-red-400 mt-2.5 bg-red-950/60 border border-red-900/50 py-1.5 px-3 rounded-lg">
+                  <div className="flex items-center justify-center gap-1.5 text-xs text-red-400 mt-3 bg-red-950/60 border border-red-900/50 py-1.5 px-3 rounded-lg">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>Nesprávný PIN. Zadejte 0303 (Správce) nebo 1234 (Čtenář).</span>
+                    <span>Nesprávné heslo / PIN. Přístup byl odepřen.</span>
                   </div>
                 )}
               </div>

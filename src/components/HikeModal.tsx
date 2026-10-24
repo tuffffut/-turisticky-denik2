@@ -296,6 +296,20 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     }
   }, [canEdit]);
 
+  // Preload any photos that lack dataUrl directly from Firestore
+  useEffect(() => {
+    if (!isOpen || currentPhotos.length === 0) return;
+    currentPhotos.forEach((p) => {
+      if (typeof p === 'object' && p?.id && !p.dataUrl && !loadedCloudDataUrls[p.id]) {
+        fetchPhotoFromFirestore(p.id).then((dUrl) => {
+          if (dUrl) {
+            setLoadedCloudDataUrls((prev) => ({ ...prev, [p.id!]: dUrl }));
+          }
+        });
+      }
+    });
+  }, [isOpen, currentPhotos, loadedCloudDataUrls]);
+
   if (!isOpen) return null;
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -311,9 +325,9 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       onRequestUnlock();
       setFeedbackDialog({
         type: 'warning',
-        title: '🔒 Režim úprav je uzamčen',
-        message: 'Pro uložení fotografie zadejte PIN 1234. Po zadání PINu se vybraná fotografie ihned automaticky nahraje v plné kvalitě.',
-        confirmLabel: 'Zadat PIN (1234)',
+        title: '🔒 Vyžadováno oprávnění správce',
+        message: 'Nahrávat fotografie může pouze přihlášený správce aplikace.',
+        confirmLabel: 'Přihlásit se jako správce',
         onConfirm: () => {
           setFeedbackDialog(null);
           onRequestUnlock();
@@ -330,9 +344,9 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       onRequestUnlock();
       setFeedbackDialog({
         type: 'warning',
-        title: '🔒 Režim úprav je uzamčen',
-        message: 'Pro mazání fotografií musíte nejprve odemknout režim úprav (zadat PIN 1234).',
-        confirmLabel: 'Zadat PIN',
+        title: '🔒 Vyžadováno oprávnění správce',
+        message: 'Mazat fotografie může pouze přihlášený správce aplikace.',
+        confirmLabel: 'Přihlásit se jako správce',
         onConfirm: () => {
           setFeedbackDialog(null);
           onRequestUnlock();
@@ -604,20 +618,6 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       setIsSaving(false);
     }
   };
-
-  // Preload any photos that lack dataUrl directly from Firestore
-  useEffect(() => {
-    if (!isOpen || currentPhotos.length === 0) return;
-    currentPhotos.forEach((p) => {
-      if (typeof p === 'object' && p?.id && !p.dataUrl && !loadedCloudDataUrls[p.id]) {
-        fetchPhotoFromFirestore(p.id).then((dUrl) => {
-          if (dUrl) {
-            setLoadedCloudDataUrls((prev) => ({ ...prev, [p.id!]: dUrl }));
-          }
-        });
-      }
-    });
-  }, [isOpen, currentPhotos, loadedCloudDataUrls]);
 
   const getPhotoThumbnail = (photo: string | HikePhotoItem) => {
     if (!photo) return '';
