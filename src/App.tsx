@@ -30,7 +30,14 @@ import { HikeMap } from './components/HikeMap';
 import { HikeModal } from './components/HikeModal';
 import { PinModal } from './components/PinModal';
 import { SettingsModal } from './components/SettingsModal';
-import { syncHikeToFirestore, fetchHikesFromFirestore, deleteHikeFromFirestore, fetchPhotoFromFirestore } from './firebase';
+import {
+  syncHikeToFirestore,
+  fetchHikesFromFirestore,
+  deleteHikeFromFirestore,
+  fetchPhotoFromFirestore,
+  fetchSecuritySettings,
+  saveSecuritySettings,
+} from './firebase';
 import { API_BASE_URL } from './utils/apiConfig';
 
 function getActivityTimeScore(route: HikeRoute): number {
@@ -202,39 +209,57 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const gpxNavInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Security & PIN - ALWAYS starts locked on every reload and page load!
-  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+  // Global Roles: 'admin' (full write/edit/delete access) or 'reader' (view-only access)
+  const [userRole, setUserRole] = useState<'admin' | 'reader' | null>(() => {
+    return (localStorage.getItem('horsky_denik_auth_role') as 'admin' | 'reader' | null) || null;
+  });
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    return !!localStorage.getItem('horsky_denik_auth_role');
+  });
+  const [adminPin, setAdminPin] = useState<string>('0303');
+  const [readerPin, setReaderPin] = useState<string>('1234');
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
-  const [storedPin, setStoredPin] = useState<string>(() => {
-    return localStorage.getItem('horsky_denik_pin') || '1234';
-  });
+
+  const canEdit = isUnlocked && userRole === 'admin';
 
   const handleUnlockSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/security/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: pinInput }),
-      });
-      if (res.ok) {
-        setPinError(false);
-        setPinInput('');
-        setIsUnlocked(true);
-        return;
-      }
-    } catch {}
+    const clean = pinInput.trim();
+    if (!clean) return;
 
-    if (pinInput === storedPin || pinInput === '1234') {
+    if (clean === adminPin || clean === '0303') {
+      setUserRole('admin');
+      setIsUnlocked(true);
       setPinError(false);
       setPinInput('');
-      setIsUnlocked(true);
-    } else {
-      setPinError(true);
-      setPinInput('');
+      localStorage.setItem('horsky_denik_auth_role', 'admin');
+      localStorage.setItem('horsky_denik_auth_pin', clean);
+      return;
     }
+
+    if (clean === readerPin || clean === '1234') {
+      setUserRole('reader');
+      setIsUnlocked(true);
+      setPinError(false);
+      setPinInput('');
+      localStorage.setItem('horsky_denik_auth_role', 'reader');
+      localStorage.setItem('horsky_denik_auth_pin', clean);
+      return;
+    }
+
+    setPinError(true);
+    setPinInput('');
+  };
+
+  const handleLock = () => {
+    setUserRole(null);
+    setIsUnlocked(false);
+    setPinInput('');
+    setPinError(false);
+    localStorage.removeItem('horsky_denik_auth_role');
+    localStorage.removeItem('horsky_denik_auth_pin');
   };
 
   // Fetch routes from central server/Firestore with static fallback for GitHub Pages
@@ -390,11 +415,40 @@ export const App: React.FC = () => {
       localStorage.removeItem('horsky_denik_routes_cache');
       localStorage.removeItem('horsky_denik_local_overrides');
       localStorage.removeItem('horsky_denik_deleted_photos');
-      localStorage.removeItem('horsky_denik_unlocked');
-      sessionStorage.clear();
     } catch {}
 
     fetchRoutes(false);
+
+    // Synchronize global security PINs and verify remembered device session
+    fetchSecuritySettings().then((sec) => {
+      setAdminPin(sec.adminPin);
+      setReaderPin(sec.readerPin);
+
+      const savedPin = localStorage.getItem('horsky_denik_auth_pin');
+      const savedRole = localStorage.getItem('horsky_denik_auth_role');
+      if (savedPin && savedRole) {
+        if (savedPin === sec.adminPin) {
+          setUserRole('admin');
+          setIsUnlocked(true);
+        } else if (savedPin === sec.readerPin) {
+          setUserRole('reader');
+          setIsUnlocked(true);
+        } else {
+          setUserRole(null);
+          setIsUnlocked(false);
+          localStorage.removeItem('horsky_denik_auth_role');
+          localStorage.removeItem('horsky_denik_auth_pin');
+        }
+      }
+    });
+
+    // Mobile Android Back button listener: closes modals instead of exiting webpage
+    const handlePopState = () => {
+      setIsModalOpen(false);
+      setIsSettingsOpen(false);
+      setIsPinModalOpen(false);
+    };
+    window.addEventListener('popstate', handlePopState);
 
     // Live multi-device sync: refresh when tab gains focus or screen turns on
     const handleFocus = () => {
@@ -410,14 +464,21 @@ export const App: React.FC = () => {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
-  const handleUpdatePin = (newPin: string) => {
-    setStoredPin(newPin);
-    localStorage.setItem('horsky_denik_pin', newPin);
+  const handleUpdatePins = async (newAdminPin: string, newReaderPin: string) => {
+    await saveSecuritySettings({ adminPin: newAdminPin, readerPin: newReaderPin });
+    setAdminPin(newAdminPin);
+    setReaderPin(newReaderPin);
+    if (userRole === 'admin') {
+      localStorage.setItem('horsky_denik_auth_pin', newAdminPin);
+    } else if (userRole === 'reader') {
+      localStorage.setItem('horsky_denik_auth_pin', newReaderPin);
+    }
   };
 
   // Stats calculation
@@ -550,17 +611,39 @@ export const App: React.FC = () => {
   };
 
   const handleOpenDetail = (route: HikeRoute) => {
+    window.history.pushState({ modal: 'hikeDetail', id: route.id }, '');
     setModalRoute(route);
     setSelectedRouteId(route.id);
     setIsNewHikeModal(false);
     setIsModalOpen(true);
   };
 
+  const handleCloseDetail = () => {
+    setIsModalOpen(false);
+    if (window.history.state?.modal === 'hikeDetail') {
+      window.history.back();
+    }
+  };
+
+  const handleOpenSettings = () => {
+    window.history.pushState({ modal: 'settings' }, '');
+    setIsSettingsOpen(true);
+  };
+
+  const handleCloseSettings = () => {
+    setIsSettingsOpen(false);
+    if (window.history.state?.modal === 'settings') {
+      window.history.back();
+    }
+  };
+
   const handleAddNewHike = () => {
-    if (!isUnlocked) {
-      setIsPinModalOpen(true);
+    if (!canEdit) {
+      alert('Pouze správce (administrátor) může přidávat nové výpravy. Zadejte heslo administrátora (0303).');
+      handleLock();
       return;
     }
+    window.history.pushState({ modal: 'hikeDetail', id: 'new' }, '');
     setModalRoute({
       id: 'route_' + Date.now(),
       title: '',
@@ -823,46 +906,60 @@ export const App: React.FC = () => {
               </div>
             )}
 
+            {/* Role indicator badge */}
+            {isUnlocked && (
+              <div
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
+                  userRole === 'admin'
+                    ? 'bg-amber-950/70 border-amber-700/60 text-amber-300'
+                    : 'bg-emerald-950/70 border-emerald-700/60 text-emerald-300'
+                }`}
+                title={userRole === 'admin' ? 'Přihlášen jako Správce (plná práva)' : 'Přihlášen jako Čtenář (pouze pro čtení)'}
+              >
+                {userRole === 'admin' ? (
+                  <>
+                    <span>👑</span>
+                    <span className="hidden sm:inline">Správce</span>
+                  </>
+                ) : (
+                  <>
+                    <span>📖</span>
+                    <span className="hidden sm:inline">Čtenář</span>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* PIN Lock toggle */}
             <button
-              onClick={() => {
-                if (isUnlocked) {
-                  setIsUnlocked(false);
-                  setPinInput('');
-                  setPinError(false);
-                  try {
-                    sessionStorage.removeItem('horsky_denik_session_unlocked');
-                    localStorage.removeItem('horsky_denik_unlocked');
-                  } catch {}
-                }
-              }}
+              onClick={handleLock}
               className={`p-2 sm:px-3 sm:py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
                 isUnlocked
-                  ? 'bg-emerald-950/80 border-emerald-800/80 text-emerald-400 hover:bg-emerald-900/50'
+                  ? 'bg-stone-900 border-stone-800 text-stone-300 hover:text-white hover:bg-stone-800'
                   : 'bg-amber-950/70 border-amber-800/80 text-amber-300 shadow-lg shadow-amber-950/40'
               }`}
-              title={isUnlocked ? 'Deník je odemčen (kliknutím zamknete)' : 'Deník je uzamčen'}
+              title={isUnlocked ? 'Odhlásit a uzamknout na tomto zařízení' : 'Deník je uzamčen'}
             >
               {isUnlocked ? <Unlock className="w-4 h-4 text-emerald-400" /> : <Lock className="w-4 h-4 text-amber-400" />}
               <span className="hidden sm:inline">
-                {isUnlocked ? 'Odemčeno (zamknout)' : 'Zamčeno'}
+                {isUnlocked ? 'Zamknout' : 'Zamčeno'}
               </span>
             </button>
 
             {/* Settings button - always available when unlocked */}
             {isUnlocked && (
               <button
-                onClick={() => setIsSettingsOpen(true)}
+                onClick={handleOpenSettings}
                 className="p-2 sm:px-3 sm:py-1.5 rounded-xl border border-stone-800 bg-stone-900/80 hover:bg-stone-800 text-stone-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition"
-                title="Nastavení aplikace, VOP a zálohování"
+                title="Nastavení aplikace, hesla a VOP"
               >
                 <Settings className="w-4 h-4 text-emerald-400" />
-                <span className="hidden sm:inline">Nastavení & VOP</span>
+                <span className="hidden sm:inline">Nastavení & Hesla</span>
               </button>
             )}
 
-            {/* Quick GPX Upload button */}
-            {isUnlocked && (
+            {/* Quick GPX Upload button - Admin only */}
+            {canEdit && (
               <>
                 <button
                   onClick={() => gpxNavInputRef.current?.click()}
@@ -882,8 +979,8 @@ export const App: React.FC = () => {
               </>
             )}
 
-            {/* Add Hike button */}
-            {isUnlocked && (
+            {/* Add Hike button - Admin only */}
+            {canEdit && (
               <button
                 onClick={handleAddNewHike}
                 className="px-3 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold rounded-xl transition shadow-lg shadow-emerald-950 flex items-center gap-1.5 whitespace-nowrap"
@@ -921,16 +1018,34 @@ export const App: React.FC = () => {
       {/* Content conditional on unlock state and server health */}
       {!isUnlocked ? (
         <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 min-h-[75vh] select-none">
-          <div className="max-w-sm w-full bg-stone-900 border border-stone-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative text-center">
+          <div className="max-w-md w-full bg-stone-900 border border-stone-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative text-center">
             <div className="inline-flex p-3.5 bg-emerald-950/80 border border-emerald-800/60 rounded-2xl text-emerald-400 mb-3 shadow-lg shadow-emerald-950/50">
               <Lock className="w-7 h-7 text-emerald-400" />
             </div>
             <h2 className="text-xl font-bold text-white mb-1">
-              Zabezpečený Horský deník
+              Horský deník • Přístup
             </h2>
-            <p className="text-xs text-stone-400 mb-5">
-              Zadejte heslo / PIN pro přístup k výpravám, trasám a fotografiím.
+            <p className="text-xs text-stone-400 mb-4">
+              Zadejte heslo / PIN pro přístup na tomto zařízení. Po zadání zůstane toto zařízení trvale přihlášeno.
             </p>
+
+            {/* Role options overview */}
+            <div className="grid grid-cols-2 gap-2 text-left mb-4">
+              <div className="p-2.5 bg-stone-950/80 border border-stone-800 rounded-xl">
+                <div className="text-xs font-bold text-amber-300 flex items-center gap-1 mb-0.5">
+                  👑 Správce
+                </div>
+                <div className="text-[11px] text-stone-400">Úpravy, mazání a nahrávání GPX i fotek</div>
+                <div className="text-[10px] text-stone-500 font-mono mt-1">Výchozí PIN: <span className="text-amber-400 font-bold">0303</span></div>
+              </div>
+              <div className="p-2.5 bg-stone-950/80 border border-stone-800 rounded-xl">
+                <div className="text-xs font-bold text-emerald-300 flex items-center gap-1 mb-0.5">
+                  📖 Čtenář
+                </div>
+                <div className="text-[11px] text-stone-400">Prohlížení tras, map, výšek a fotek</div>
+                <div className="text-[10px] text-stone-500 font-mono mt-1">Výchozí PIN: <span className="text-emerald-400 font-bold">1234</span></div>
+              </div>
+            </div>
 
             <form onSubmit={handleUnlockSubmit} className="space-y-4">
               <div>
@@ -948,25 +1063,35 @@ export const App: React.FC = () => {
                   placeholder="••••"
                   className="w-full text-center tracking-[0.5em] text-2xl font-bold bg-stone-950 border border-stone-800 rounded-xl py-3 text-stone-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-700"
                 />
-                <div className="text-center mt-2 flex items-center justify-center gap-2">
-                  <span className="text-[11px] text-stone-500">
-                    Výchozí přístupový PIN: <strong className="text-emerald-400 font-mono">1234</strong>
-                  </span>
+
+                {/* Quick Fill Buttons */}
+                <div className="flex items-center justify-center gap-2 mt-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPinInput('0303');
+                      setPinError(false);
+                    }}
+                    className="px-2.5 py-1 text-xs bg-amber-950/60 hover:bg-amber-900/60 border border-amber-800/60 text-amber-300 rounded-lg font-medium transition"
+                  >
+                    👑 Vyplnit 0303 (Správce)
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
                       setPinInput('1234');
                       setPinError(false);
                     }}
-                    className="text-[10px] text-emerald-400 hover:text-emerald-300 underline font-semibold"
+                    className="px-2.5 py-1 text-xs bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-300 rounded-lg font-medium transition"
                   >
-                    Vyplnit 1234
+                    📖 Vyplnit 1234 (Čtenář)
                   </button>
                 </div>
+
                 {pinError && (
-                  <div className="flex items-center justify-center gap-1.5 text-xs text-red-400 mt-2 bg-red-950/60 border border-red-900/50 py-1.5 px-3 rounded-lg">
+                  <div className="flex items-center justify-center gap-1.5 text-xs text-red-400 mt-2.5 bg-red-950/60 border border-red-900/50 py-1.5 px-3 rounded-lg">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>Nesprávné heslo / PIN. Zadejte 1234.</span>
+                    <span>Nesprávný PIN. Zadejte 0303 (Správce) nebo 1234 (Čtenář).</span>
                   </div>
                 )}
               </div>
@@ -1003,7 +1128,7 @@ export const App: React.FC = () => {
                 className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2 mt-2"
               >
                 <Unlock className="w-4 h-4" />
-                <span>Odemknout Horský deník (PIN 1234)</span>
+                <span>Vstoupit do Horského deníku</span>
               </button>
             </form>
           </div>
@@ -1310,36 +1435,21 @@ export const App: React.FC = () => {
       <HikeModal
         route={modalRoute}
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={handleCloseDetail}
         onSave={handleSaveRoute}
         onDelete={handleDeleteRoute}
-        canEdit={isUnlocked}
-        onRequestUnlock={() => setIsPinModalOpen(true)}
+        canEdit={canEdit}
+        onRequestUnlock={handleLock}
         isNew={isNewHikeModal}
-      />
-
-      {/* PIN Security Modal */}
-      <PinModal
-        isOpen={isPinModalOpen}
-        required={false}
-        onClose={() => setIsPinModalOpen(false)}
-        onSuccess={() => {
-          setIsUnlocked(true);
-          try {
-            sessionStorage.setItem('horsky_denik_session_unlocked', 'true');
-          } catch {}
-          setIsPinModalOpen(false);
-        }}
-        storedPin={storedPin}
-        onUpdatePin={handleUpdatePin}
       />
 
       {/* Settings & VOP Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        storedPin={storedPin}
-        onUpdatePin={handleUpdatePin}
+        onClose={handleCloseSettings}
+        adminPin={adminPin}
+        readerPin={readerPin}
+        onUpdatePins={handleUpdatePins}
         routesCount={routes.length}
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}

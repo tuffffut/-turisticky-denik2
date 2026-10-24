@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Settings,
@@ -20,8 +20,9 @@ import {
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  storedPin: string;
-  onUpdatePin: (newPin: string) => void;
+  adminPin: string;
+  readerPin: string;
+  onUpdatePins: (adminPin: string, readerPin: string) => Promise<void>;
   routesCount: number;
   onExportBackup: () => void;
   onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -31,46 +32,53 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
-  storedPin,
-  onUpdatePin,
+  adminPin,
+  readerPin,
+  onUpdatePins,
   routesCount,
   onExportBackup,
   onImportBackup,
   onClearCache,
 }) => {
   const [activeTab, setActiveTab] = useState<'security' | 'garmin' | 'vop' | 'backup'>('security');
-  const [currentPinInput, setCurrentPinInput] = useState('');
-  const [newPinInput, setNewPinInput] = useState('');
-  const [pinError, setPinError] = useState(false);
+  const [adminPinInput, setAdminPinInput] = useState(adminPin || '0303');
+  const [readerPinInput, setReaderPinInput] = useState(readerPin || '1234');
+  const [pinError, setPinError] = useState('');
   const [pinSuccess, setPinSuccess] = useState(false);
+  const [isSavingPins, setIsSavingPins] = useState(false);
+
+  useEffect(() => {
+    setAdminPinInput(adminPin || '0303');
+    setReaderPinInput(readerPin || '1234');
+  }, [adminPin, readerPin, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleChangePin = async (e: React.FormEvent) => {
+  const handleSavePins = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPinInput.length < 4) {
-      setPinError(true);
+    if (adminPinInput.trim().length < 4) {
+      setPinError('Heslo pro administrátora musí mít alespoň 4 znaky/číslice.');
+      return;
+    }
+    if (readerPinInput.trim().length < 4) {
+      setPinError('Heslo pro čtenáře musí mít alespoň 4 znaky/číslice.');
+      return;
+    }
+    if (adminPinInput.trim() === readerPinInput.trim()) {
+      setPinError('Heslo administrátora a čtenáře se musí lišit.');
       return;
     }
 
-    if (currentPinInput === storedPin || currentPinInput === '1234') {
-      onUpdatePin(newPinInput);
+    setIsSavingPins(true);
+    setPinError('');
+    try {
+      await onUpdatePins(adminPinInput.trim(), readerPinInput.trim());
       setPinSuccess(true);
-      setPinError(false);
-      try {
-        await fetch('/api/security/pin', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ currentPin: currentPinInput, newPin: newPinInput }),
-        });
-      } catch {}
-      setTimeout(() => {
-        setPinSuccess(false);
-        setCurrentPinInput('');
-        setNewPinInput('');
-      }, 2000);
-    } else {
-      setPinError(true);
+      setTimeout(() => setPinSuccess(false), 3000);
+    } catch (err: any) {
+      setPinError(err.message || 'Chyba při ukládání hesel do cloudu.');
+    } finally {
+      setIsSavingPins(false);
     }
   };
 
@@ -155,70 +163,87 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="bg-stone-950/70 border border-stone-800 rounded-xl p-4 space-y-3">
                 <div className="flex items-center gap-2 text-white font-semibold">
                   <Lock className="w-4 h-4 text-emerald-400" />
-                  <span>Stav zabezpečení aplikace</span>
+                  <span>Globální cloudové zabezpečení pro všechna zařízení</span>
                 </div>
                 <p className="text-xs text-stone-400 leading-relaxed">
-                  Aplikace Horský deník je zabezpečena vstupním heslem / PIN kódem. Bez zadání platného PINu zůstávají veškeré výpravy, statistiky, mapy a fotografie uzamčeny před cizími osobami.
+                  Hesla jsou synchronizována přes cloudovou databázi a platí jednotně pro všechna zařízení. Můžete nastavit samostatné heslo pro administrátora (plný přístup) a pro čtenáře (pouze prohlížení).
                 </p>
-                <div className="flex items-center justify-between text-xs pt-1">
-                  <span className="text-stone-400">Výchozí PIN při instalaci:</span>
-                  <span className="font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">1234</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                  <div className="bg-emerald-950/40 border border-emerald-800/40 p-2.5 rounded-lg">
+                    <span className="font-bold text-emerald-300 block mb-0.5">👑 Administrátor (Správce)</span>
+                    <span className="text-stone-400 text-[11px]">Plný přístup: přidávání, úpravy, mazání tras, fotek a změna hesel.</span>
+                  </div>
+                  <div className="bg-stone-900 border border-stone-800 p-2.5 rounded-lg">
+                    <span className="font-bold text-stone-200 block mb-0.5">📖 Čtenář (Návštěvník)</span>
+                    <span className="text-stone-400 text-[11px]">Pouze ke čtení: prohlížení výprav, fotek, mapy a profilu bez možnosti změn.</span>
+                  </div>
                 </div>
               </div>
 
               <div className="bg-stone-950/50 border border-stone-800 rounded-xl p-5 space-y-4">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <KeyRound className="w-4 h-4 text-emerald-400" />
-                  <span>Změna bezpečnostního PINu</span>
+                  <span>Nastavení globálních přístupových hesel</span>
                 </h4>
 
-                <form onSubmit={handleChangePin} className="space-y-3">
+                <form onSubmit={handleSavePins} className="space-y-4">
                   <div>
-                    <label className="text-xs text-stone-400 block mb-1">Stávající PIN kód</label>
+                    <label className="text-xs text-stone-300 font-semibold block mb-1">
+                      👑 Heslo pro Administrátora (Správce)
+                    </label>
                     <input
                       type="password"
-                      maxLength={8}
-                      value={currentPinInput}
-                      onChange={(e) => setCurrentPinInput(e.target.value)}
-                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-2 text-white text-sm focus:border-emerald-500 focus:outline-none"
-                      placeholder="Zadejte aktuální PIN (např. 1234)"
+                      maxLength={12}
+                      value={adminPinInput}
+                      onChange={(e) => setAdminPinInput(e.target.value)}
+                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none tracking-widest font-mono"
+                      placeholder="Heslo administrátora"
                       required
                     />
+                    <span className="text-[11px] text-stone-500 mt-1 block">
+                      Výchozí heslo administrátora: <strong className="text-emerald-400 font-mono">0303</strong>
+                    </span>
                   </div>
 
                   <div>
-                    <label className="text-xs text-stone-400 block mb-1">Nový PIN kód (minimálně 4 číslice)</label>
+                    <label className="text-xs text-stone-300 font-semibold block mb-1">
+                      📖 Heslo pro Čtenáře (Pouze k nahlížení)
+                    </label>
                     <input
                       type="password"
-                      maxLength={8}
-                      value={newPinInput}
-                      onChange={(e) => setNewPinInput(e.target.value)}
-                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-2 text-white text-sm focus:border-emerald-500 focus:outline-none"
-                      placeholder="Zadejte nový číselný PIN"
+                      maxLength={12}
+                      value={readerPinInput}
+                      onChange={(e) => setReaderPinInput(e.target.value)}
+                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none tracking-widest font-mono"
+                      placeholder="Heslo pro čtenáře"
                       required
                     />
+                    <span className="text-[11px] text-stone-500 mt-1 block">
+                      Výchozí heslo čtenáře: <strong className="text-stone-300 font-mono">1234</strong>
+                    </span>
                   </div>
 
                   {pinError && (
-                    <div className="flex items-center gap-1.5 text-xs text-red-400">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      <span>Nesprávný stávající PIN nebo nový PIN nemá alespoň 4 číslice.</span>
+                    <div className="flex items-center gap-1.5 text-xs text-red-400 bg-red-950/50 p-3 rounded-xl border border-red-900/60">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{pinError}</span>
                     </div>
                   )}
 
                   {pinSuccess && (
-                    <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold">
-                      <Check className="w-4 h-4" />
-                      <span>Bezpečnostní PIN byl úspěšně změněn a uložen!</span>
+                    <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/50 p-3 rounded-xl border border-emerald-900/60 font-semibold">
+                      <Check className="w-4 h-4 shrink-0" />
+                      <span>Hesla byla úspěšně uložena do cloudové databáze a platí pro všechna zařízení!</span>
                     </div>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition text-xs shadow flex items-center justify-center gap-1.5"
+                    disabled={isSavingPins}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl transition text-xs shadow flex items-center justify-center gap-1.5"
                   >
                     <KeyRound className="w-3.5 h-3.5" />
-                    Uložit nový PIN
+                    {isSavingPins ? 'Ukládám do cloudu...' : 'Uložit hesla pro všechna zařízení'}
                   </button>
                 </form>
               </div>

@@ -31,7 +31,7 @@ import { ElevationProfile } from './ElevationProfile';
 import { PhotoLightbox } from './PhotoLightbox';
 import { uploadPhotoToStorage } from '../utils/photoOptimizer';
 import { saveRouteTrackpoints } from '../utils/dbStorage';
-import { updateHikePhotosInFirestore, deletePhotoFromFirestore } from '../firebase';
+import { updateHikePhotosInFirestore, deletePhotoFromFirestore, fetchPhotoFromFirestore } from '../firebase';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 interface HikeModalProps {
@@ -81,6 +81,26 @@ export const HikeModal: React.FC<HikeModalProps> = ({
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
+  const [loadedCloudDataUrls, setLoadedCloudDataUrls] = useState<Record<string, string>>({});
+
+  // Mobile Back button support for Lightbox: pressing back closes lightbox instead of page
+  useEffect(() => {
+    if (lightboxOpen) {
+      window.history.pushState({ modal: 'lightbox' }, '');
+      const handlePop = () => {
+        setLightboxOpen(false);
+      };
+      window.addEventListener('popstate', handlePop);
+      return () => window.removeEventListener('popstate', handlePop);
+    }
+  }, [lightboxOpen]);
+
+  const handleCloseLightbox = () => {
+    setLightboxOpen(false);
+    if (window.history.state?.modal === 'lightbox') {
+      window.history.back();
+    }
+  };
 
   const [feedbackDialog, setFeedbackDialog] = useState<{
     type: 'warning' | 'error' | 'success';
@@ -585,21 +605,56 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     }
   };
 
+  // Preload any photos that lack dataUrl directly from Firestore
+  useEffect(() => {
+    if (!isOpen || currentPhotos.length === 0) return;
+    currentPhotos.forEach((p) => {
+      if (typeof p === 'object' && p?.id && !p.dataUrl && !loadedCloudDataUrls[p.id]) {
+        fetchPhotoFromFirestore(p.id).then((dUrl) => {
+          if (dUrl) {
+            setLoadedCloudDataUrls((prev) => ({ ...prev, [p.id!]: dUrl }));
+          }
+        });
+      }
+    });
+  }, [isOpen, currentPhotos, loadedCloudDataUrls]);
+
   const getPhotoThumbnail = (photo: string | HikePhotoItem) => {
+    if (!photo) return '';
     if (typeof photo === 'string') {
+      if (photo.startsWith('data:') || photo.startsWith('http')) {
+        return photo;
+      }
       if (photo.startsWith('/api/photos/')) {
         return `${API_BASE_URL}${photo}?raw=1`;
       }
       return photo;
     }
-    // Prioritize direct dataUrl / image url, then static photos directory as fallback
-    if (photo.url && (photo.url.startsWith('data:') || photo.url.startsWith('http') || photo.url.startsWith('/api/photos/'))) {
-      if (photo.url.startsWith('/api/photos/')) {
-        return `${API_BASE_URL}${photo.url}`;
-      }
+    // 1. MUST PRIORITIZE direct dataUrl
+    if (photo.dataUrl) {
+      return photo.dataUrl;
+    }
+    // 2. Check asynchronously loaded cloud dataUrl from Firestore
+    if (photo.id && loadedCloudDataUrls[photo.id]) {
+      return loadedCloudDataUrls[photo.id];
+    }
+    // 3. Direct http (external link) or data url
+    if (photo.url && (photo.url.startsWith('data:') || (photo.url.startsWith('http') && !photo.url.includes('/api/photos/')))) {
       return photo.url;
     }
-    return photo.dataUrl || photo.rawUrl || photo.url || (photo.id ? `./photos/${photo.id}.jpg` : '');
+    // 4. Trigger asynchronous Firestore fetch immediately if photo has an ID
+    if (photo.id && !loadedCloudDataUrls[photo.id]) {
+      fetchPhotoFromFirestore(photo.id).then((dUrl) => {
+        if (dUrl) {
+          setLoadedCloudDataUrls((prev) => ({ ...prev, [photo.id!]: dUrl }));
+        }
+      });
+    }
+    // 5. Fallback to API URL or rawUrl
+    if (photo.url && photo.url.startsWith('/api/photos/')) {
+      return `${API_BASE_URL}${photo.url}`;
+    }
+    return photo.rawUrl || photo.url || '';
   };
 
   const handleDownloadCurrentPhoto = () => {
@@ -981,27 +1036,49 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                       /* Featured Large Photo View with Thumbnail Strip */
                       <div className="space-y-3">
                         {/* Large Main Photo */}
-                        <div
-                          onClick={() => {
-                            setLightboxIndex(activePhotoIndex);
-                            setLightboxOpen(true);
-                          }}
-                          className="group relative w-full h-80 sm:h-[480px] md:h-[560px] bg-black/90 rounded-2xl overflow-hidden border border-stone-800 flex items-center justify-center cursor-pointer shadow-xl transition hover:border-emerald-500/80"
-                        >
-                          <img
-                            src={getPhotoThumbnail(currentPhotos[activePhotoIndex] || currentPhotos[0])}
-                            alt={`Fotografie ${activePhotoIndex + 1}`}
-                            onLoad={(e) => {
-                              const el = e.currentTarget;
-                              if (el.naturalWidth) {
-                                setActivePhotoDimensions({
-                                  width: el.naturalWidth,
-                                  height: el.naturalHeight,
-                                });
-                              }
-                            }}
-                            className="w-full h-full object-contain select-none transition-transform duration-300 group-hover:scale-[1.01]"
-                          />
+                        {(() => {
+                          const activePhotoItem = currentPhotos[activePhotoIndex] || currentPhotos[0];
+                          const activePhotoSrc = getPhotoThumbnail(activePhotoItem);
+                          return (
+                            <div
+                              onClick={() => {
+                                setLightboxIndex(activePhotoIndex);
+                                setLightboxOpen(true);
+                              }}
+                              className="group relative w-full h-80 sm:h-[480px] md:h-[560px] bg-stone-950 rounded-2xl overflow-hidden border border-stone-800 flex items-center justify-center cursor-pointer shadow-xl transition hover:border-emerald-500/80"
+                            >
+                              {!activePhotoSrc ? (
+                                <div className="flex flex-col items-center justify-center text-stone-400 gap-3 p-6 text-center select-none">
+                                  <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                                  <span className="text-sm font-semibold text-stone-300">Načítám fotografii ve vysokém rozlišení z cloudu...</span>
+                                  <span className="text-xs text-stone-500">Originální Full HD kvalita</span>
+                                </div>
+                              ) : (
+                                <img
+                                  key={activePhotoSrc.slice(0, 80)}
+                                  src={activePhotoSrc}
+                                  alt={`Fotografie ${activePhotoIndex + 1}`}
+                                  onError={() => {
+                                    if (typeof activePhotoItem === 'object' && activePhotoItem?.id) {
+                                      fetchPhotoFromFirestore(activePhotoItem.id).then((dUrl) => {
+                                        if (dUrl) {
+                                          setLoadedCloudDataUrls((prev) => ({ ...prev, [activePhotoItem.id!]: dUrl }));
+                                        }
+                                      });
+                                    }
+                                  }}
+                                  onLoad={(e) => {
+                                    const el = e.currentTarget;
+                                    if (el.naturalWidth) {
+                                      setActivePhotoDimensions({
+                                        width: el.naturalWidth,
+                                        height: el.naturalHeight,
+                                      });
+                                    }
+                                  }}
+                                  className="w-full h-full object-contain select-none transition-transform duration-300 group-hover:scale-[1.01]"
+                                />
+                              )}
 
                           {/* Floating Top Controls */}
                           <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex items-start justify-between gap-2 pointer-events-none">
@@ -1136,6 +1213,8 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                             Kliknutím otevřete v maximálním rozlišení
                           </div>
                         </div>
+                      );
+                    })()}
 
                         {/* Photo Resolution & Action Inspector Bar */}
                         <div className="bg-stone-900/90 border border-stone-800 rounded-xl p-3 sm:p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
@@ -1648,7 +1727,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         photos={currentPhotos}
         initialIndex={lightboxIndex}
         isOpen={lightboxOpen}
-        onClose={() => setLightboxOpen(false)}
+        onClose={handleCloseLightbox}
         onDelete={handleDeletePhoto}
         canEdit={canEdit}
       />

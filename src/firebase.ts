@@ -242,3 +242,53 @@ export async function fetchHikesFromFirestore(): Promise<any[]> {
     return [];
   }
 }
+
+export interface SecuritySettings {
+  adminPin: string;
+  readerPin: string;
+  updatedAt?: string;
+}
+
+/**
+ * Loads global security PINs (admin & reader) from Cloud Firestore.
+ * Synchronizes instantly across all devices.
+ */
+export async function fetchSecuritySettings(): Promise<SecuritySettings> {
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'security'));
+    if (snap.exists()) {
+      const data = snap.data();
+      const adminPin = (data?.adminPin && String(data.adminPin).trim()) || '0303';
+      const readerPin = (data?.readerPin && String(data.readerPin).trim()) || (data?.pin && String(data.pin).trim()) || '1234';
+      return {
+        adminPin,
+        readerPin,
+        updatedAt: data?.updatedAt,
+      };
+    }
+  } catch (err) {
+    console.warn('[Firestore] Nelze načíst bezpečnostní nastavení:', err);
+  }
+  return { adminPin: '0303', readerPin: '1234' };
+}
+
+/**
+ * Saves global security PINs (admin & reader) directly to Cloud Firestore.
+ */
+export async function saveSecuritySettings(settings: { adminPin: string; readerPin: string }): Promise<void> {
+  try {
+    await setDoc(
+      doc(db, 'settings', 'security'),
+      {
+        adminPin: settings.adminPin.trim(),
+        readerPin: settings.readerPin.trim(),
+        pin: settings.readerPin.trim(), // backward compatibility
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err: any) {
+    console.error('[Firestore] Nelze uložit globální hesla:', err);
+    throw new Error(err?.message || 'Chyba při ukládání hesel do cloudové databáze');
+  }
+}
