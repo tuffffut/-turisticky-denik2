@@ -1239,46 +1239,24 @@ export const App: React.FC = () => {
         </div>
 
         {/* Dynamic Views */}
-        <div className="space-y-6">
-          {/* Map Section */}
-          {(viewMode === 'split' || viewMode === 'map') && (
-            <div>
-              <HikeMap
-                routes={filteredRoutes}
-                selectedRouteId={selectedRouteId}
-                onSelectRoute={(id) => {
-                  setSelectedRouteId(id);
-                  const found = routes.find((r) => r.id === id);
-                  if (found) handleOpenDetail(found);
-                }}
-                className={viewMode === 'map' ? 'h-[75vh] w-full rounded-2xl' : 'h-96 w-full rounded-2xl'}
-              />
-            </div>
-          )}
-
-          {/* List / Cards Section */}
-          {(viewMode === 'split' || viewMode === 'list') && (
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-stone-300 uppercase tracking-wider flex items-center gap-2">
-                  <span>Výpravy ({filteredRoutes.length})</span>
-                </h3>
-              </div>
-
-              {loading ? (
+        {(() => {
+          const renderCards = (isFullWidth: boolean) => {
+            if (loading) {
+              return (
                 <div className="py-20 text-center">
                   <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
                   <span className="text-stone-400 text-sm">Načítám výpravy z centrální databáze serveru...</span>
                 </div>
-              ) : serverError && routes.length === 0 ? (
+              );
+            }
+            if (serverError && routes.length === 0) {
+              return (
                 <div className="py-16 text-center bg-red-950/20 border border-red-900/50 rounded-2xl p-6">
                   <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3 animate-pulse" />
                   <h4 className="text-base font-bold text-white mb-1">
                     Chyba při komunikaci s cloudovým serverem
                   </h4>
-                  <p className="text-xs text-red-300 max-w-md mx-auto mb-4">
-                    {serverError}
-                  </p>
+                  <p className="text-xs text-red-300 max-w-md mx-auto mb-4">{serverError}</p>
                   <button
                     onClick={() => fetchRoutes(false)}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow flex items-center gap-2 mx-auto"
@@ -1287,112 +1265,177 @@ export const App: React.FC = () => {
                     Opakovat načtení ze serveru
                   </button>
                 </div>
-              ) : filteredRoutes.length === 0 ? (
+              );
+            }
+            if (filteredRoutes.length === 0) {
+              return (
                 <div className="py-16 text-center bg-stone-900/40 border border-dashed border-stone-800 rounded-2xl">
                   <Mountain className="w-10 h-10 text-stone-600 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-stone-300">
-                    Nenalezena žádná výprava
-                  </p>
+                  <p className="text-sm font-semibold text-stone-300">Nenalezena žádná výprava</p>
                   <p className="text-xs text-stone-500 mt-1">
                     Zkuste upravit vyhledávací filtr nebo přidejte novou výpravu přes tlačítko v záhlaví.
                   </p>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredRoutes.map((route) => {
-                    const isSelected = route.id === selectedRouteId;
-                    const photoCount = Array.isArray(route.photos) ? route.photos.length : 0;
-                    const firstPhoto = photoCount > 0 ? route.photos![0] : null;
-                    const firstPhotoSrc =
-                      typeof firstPhoto === 'string'
-                        ? firstPhoto
-                        : firstPhoto?.dataUrl || firstPhoto?.url || firstPhoto?.rawUrl || '';
+              );
+            }
 
-                    return (
-                      <div
-                        key={route.id}
-                        onClick={() => handleOpenDetail(route)}
-                        className={`group bg-stone-900/80 border rounded-2xl p-5 cursor-pointer transition flex flex-col justify-between hover:border-emerald-500/80 hover:shadow-xl hover:shadow-black/50 ${
-                          isSelected
-                            ? 'border-emerald-500 bg-stone-900 shadow-emerald-950/40 shadow-lg'
-                            : 'border-stone-800'
-                        }`}
-                      >
-                        <div>
-                          {/* Card top badges */}
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/80 border border-emerald-800/50 px-2.5 py-0.5 rounded-full truncate">
-                              {route.mountainRange || 'Hory'}
+            const gridClass = isFullWidth
+              ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
+              : 'grid grid-cols-1 sm:grid-cols-2 gap-4';
+
+            return (
+              <div className={gridClass}>
+                {filteredRoutes.map((route) => {
+                  const isSelected = route.id === selectedRouteId;
+                  const photoCount = Array.isArray(route.photos) ? route.photos.length : 0;
+                  const firstPhoto = photoCount > 0 ? route.photos![0] : null;
+
+                  return (
+                    <div
+                      key={route.id}
+                      onClick={() => handleOpenDetail(route)}
+                      className={`group bg-stone-900/80 border rounded-2xl p-4 sm:p-5 cursor-pointer transition flex flex-col justify-between hover:border-emerald-500/80 hover:shadow-xl hover:shadow-black/50 ${
+                        isSelected
+                          ? 'border-emerald-500 bg-stone-900 shadow-emerald-950/40 shadow-lg'
+                          : 'border-stone-800'
+                      }`}
+                    >
+                      <div>
+                        {/* Card top badges */}
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/80 border border-emerald-800/50 px-2.5 py-0.5 rounded-full truncate">
+                            {route.mountainRange || 'Hory'}
+                          </span>
+                          {route.date && (
+                            <span className="text-xs text-stone-400 flex items-center gap-1 whitespace-nowrap">
+                              <Calendar className="w-3 h-3 text-stone-500" />
+                              {new Date(route.date).toLocaleDateString('cs-CZ')}
+                              {route.startTime ? ` • ${route.startTime}` : ''}
                             </span>
-                            {route.date && (
-                              <span className="text-xs text-stone-400 flex items-center gap-1 whitespace-nowrap">
-                                <Calendar className="w-3 h-3 text-stone-500" />
-                                {new Date(route.date).toLocaleDateString('cs-CZ')}
-                                {route.startTime ? ` • ${route.startTime}` : ''}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Title */}
-                          <h4 className="text-base font-bold text-white group-hover:text-emerald-300 transition line-clamp-2 mb-3">
-                            {route.title || 'Horská výprava'}
-                          </h4>
-
-                          {/* Photo preview banner with guaranteed resolution */}
-                          {firstPhoto && (
-                            <PhotoCardPreview
-                              photo={firstPhoto}
-                              title={route.title}
-                              photoCount={photoCount}
-                            />
                           )}
-
-                          {/* Metrics row */}
-                          <div className="grid grid-cols-3 gap-2 bg-stone-950/60 border border-stone-800/70 p-2.5 rounded-xl text-center mb-3">
-                            <div>
-                              <span className="text-[10px] text-stone-500 block">Délka</span>
-                              <span className="text-xs font-bold text-white">
-                                {route.distanceKm} km
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-stone-500 block">Převýšení</span>
-                              <span className="text-xs font-bold text-emerald-400">
-                                +{route.elevationGainM} m
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-stone-500 block">Nejvyšší bod</span>
-                              <span className="text-xs font-bold text-amber-400">
-                                {route.highestPointM} m
-                              </span>
-                            </div>
-                          </div>
                         </div>
 
-                        {/* Card footer */}
-                        <div className="pt-2 border-t border-stone-800/80 flex items-center justify-between text-xs">
-                          <span className="text-stone-400 flex items-center gap-1">
-                            {photoCount > 0 ? (
-                              <span className="text-emerald-400 font-medium">
-                                {photoCount} ostrých fotek
-                              </span>
-                            ) : (
-                              <span>Bez fotek</span>
-                            )}
-                          </span>
-                          <span className="text-emerald-400 group-hover:translate-x-0.5 transition font-medium flex items-center gap-0.5">
-                            Detail trasy <ChevronRight className="w-3.5 h-3.5" />
-                          </span>
+                        {/* Title */}
+                        <h4 className="text-base font-bold text-white group-hover:text-emerald-300 transition line-clamp-2 mb-3">
+                          {route.title || 'Horská výprava'}
+                        </h4>
+
+                        {/* Photo preview banner with guaranteed resolution */}
+                        {firstPhoto && (
+                          <PhotoCardPreview
+                            photo={firstPhoto}
+                            title={route.title}
+                            photoCount={photoCount}
+                          />
+                        )}
+
+                        {/* Metrics row */}
+                        <div className="grid grid-cols-3 gap-2 bg-stone-950/60 border border-stone-800/70 p-2.5 rounded-xl text-center mb-3">
+                          <div>
+                            <span className="text-[10px] text-stone-500 block">Délka</span>
+                            <span className="text-xs font-bold text-white">{route.distanceKm} km</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-stone-500 block">Převýšení</span>
+                            <span className="text-xs font-bold text-emerald-400">+{route.elevationGainM} m</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-stone-500 block">Nejvyšší bod</span>
+                            <span className="text-xs font-bold text-amber-400">{route.highestPointM} m</span>
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
+
+                      {/* Card footer */}
+                      <div className="pt-2 border-t border-stone-800/80 flex items-center justify-between text-xs">
+                        <span className="text-stone-400 flex items-center gap-1">
+                          {photoCount > 0 ? (
+                            <span className="text-emerald-400 font-medium">
+                              {photoCount} {photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'}
+                            </span>
+                          ) : (
+                            <span>Bez fotek</span>
+                          )}
+                        </span>
+                        <span className="text-emerald-400 group-hover:translate-x-0.5 transition font-medium flex items-center gap-0.5">
+                          Detail trasy <ChevronRight className="w-3.5 h-3.5" />
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          };
+
+          if (viewMode === 'map') {
+            return (
+              <div className="space-y-4">
+                <HikeMap
+                  routes={filteredRoutes}
+                  selectedRouteId={selectedRouteId}
+                  onSelectRoute={(id) => {
+                    setSelectedRouteId(id);
+                    const found = routes.find((r) => r.id === id);
+                    if (found) handleOpenDetail(found);
+                  }}
+                  className="h-[78vh] w-full rounded-2xl"
+                />
+              </div>
+            );
+          }
+
+          if (viewMode === 'split') {
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* Map Column: on desktop sticky on right, on mobile top banner */}
+                <div className="lg:col-span-5 lg:order-2 lg:sticky lg:top-20 z-0">
+                  <div className="bg-stone-900/60 border border-stone-800/80 rounded-2xl p-2.5 shadow-xl">
+                    <div className="flex items-center justify-between px-2 py-1 mb-1.5 text-xs text-stone-400">
+                      <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                        <Compass className="w-3.5 h-3.5" />
+                        Mapa výprav ({filteredRoutes.length})
+                      </span>
+                      <span className="text-[11px] text-stone-500">Kliknutím otevřete detail</span>
+                    </div>
+                    <HikeMap
+                      routes={filteredRoutes}
+                      selectedRouteId={selectedRouteId}
+                      onSelectRoute={(id) => {
+                        setSelectedRouteId(id);
+                        const found = routes.find((r) => r.id === id);
+                        if (found) handleOpenDetail(found);
+                      }}
+                      className="h-64 sm:h-80 lg:h-[calc(100vh-140px)] w-full rounded-xl"
+                    />
+                  </div>
                 </div>
-              )}
+
+                {/* Cards List Column: cleanly scrollable on left, 100% visible, never overlapped */}
+                <div className="lg:col-span-7 lg:order-1 space-y-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-bold text-stone-300 uppercase tracking-wider flex items-center gap-2">
+                      <span>Výpravy ({filteredRoutes.length})</span>
+                    </h3>
+                  </div>
+                  {renderCards(false)}
+                </div>
+              </div>
+            );
+          }
+
+          // viewMode === 'list' (Seznam)
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-bold text-stone-300 uppercase tracking-wider flex items-center gap-2">
+                  <span>Výpravy ({filteredRoutes.length})</span>
+                </h3>
+              </div>
+              {renderCards(true)}
             </div>
-          )}
-        </div>
+          );
+        })()}
       </main>
       </>
       )}

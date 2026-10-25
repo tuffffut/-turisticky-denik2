@@ -9,6 +9,7 @@ import {
   deleteDoc,
   updateDoc,
 } from 'firebase/firestore';
+import { savePhotoBlob, getPhotoBlob } from './utils/dbStorage';
 
 // Firebase configuration from firebase-applet-config.json
 const firebaseConfig = {
@@ -25,11 +26,7 @@ export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 /**
- * Saves a photo document directly to Firestore hike_photos collection.
- * Works seamlessly across all devices, mobile browsers, and static hosts (GitHub Pages).
- */
-/**
- * Saves a photo document directly to Firestore hike_photos collection.
+ * Saves a photo document directly to Firestore hike_photos collection AND IndexedDB.
  * Supports automatic chunking for high-resolution images so Firestore limits are never hit.
  */
 export async function savePhotoToFirestore(
@@ -46,6 +43,21 @@ export async function savePhotoToFirestore(
   }
 ): Promise<void> {
   if (!photoId || !photoData.dataUrl) return;
+
+  // 1. Immediately cache in IndexedDB for 0ms offline/refresh persistence
+  try {
+    await savePhotoBlob(photoId, photoData.dataUrl, {
+      name: photoData.name,
+      caption: photoData.caption,
+      width: photoData.width,
+      height: photoData.height,
+      sizeKb: photoData.sizeKb,
+    });
+  } catch (idbErr) {
+    console.warn('[IndexedDB] Cache save varování:', idbErr);
+  }
+
+  // 2. Persist to Firestore hike_photos
   try {
     const dataUrl = photoData.dataUrl;
     const CHUNK_SIZE = 700 * 1024;
@@ -89,25 +101,36 @@ export async function savePhotoToFirestore(
     console.error('[Firestore] Chyba při ukládání fotografie do cloudu:', err);
     let msg = err?.message || 'Chyba při zápisu fotografie do databáze';
     if (/quota/i.test(msg)) {
-      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded). Fotografie nemohla být uložena.';
+      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded). Fotografie je však uložena v mezipaměti prohlížeče.';
     }
     throw new Error(msg);
   }
 }
 
 /**
- * Fetches a photo dataUrl directly from Firestore hike_photos by photoId.
- * Reassembles chunked photos automatically if stored in parts.
+ * Fetches a photo dataUrl: First checks local IndexedDB (instant 0ms retrieval),
+ * then fetches from Firestore hike_photos and caches locally.
  */
 export async function fetchPhotoFromFirestore(photoId: string): Promise<string | null> {
   if (!photoId) return null;
+
+  // 1. Check local IndexedDB first (0ms, offline capable, survives all page refreshes)
+  try {
+    const cachedBlob = await getPhotoBlob(photoId);
+    if (cachedBlob) {
+      return cachedBlob;
+    }
+  } catch {}
+
+  // 2. Fetch from Firestore
   try {
     const snap = await getDoc(doc(db, 'hike_photos', photoId));
     if (snap.exists()) {
       const data = snap.data();
       if (!data) return null;
+      let fullDataUrl = '';
       if (data.isChunked) {
-        let fullDataUrl = data.dataUrlChunk0 || '';
+        fullDataUrl = data.dataUrlChunk0 || '';
         const total = data.totalChunks || 1;
         for (let i = 1; i < total; i++) {
           const chunkSnap = await getDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`));
@@ -115,9 +138,21 @@ export async function fetchPhotoFromFirestore(photoId: string): Promise<string |
             fullDataUrl += chunkSnap.data()?.data || '';
           }
         }
-        return fullDataUrl || null;
+      } else {
+        fullDataUrl = data.dataUrl || '';
       }
-      return data.dataUrl || null;
+
+      if (fullDataUrl) {
+        // Cache in IndexedDB for subsequent zero-latency loads
+        savePhotoBlob(photoId, fullDataUrl, {
+          name: data.name,
+          caption: data.caption,
+          width: data.width,
+          height: data.height,
+          sizeKb: data.sizeKb,
+        }).catch(() => {});
+        return fullDataUrl;
+      }
     }
   } catch (err) {
     console.warn(`[Firestore] Nelze načíst fotografii ${photoId} z cloudu:`, err);
@@ -137,18 +172,24 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
       if (v !== undefined) cleanData[k] = v;
     }
 
-    // Strip large raw XML to never exceed Firestore 1MB document limit
+    // Preserve GPS trackpoints: copy from trackPoints (Garmin style) if trackpoints missing
+    const rawTrack = cleanData.trackpoints || cleanData.trackPoints;
     delete cleanData.gpxRawXml;
     delete cleanData.trackPoints;
 
-    // Guard against Firestore 1MB document limit: sample trackpoints to max 300 points
-    if (Array.isArray(cleanData.trackpoints) && cleanData.trackpoints.length > 300) {
-      const step = Math.ceil(cleanData.trackpoints.length / 300);
-      cleanData.trackpoints = cleanData.trackpoints.filter((_: any, i: number) => i % step === 0 || i === cleanData.trackpoints.length - 1);
+    // Guard against Firestore 1MB document limit: sample trackpoints to max 400 points
+    if (Array.isArray(rawTrack) && rawTrack.length > 0) {
+      if (rawTrack.length > 400) {
+        const step = Math.ceil(rawTrack.length / 400);
+        cleanData.trackpoints = rawTrack.filter((_: any, i: number) => i % step === 0 || i === rawTrack.length - 1);
+      } else {
+        cleanData.trackpoints = rawTrack;
+      }
     }
 
-    // Process photos: Back up full dataUrl into dedicated hike_photos document,
+    // Process photos: Back up full dataUrl into dedicated hike_photos document + IndexedDB,
     // and keep ONLY lean metadata in hikes document (prevents 1MB document size limit error).
+    const photoSavePromises: Promise<any>[] = [];
     if (Array.isArray(cleanData.photos)) {
       cleanData.photos = cleanData.photos.map((p: any) => {
         if (typeof p === 'object' && p !== null) {
@@ -167,23 +208,27 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
           };
 
           if (p.dataUrl && typeof p.dataUrl === 'string' && p.dataUrl.startsWith('data:')) {
-            // Save photo binary/dataUrl to dedicated hike_photos collection
-            savePhotoToFirestore(photoId, {
-              id: photoId,
-              hikeId,
-              dataUrl: p.dataUrl,
-              name: p.name,
-              caption: p.caption,
-              width: p.width,
-              height: p.height,
-              sizeKb: p.sizeKb,
-            }).catch(() => {});
+            photoSavePromises.push(
+              savePhotoToFirestore(photoId, {
+                id: photoId,
+                hikeId,
+                dataUrl: p.dataUrl,
+                name: p.name,
+                caption: p.caption,
+                width: p.width,
+                height: p.height,
+                sizeKb: p.sizeKb,
+              })
+            );
           }
-          // Do NOT keep dataUrl inside cleanData.photos array to keep hike doc size < 15KB
           return item;
         }
         return p;
       });
+    }
+
+    if (photoSavePromises.length > 0) {
+      await Promise.all(photoSavePromises);
     }
 
     await setDoc(doc(db, 'hikes', hikeId), cleanData, { merge: true });
@@ -192,7 +237,7 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
     console.error('[Firestore] Chyba při ukládání do cloudu:', err);
     let msg = err?.message || 'Chyba při zápisu do cloudové databáze';
     if (/quota/i.test(msg)) {
-      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded). Data nelze uložit na cloud.';
+      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded). Data byla uložena v mezipaměti.';
     }
     throw new Error(msg);
   }
@@ -205,6 +250,7 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
 export async function updateHikePhotosInFirestore(hikeId: string, photos: any[]): Promise<boolean> {
   if (!hikeId) return false;
   try {
+    const photoSavePromises: Promise<any>[] = [];
     const cleanPhotos = (photos || []).map((p: any) => {
       if (typeof p === 'object' && p !== null) {
         const photoId = p.id || 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
@@ -222,22 +268,27 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
         };
 
         if (p.dataUrl && typeof p.dataUrl === 'string' && p.dataUrl.startsWith('data:')) {
-          savePhotoToFirestore(photoId, {
-            id: photoId,
-            hikeId,
-            dataUrl: p.dataUrl,
-            name: p.name,
-            caption: p.caption,
-            width: p.width,
-            height: p.height,
-            sizeKb: p.sizeKb,
-          }).catch(() => {});
+          photoSavePromises.push(
+            savePhotoToFirestore(photoId, {
+              id: photoId,
+              hikeId,
+              dataUrl: p.dataUrl,
+              name: p.name,
+              caption: p.caption,
+              width: p.width,
+              height: p.height,
+              sizeKb: p.sizeKb,
+            })
+          );
         }
-        // Do NOT store dataUrl in the hike's photos array
         return item;
       }
       return p;
     });
+
+    if (photoSavePromises.length > 0) {
+      await Promise.all(photoSavePromises);
+    }
 
     await setDoc(doc(db, 'hikes', hikeId), { photos: cleanPhotos }, { merge: true });
     return true;

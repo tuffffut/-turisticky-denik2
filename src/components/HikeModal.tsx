@@ -32,7 +32,7 @@ import { ElevationProfile } from './ElevationProfile';
 import { PhotoLightbox } from './PhotoLightbox';
 import { HikeMap } from './HikeMap';
 import { uploadPhotoToStorage } from '../utils/photoOptimizer';
-import { saveRouteTrackpoints } from '../utils/dbStorage';
+import { saveRouteTrackpoints, getRouteTrackpoints } from '../utils/dbStorage';
 import { updateHikePhotosInFirestore, deletePhotoFromFirestore, fetchPhotoFromFirestore } from '../firebase';
 import { API_BASE_URL } from '../utils/apiConfig';
 
@@ -155,6 +155,27 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       }
     }
   }, [isOpen, route?.id, isNew]);
+
+  // Load full GPX trackpoints from IndexedDB if not present in route document
+  useEffect(() => {
+    if (!isOpen) return;
+    const currentId = route?.id || formData.id;
+    if (!currentId) return;
+
+    const hasPts =
+      (Array.isArray(formData.trackpoints) && formData.trackpoints.length > 0) ||
+      (Array.isArray(formData.trackPoints) && formData.trackPoints.length > 0) ||
+      (Array.isArray(route?.trackpoints) && route!.trackpoints.length > 0) ||
+      (Array.isArray(route?.trackPoints) && route!.trackPoints.length > 0);
+
+    if (!hasPts) {
+      getRouteTrackpoints(currentId).then((savedPts) => {
+        if (savedPts && savedPts.length > 0) {
+          setFormData((prev) => ({ ...prev, trackpoints: savedPts, trackPoints: savedPts }));
+        }
+      });
+    }
+  }, [isOpen, route?.id, formData.id]);
 
   const currentPhotos = Array.isArray(formData.photos)
     ? formData.photos
@@ -918,11 +939,13 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
                 {/* Elevation profile & partial GPX warning banner */}
                 {(() => {
-                  const pts = (Array.isArray(formData?.trackpoints) && formData!.trackpoints.length > 1)
+                  const pts = (Array.isArray(formData?.trackpoints) && formData!.trackpoints.length > 0)
                     ? formData!.trackpoints
-                    : (Array.isArray(route?.trackpoints) && route!.trackpoints.length > 1)
+                    : (Array.isArray(formData?.trackPoints) && formData!.trackPoints.length > 0)
+                    ? formData!.trackPoints
+                    : (Array.isArray(route?.trackpoints) && route!.trackpoints.length > 0)
                     ? route!.trackpoints
-                    : (Array.isArray(route?.trackPoints) && route!.trackPoints.length > 1)
+                    : (Array.isArray(route?.trackPoints) && route!.trackPoints.length > 0)
                     ? route!.trackPoints
                     : [];
                   const totalRecordedKm = route?.distanceKm || formData?.distanceKm || 0;
@@ -1015,16 +1038,18 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                 {
                                   ...(route || {}),
                                   ...formData,
-                                  id: route?.id || 'current-route',
+                                  id: route?.id || formData.id || 'current-route',
                                   title: formData.title || route?.title || 'Trasa',
                                   mountainRange: formData.mountainRange || route?.mountainRange || 'Krkonoše',
                                   trackpoints: pts,
                                   trackPoints: pts,
+                                  peakCoords: formData.peakCoords || route?.peakCoords,
+                                  highestPointCoords: formData.highestPointCoords || route?.highestPointCoords || formData.peakCoords || route?.peakCoords,
                                 } as HikeRoute,
                               ]}
-                              selectedRouteId={route?.id || 'current-route'}
+                              selectedRouteId={route?.id || formData.id || 'current-route'}
                               onSelectRoute={() => {}}
-                              className="h-60 sm:h-72 w-full rounded-xl"
+                              className="h-64 sm:h-80 w-full rounded-xl"
                             />
                           </div>
                         </div>

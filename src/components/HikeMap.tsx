@@ -48,6 +48,7 @@ export const HikeMap: React.FC<HikeMapProps> = ({
         center: [49.8, 15.5],
         zoom: 8,
         layers: [topo],
+        scrollWheelZoom: false, // Prevents scroll hijacking when scrolling page
       });
 
       const baseMaps = {
@@ -139,23 +140,22 @@ export const HikeMap: React.FC<HikeMapProps> = ({
             .bindTooltip(`Cíl: ${route.title}`)
             .addTo(group);
         }
+      }
 
-        // Highest summit marker
-        if (route.highestPointCoords) {
-          const peakIcon = L.divIcon({
-            html: `<div style="background-color: #f59e0b; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.6);">▲</div>`,
-            className: 'custom-map-pin',
-            iconSize: [20, 20],
-            iconAnchor: [10, 10],
-          });
-          L.marker([route.highestPointCoords.lat, route.highestPointCoords.lng], {
-            icon: peakIcon,
-          })
-            .bindTooltip(
-              `Vrchol: ${route.highestPointM} m n.m. (${route.title})`
-            )
-            .addTo(group);
-        }
+      // Summit / Peak marker (renders even if full trackpoints are not loaded)
+      const peak = route.highestPointCoords || route.peakCoords;
+      if (peak && typeof peak.lat === 'number' && typeof peak.lng === 'number' && !isNaN(peak.lat) && !isNaN(peak.lng)) {
+        allLatLngs.push(L.latLng(peak.lat, peak.lng));
+        const peakIcon = L.divIcon({
+          html: `<div style="background-color: #10b981; color: white; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.6);">▲</div>`,
+          className: 'custom-map-pin',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
+        });
+        L.marker([peak.lat, peak.lng], { icon: peakIcon })
+          .bindTooltip(`<strong>${route.title}</strong><br/>${route.mountainRange}${route.highestPointM ? ` • ${route.highestPointM} m n.m.` : ''}`)
+          .on('click', () => onSelectRoute(route.id))
+          .addTo(group);
       }
     });
 
@@ -172,20 +172,27 @@ export const HikeMap: React.FC<HikeMapProps> = ({
           selPts.map((p) => [p.lat, p.lng])
         );
         map.fitBounds(selectedBounds, { padding: [40, 40], maxZoom: 14 });
-      } else if (selectedRoute?.peakCoords?.lat && selectedRoute?.peakCoords?.lng) {
-        map.setView([selectedRoute.peakCoords.lat, selectedRoute.peakCoords.lng], 13);
+      } else {
+        const peak = selectedRoute?.highestPointCoords || selectedRoute?.peakCoords;
+        if (peak && typeof peak.lat === 'number' && typeof peak.lng === 'number') {
+          map.setView([peak.lat, peak.lng], 13);
+        }
       }
     } else if (allLatLngs.length > 0) {
       const bounds = L.latLngBounds(allLatLngs);
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
     }
 
-    // Force Leaflet to recalculate container bounds after mount or visibility change
-    const resizeTimer = setTimeout(() => {
-      map.invalidateSize();
-    }, 150);
+    // Force Leaflet to recalculate container bounds after mount or visibility change (multi-stage for modals)
+    const t1 = setTimeout(() => map.invalidateSize(), 50);
+    const t2 = setTimeout(() => map.invalidateSize(), 200);
+    const t3 = setTimeout(() => map.invalidateSize(), 500);
 
-    return () => clearTimeout(resizeTimer);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
   }, [routes, selectedRouteId, onSelectRoute]);
 
   return (
