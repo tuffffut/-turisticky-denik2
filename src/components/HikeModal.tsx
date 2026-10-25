@@ -24,11 +24,13 @@ import {
   Image as ImageIcon,
   AlertTriangle,
   Download,
+  MapPin,
 } from 'lucide-react';
 import { HikeRoute, HikePhotoItem, ActivityType } from '../types';
 import { POPULAR_MOUNTAIN_RANGES, detectMountainRangeFromCoords } from '../utils/mountainRanges';
 import { ElevationProfile } from './ElevationProfile';
 import { PhotoLightbox } from './PhotoLightbox';
+import { HikeMap } from './HikeMap';
 import { uploadPhotoToStorage } from '../utils/photoOptimizer';
 import { saveRouteTrackpoints } from '../utils/dbStorage';
 import { updateHikePhotosInFirestore, deletePhotoFromFirestore, fetchPhotoFromFirestore } from '../firebase';
@@ -231,6 +233,17 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       }
       setIsReplacingActivePhoto(false);
 
+      // Cache dataUrl in memory so the local view displays it immediately without re-fetching
+      const newCloudUrls: Record<string, string> = {};
+      uploadedPhotos.forEach((up) => {
+        if (up.id && up.dataUrl) {
+          newCloudUrls[up.id] = up.dataUrl;
+        }
+      });
+      if (Object.keys(newCloudUrls).length > 0) {
+        setLoadedCloudDataUrls((prev) => ({ ...prev, ...newCloudUrls }));
+      }
+
       setFormData((prev) => ({
         ...prev,
         photos: newPhotosList,
@@ -239,14 +252,31 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
       // Always save changes immediately to persist photos so they are never lost
       if (targetHikeId) {
-        setUploadStatus('Ukládám fotografii do centrální cloudové databáze...');
+        setUploadStatus('Ukládám fotografii na centrální server...');
+        const leanPhotosList = newPhotosList.map((p) => {
+          if (typeof p === 'object' && p !== null) {
+            const { dataUrl: _discard, ...rest } = p;
+            return {
+              ...rest,
+              id: p.id,
+              url: p.url && !p.url.startsWith('data:') ? p.url : `/api/photos/${p.id}`,
+              rawUrl: p.rawUrl && !p.rawUrl.startsWith('data:') ? p.rawUrl : `/api/photos/${p.id}?raw=1`,
+            };
+          }
+          return p;
+        });
+
         await onSave({
           ...route,
           ...formData,
           id: targetHikeId,
-          photos: newPhotosList,
+          photos: leanPhotosList,
         });
-        await updateHikePhotosInFirestore(targetHikeId, newPhotosList);
+        try {
+          await updateHikePhotosInFirestore(targetHikeId, newPhotosList);
+        } catch (dbErr: any) {
+          console.warn('[HikeModal] Firestore photos update varování:', dbErr?.message);
+        }
       }
 
       setFormData((prev) => ({
@@ -591,8 +621,21 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     }
     setIsSaving(true);
     try {
+      const leanPhotos = (formData.photos || route?.photos || []).map((p) => {
+        if (typeof p === 'object' && p !== null) {
+          const { dataUrl: _discard, ...rest } = p;
+          return {
+            ...rest,
+            url: p.url && !p.url.startsWith('data:') ? p.url : `/api/photos/${p.id}`,
+            rawUrl: p.rawUrl && !p.rawUrl.startsWith('data:') ? p.rawUrl : `/api/photos/${p.id}?raw=1`,
+          };
+        }
+        return p;
+      });
+
       await onSave({
         ...formData,
+        photos: leanPhotos,
         id: formData.id || route?.id || 'route_' + Date.now(),
       });
       setIsEditing(false);
@@ -717,7 +760,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
       {/* In-app custom feedback modal */}
       {feedbackDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+        <div className="fixed inset-0 z-[2500] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
           <div className="bg-stone-900 border border-stone-700/80 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4">
             <div className="flex items-start gap-3">
               <div
@@ -771,7 +814,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
           </div>
         </div>
       )}
-      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-0 sm:p-4 md:p-6 overflow-y-auto overflow-x-hidden">
+      <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/85 backdrop-blur-sm p-0 sm:p-4 md:p-6 overflow-y-auto overflow-x-hidden">
         <div className="bg-stone-900 border-0 sm:border sm:border-stone-800 rounded-none sm:rounded-3xl w-full max-w-full sm:max-w-5xl h-full sm:h-auto sm:max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-fadeIn my-auto">
           {/* Header */}
           <div className="px-3.5 sm:px-6 py-3 sm:py-4 border-b border-stone-800 flex items-center justify-between bg-stone-900/95 sticky top-0 z-10 gap-2 shrink-0">
@@ -942,6 +985,47 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                                 Nahrát plný GPX soubor
                               </button>
                             )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Interactive Route Map */}
+                      {(pts.length > 0 || formData.peakCoords || route?.peakCoords || formData.startCoords || route?.startCoords) && (
+                        <div className="bg-stone-950/50 border border-stone-800 rounded-2xl p-3 sm:p-4 space-y-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-4 h-4 text-emerald-400" />
+                              <h4 className="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
+                                Mapa trasy
+                              </h4>
+                              {pts.length > 0 && (
+                                <span className="text-[10px] bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded border border-emerald-800/40 font-medium">
+                                  {pts.length} GPS bodů
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-stone-400 hidden sm:inline">
+                              Topografická • Satelitní • OSM
+                            </span>
+                          </div>
+
+                          <div className="rounded-xl overflow-hidden border border-stone-800/80 bg-stone-900/60 shadow-inner">
+                            <HikeMap
+                              routes={[
+                                {
+                                  ...(route || {}),
+                                  ...formData,
+                                  id: route?.id || 'current-route',
+                                  title: formData.title || route?.title || 'Trasa',
+                                  mountainRange: formData.mountainRange || route?.mountainRange || 'Krkonoše',
+                                  trackpoints: pts,
+                                  trackPoints: pts,
+                                } as HikeRoute,
+                              ]}
+                              selectedRouteId={route?.id || 'current-route'}
+                              onSelectRoute={() => {}}
+                              className="h-60 sm:h-72 w-full rounded-xl"
+                            />
                           </div>
                         </div>
                       )}

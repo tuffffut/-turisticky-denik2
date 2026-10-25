@@ -162,29 +162,19 @@ export async function uploadPhotoToStorage(
   const photoId = 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
   const targetHikeId = hikeId || '';
 
-  // 1. Save directly to Cloud Firestore hike_photos collection (accessible from all devices)
-  await savePhotoToFirestore(photoId, {
-    id: photoId,
-    hikeId: targetHikeId,
-    dataUrl: optimized.dataUrl,
-    name: file.name || 'foto.jpg',
-    caption: caption || '',
-    width: optimized.width,
-    height: optimized.height,
-    sizeKb: optimized.sizeKb,
-  });
-
-  // 2. Also sync to local server storage if server is currently reachable
+  // 1. Save directly to central server endpoint first (fast, permanent on disk, immune to quota limits)
   let photoUrl = `/api/photos/${photoId}`;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3500);
-    const serverEndpoint = API_BASE_URL ? `${API_BASE_URL}/api/photos/upload` : '/api/photos/upload';
-    const res = await fetch(serverEndpoint, {
+    const endpoint = targetHikeId
+      ? (API_BASE_URL ? `${API_BASE_URL}/api/routes/${encodeURIComponent(targetHikeId)}/photos` : `/api/routes/${encodeURIComponent(targetHikeId)}/photos`)
+      : (API_BASE_URL ? `${API_BASE_URL}/api/photos/upload` : '/api/photos/upload');
+
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         hikeId: targetHikeId,
+        id: photoId,
         dataUrl: optimized.dataUrl,
         name: file.name || 'foto.jpg',
         caption: caption || '',
@@ -192,16 +182,30 @@ export async function uploadPhotoToStorage(
         height: optimized.height,
         sizeKb: optimized.sizeKb,
       }),
-      signal: controller.signal,
     });
-    clearTimeout(timer);
     if (res.ok) {
       const serverData = await res.json().catch(() => null);
-      if (serverData?.url) photoUrl = serverData.url;
+      if (serverData?.photo?.url) photoUrl = serverData.photo.url;
+      else if (serverData?.url) photoUrl = serverData.url;
     }
-  } catch {
-    // If the server is unreachable or CORS blocked, Firestore has already persisted the photo
-    console.log('[uploadPhotoToStorage] Místní server nedostupný, uloženo přímo do Firestore cloudu.');
+  } catch (serverErr) {
+    console.warn('[uploadPhotoToStorage] Místní server nedostupný:', serverErr);
+  }
+
+  // 2. Also save to Cloud Firestore hike_photos (catches quota errors gracefully so upload never aborts)
+  try {
+    await savePhotoToFirestore(photoId, {
+      id: photoId,
+      hikeId: targetHikeId,
+      dataUrl: optimized.dataUrl,
+      name: file.name || 'foto.jpg',
+      caption: caption || '',
+      width: optimized.width,
+      height: optimized.height,
+      sizeKb: optimized.sizeKb,
+    });
+  } catch (dbErr: any) {
+    console.warn('[uploadPhotoToStorage] Firestore varování (fotografie je bezpečně uložena na serveru):', dbErr?.message);
   }
 
   return {

@@ -28,6 +28,10 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
  * Saves a photo document directly to Firestore hike_photos collection.
  * Works seamlessly across all devices, mobile browsers, and static hosts (GitHub Pages).
  */
+/**
+ * Saves a photo document directly to Firestore hike_photos collection.
+ * Supports automatic chunking for high-resolution images so Firestore limits are never hit.
+ */
 export async function savePhotoToFirestore(
   photoId: string,
   photoData: {
@@ -43,17 +47,44 @@ export async function savePhotoToFirestore(
 ): Promise<void> {
   if (!photoId || !photoData.dataUrl) return;
   try {
-    await setDoc(doc(db, 'hike_photos', photoId), {
-      id: photoId,
-      hikeId: photoData.hikeId || '',
-      dataUrl: photoData.dataUrl,
-      name: photoData.name || 'foto.jpg',
-      caption: photoData.caption || '',
-      width: photoData.width || null,
-      height: photoData.height || null,
-      sizeKb: photoData.sizeKb || null,
-      createdAt: new Date().toISOString(),
-    });
+    const dataUrl = photoData.dataUrl;
+    const CHUNK_SIZE = 700 * 1024;
+    if (dataUrl.length <= CHUNK_SIZE) {
+      await setDoc(doc(db, 'hike_photos', photoId), {
+        id: photoId,
+        hikeId: photoData.hikeId || '',
+        dataUrl,
+        name: photoData.name || 'foto.jpg',
+        caption: photoData.caption || '',
+        width: photoData.width || null,
+        height: photoData.height || null,
+        sizeKb: photoData.sizeKb || null,
+        isChunked: false,
+        createdAt: new Date().toISOString(),
+      });
+    } else {
+      const totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
+      await setDoc(doc(db, 'hike_photos', photoId), {
+        id: photoId,
+        hikeId: photoData.hikeId || '',
+        dataUrlChunk0: dataUrl.substring(0, CHUNK_SIZE),
+        totalChunks,
+        isChunked: true,
+        name: photoData.name || 'foto.jpg',
+        caption: photoData.caption || '',
+        width: photoData.width || null,
+        height: photoData.height || null,
+        sizeKb: photoData.sizeKb || null,
+        createdAt: new Date().toISOString(),
+      });
+      for (let i = 1; i < totalChunks; i++) {
+        const chunkStr = dataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        await setDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`), {
+          chunkIndex: i,
+          data: chunkStr,
+        });
+      }
+    }
   } catch (err: any) {
     console.error('[Firestore] Chyba při ukládání fotografie do cloudu:', err);
     let msg = err?.message || 'Chyba při zápisu fotografie do databáze';
@@ -66,6 +97,7 @@ export async function savePhotoToFirestore(
 
 /**
  * Fetches a photo dataUrl directly from Firestore hike_photos by photoId.
+ * Reassembles chunked photos automatically if stored in parts.
  */
 export async function fetchPhotoFromFirestore(photoId: string): Promise<string | null> {
   if (!photoId) return null;
@@ -73,7 +105,19 @@ export async function fetchPhotoFromFirestore(photoId: string): Promise<string |
     const snap = await getDoc(doc(db, 'hike_photos', photoId));
     if (snap.exists()) {
       const data = snap.data();
-      return data?.dataUrl || null;
+      if (!data) return null;
+      if (data.isChunked) {
+        let fullDataUrl = data.dataUrlChunk0 || '';
+        const total = data.totalChunks || 1;
+        for (let i = 1; i < total; i++) {
+          const chunkSnap = await getDoc(doc(db, `hike_photos/${photoId}/chunks`, `chunk_${i}`));
+          if (chunkSnap.exists()) {
+            fullDataUrl += chunkSnap.data()?.data || '';
+          }
+        }
+        return fullDataUrl || null;
+      }
+      return data.dataUrl || null;
     }
   } catch (err) {
     console.warn(`[Firestore] Nelze načíst fotografii ${photoId} z cloudu:`, err);
@@ -83,6 +127,7 @@ export async function fetchPhotoFromFirestore(photoId: string): Promise<string |
 
 /**
  * Saves a hike document directly to Firestore from the browser (works on GitHub Pages and all devices).
+ * Keeps the hike document lean by storing photo dataUrls in hike_photos, avoiding 1MB document limit.
  */
 export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promise<boolean> {
   if (!hikeId || !hikeData) return false;
@@ -102,25 +147,27 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
       cleanData.trackpoints = cleanData.trackpoints.filter((_: any, i: number) => i % step === 0 || i === cleanData.trackpoints.length - 1);
     }
 
-    // Process and preserve photos with their optimized dataUrls (up to ~350KB per photo)
-    // Also backs up each individual photo into hike_photos collection
+    // Process photos: Back up full dataUrl into dedicated hike_photos document,
+    // and keep ONLY lean metadata in hikes document (prevents 1MB document size limit error).
     if (Array.isArray(cleanData.photos)) {
       cleanData.photos = cleanData.photos.map((p: any) => {
         if (typeof p === 'object' && p !== null) {
           const photoId = p.id || 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
           const item: any = {
             id: photoId,
-            url: p.url || `/api/photos/${photoId}`,
-            rawUrl: p.rawUrl || `/api/photos/${photoId}?raw=1`,
+            url: p.url && !p.url.startsWith('data:') ? p.url : `/api/photos/${photoId}`,
+            rawUrl: p.rawUrl && !p.rawUrl.startsWith('data:') ? p.rawUrl : `/api/photos/${photoId}?raw=1`,
             name: p.name || 'foto.jpg',
             caption: p.caption || '',
             width: p.width || null,
             height: p.height || null,
             sizeKb: p.sizeKb || null,
+            source: p.source || 'user',
+            createdAt: p.createdAt || new Date().toISOString(),
           };
-          if (p.dataUrl && typeof p.dataUrl === 'string') {
-            item.dataUrl = p.dataUrl;
-            // Back up photo to dedicated hike_photos document asynchronously
+
+          if (p.dataUrl && typeof p.dataUrl === 'string' && p.dataUrl.startsWith('data:')) {
+            // Save photo binary/dataUrl to dedicated hike_photos collection
             savePhotoToFirestore(photoId, {
               id: photoId,
               hikeId,
@@ -132,6 +179,7 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
               sizeKb: p.sizeKb,
             }).catch(() => {});
           }
+          // Do NOT keep dataUrl inside cleanData.photos array to keep hike doc size < 15KB
           return item;
         }
         return p;
@@ -152,6 +200,7 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
 
 /**
  * Updates the photos array of a hike directly in Firestore (synchronizes all devices).
+ * Preserves lean document structure so document size never exceeds 1MB.
  */
 export async function updateHikePhotosInFirestore(hikeId: string, photos: any[]): Promise<boolean> {
   if (!hikeId) return false;
@@ -161,16 +210,18 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
         const photoId = p.id || 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
         const item: any = {
           id: photoId,
-          url: p.url || `/api/photos/${photoId}`,
-          rawUrl: p.rawUrl || `/api/photos/${photoId}?raw=1`,
+          url: p.url && !p.url.startsWith('data:') ? p.url : `/api/photos/${photoId}`,
+          rawUrl: p.rawUrl && !p.rawUrl.startsWith('data:') ? p.rawUrl : `/api/photos/${photoId}?raw=1`,
           name: p.name || 'foto.jpg',
           caption: p.caption || '',
           width: p.width || null,
           height: p.height || null,
           sizeKb: p.sizeKb || null,
+          source: p.source || 'user',
+          createdAt: p.createdAt || new Date().toISOString(),
         };
-        if (p.dataUrl && typeof p.dataUrl === 'string') {
-          item.dataUrl = p.dataUrl;
+
+        if (p.dataUrl && typeof p.dataUrl === 'string' && p.dataUrl.startsWith('data:')) {
           savePhotoToFirestore(photoId, {
             id: photoId,
             hikeId,
@@ -182,6 +233,7 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
             sizeKb: p.sizeKb,
           }).catch(() => {});
         }
+        // Do NOT store dataUrl in the hike's photos array
         return item;
       }
       return p;

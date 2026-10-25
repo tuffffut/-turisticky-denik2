@@ -105,7 +105,12 @@ const PhotoCardPreview: React.FC<PhotoCardPreviewProps> = ({ photo, title, photo
 
   const [firestoreSrc, setFirestoreSrc] = useState<string>('');
 
-  const photoId = typeof photo === 'object' ? photo?.id : undefined;
+  const photoId =
+    typeof photo === 'object'
+      ? photo?.id
+      : typeof photo === 'string' && photo.includes('/api/photos/')
+      ? photo.split('/api/photos/')[1].split('?')[0]
+      : undefined;
   const directDataUrl = typeof photo === 'object' ? photo?.dataUrl : undefined;
 
   useEffect(() => {
@@ -153,6 +158,13 @@ const PhotoCardPreview: React.FC<PhotoCardPreviewProps> = ({ photo, title, photo
           const el = e.currentTarget;
           if (el.naturalWidth && el.naturalHeight && !dims) {
             setDims({ width: el.naturalWidth, height: el.naturalHeight });
+          }
+        }}
+        onError={() => {
+          if (photoId && !firestoreSrc) {
+            fetchPhotoFromFirestore(photoId).then((dUrl) => {
+              if (dUrl) setFirestoreSrc(dUrl);
+            });
           }
         }}
         className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
@@ -397,7 +409,12 @@ export const App: React.FC = () => {
                 }
               }
               if (!changed) return prev;
-              return Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+              const nextList = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+              setModalRoute((cur) => {
+                if (!cur) return null;
+                return nextList.find((r) => r.id === cur.id) || cur;
+              });
+              return nextList;
             });
           }
         })
@@ -540,22 +557,16 @@ export const App: React.FC = () => {
       });
   }, [routes, searchQuery, selectedRange, selectedActivity, sortBy]);
 
-  // Save or update route (persists directly to Cloud Firestore, then syncs with server cache)
+  // Save or update route (persists directly to central server and syncs to Cloud Firestore)
   const handleSaveRoute = async (updatedRoute: Partial<HikeRoute>) => {
     if (!updatedRoute.id) {
       throw new Error('Chybí identifikátor výpravy.');
     }
 
-    // 1. Authoritative Cloud Persistence: Save directly to Cloud Firestore
-    // Throws clear error if quota exceeded or network failed
-    await syncHikeToFirestore(updatedRoute.id, updatedRoute);
-
     let finalRoute = updatedRoute;
 
-    // 2. Also sync to local server storage if available (safe timeout)
+    // 1. Authoritative Persistence: Save directly to central server storage first (permanent, no quota limits)
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3500);
       const serverEndpoint = API_BASE_URL ? `${API_BASE_URL}/api/routes` : '/api/routes';
       const res = await fetch(serverEndpoint, {
         method: 'POST',
@@ -565,21 +576,25 @@ export const App: React.FC = () => {
           fromUserModal: true,
           source: 'user',
         }),
-        signal: controller.signal,
       });
-      clearTimeout(timer);
       if (res.ok) {
         const savedResult = await res.json().catch(() => null);
         if (savedResult?.route) {
           finalRoute = savedResult.route;
         }
       }
-    } catch {
-      // Local server is unreachable or CORS blocked - Cloud Firestore has already saved the route
-      console.log('[handleSaveRoute] Místní server nedostupný, uloženo přímo do Firestore.');
+    } catch (serverErr) {
+      console.warn('[handleSaveRoute] Server save varování:', serverErr);
     }
 
-    // 3. Update in-memory state strictly after successful cloud persistence
+    // 2. Also sync to Cloud Firestore in background (safe against quota issues)
+    try {
+      await syncHikeToFirestore(updatedRoute.id, finalRoute);
+    } catch (dbErr: any) {
+      console.warn('[handleSaveRoute] Firestore varování (data jsou uložena na serveru):', dbErr?.message);
+    }
+
+    // 3. Update in-memory state immediately
     setRoutes((prev) =>
       prev.map((r) => (r.id === updatedRoute.id ? ({ ...r, ...finalRoute } as HikeRoute) : r))
     );

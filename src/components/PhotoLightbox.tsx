@@ -160,7 +160,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
   const caption = typeof currentItem === 'object' ? currentItem.caption : undefined;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md select-none animate-fadeIn">
+    <div className="fixed inset-0 z-[3000] flex flex-col bg-black/95 backdrop-blur-md select-none animate-fadeIn">
       {/* Top action bar */}
       <div className="p-2.5 sm:p-4 flex items-center justify-between z-50 bg-gradient-to-b from-black/90 via-black/70 to-transparent gap-2">
         <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap min-w-0 flex-1">

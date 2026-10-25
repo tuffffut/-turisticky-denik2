@@ -64,7 +64,13 @@ export const HikeMap: React.FC<HikeMapProps> = ({
     }
 
     return () => {
-      // Keep map alive or clean on unmount
+      if (mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.remove();
+        } catch {}
+        mapInstanceRef.current = null;
+        layerGroupRef.current = null;
+      }
     };
   }, []);
 
@@ -166,17 +172,26 @@ export const HikeMap: React.FC<HikeMapProps> = ({
           selPts.map((p) => [p.lat, p.lng])
         );
         map.fitBounds(selectedBounds, { padding: [40, 40], maxZoom: 14 });
+      } else if (selectedRoute?.peakCoords?.lat && selectedRoute?.peakCoords?.lng) {
+        map.setView([selectedRoute.peakCoords.lat, selectedRoute.peakCoords.lng], 13);
       }
     } else if (allLatLngs.length > 0) {
       const bounds = L.latLngBounds(allLatLngs);
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
     }
+
+    // Force Leaflet to recalculate container bounds after mount or visibility change
+    const resizeTimer = setTimeout(() => {
+      map.invalidateSize();
+    }, 150);
+
+    return () => clearTimeout(resizeTimer);
   }, [routes, selectedRouteId, onSelectRoute]);
 
   return (
-    <div className={`relative overflow-hidden border border-stone-800 shadow-xl ${className}`}>
+    <div className={`relative isolate z-0 overflow-hidden border border-stone-800 shadow-xl ${className}`}>
       <div ref={mapContainerRef} className="w-full h-full" />
-      <div className="absolute bottom-3 left-3 z-[1000] bg-stone-900/85 backdrop-blur border border-stone-700/80 px-3 py-1.5 rounded-lg text-xs text-stone-300 flex items-center gap-2 shadow-md pointer-events-none">
+      <div className="absolute bottom-3 left-3 z-[400] bg-stone-900/85 backdrop-blur border border-stone-700/80 px-3 py-1.5 rounded-lg text-xs text-stone-300 flex items-center gap-2 shadow-md pointer-events-none">
         <Layers className="w-3.5 h-3.5 text-emerald-400" />
         <span>Vrstvy v pravém horním rohu mapy</span>
       </div>

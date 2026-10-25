@@ -683,16 +683,17 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
-      fs.writeFileSync(routesCachePath, JSON.stringify(routes, null, 2));
+      const serialized = JSON.stringify(routes);
+      fs.writeFileSync(routesCachePath, serialized);
 
       // Also persist to public/routes-cache.json so static builds / GitHub Pages remain in sync
       const publicPath = path.join(process.cwd(), 'public', 'routes-cache.json');
-      fs.writeFileSync(publicPath, JSON.stringify(routes, null, 2));
+      fs.writeFileSync(publicPath, serialized);
 
       // Also persist to dist/routes-cache.json if dist directory exists
       const distDir = path.join(process.cwd(), 'dist');
       if (fs.existsSync(distDir)) {
-        fs.writeFileSync(path.join(distDir, 'routes-cache.json'), JSON.stringify(routes, null, 2));
+        fs.writeFileSync(path.join(distDir, 'routes-cache.json'), serialized);
       }
     } catch (e) {
       console.warn('Nelze uložit routes-cache.json:', e);
@@ -989,10 +990,15 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
             const saved = await savePhotoDataUrl(p, routeId, { name: `foto_${i + 1}.jpg` });
             normalizedPhotos.push({
               id: saved.id,
-              url: p,
-              rawUrl: p,
-              dataUrl: p,
+              url: `/api/photos/${saved.id}`,
+              rawUrl: `/api/photos/${saved.id}?raw=1`,
               name: `foto_${i + 1}.jpg`,
+              caption: '',
+              width: saved.width || null,
+              height: saved.height || null,
+              sizeKb: saved.sizeKb || null,
+              source: 'user',
+              createdAt: new Date().toISOString(),
             });
           } else {
             normalizedPhotos.push(p);
@@ -1013,19 +1019,26 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
               height: pObj.height,
               sizeKb: pObj.sizeKb,
             });
+            const photoId = pObj.id || saved.id;
             normalizedPhotos.push({
-              ...pObj,
-              id: pObj.id || saved.id,
-              url: b64,
-              rawUrl: b64,
-              dataUrl: b64,
+              id: photoId,
+              url: `/api/photos/${photoId}`,
+              rawUrl: `/api/photos/${photoId}?raw=1`,
               name: pObj.name || saved.name,
+              caption: pObj.caption || '',
               width: pObj.width || saved.width,
               height: pObj.height || saved.height,
               sizeKb: pObj.sizeKb || saved.sizeKb,
+              source: pObj.source || 'user',
+              createdAt: pObj.createdAt || new Date().toISOString(),
             });
           } else {
-            normalizedPhotos.push(pObj);
+            const { dataUrl: _dUrl, ...cleanItem } = pObj;
+            normalizedPhotos.push({
+              ...cleanItem,
+              url: cleanItem.url && !cleanItem.url.startsWith('data:') ? cleanItem.url : `/api/photos/${cleanItem.id}`,
+              rawUrl: cleanItem.rawUrl && !cleanItem.rawUrl.startsWith('data:') ? cleanItem.rawUrl : `/api/photos/${cleanItem.id}?raw=1`,
+            });
           }
         }
       }
@@ -1411,6 +1424,106 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
     } catch (err: any) {
       console.error('[API DELETE photo] Chyba:', err);
       return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/routes/:id/photos: Add/save an uploaded photo directly to a hike
+  app.post('/api/routes/:id/photos', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { photo, dataUrl, name, caption, width, height, sizeKb } = req.body || {};
+
+      const photoDataUrl = dataUrl || photo?.dataUrl || photo?.url;
+      if (!photoDataUrl) {
+        return res.status(400).json({ error: 'Chybí dataUrl fotografie' });
+      }
+
+      const photoName = name || photo?.name || 'foto.jpg';
+      const photoCaption = caption || photo?.caption || '';
+      const photoWidth = width || photo?.width || null;
+      const photoHeight = height || photo?.height || null;
+      const photoSizeKb = sizeKb || photo?.sizeKb || null;
+      const photoId = photo?.id || ('photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
+
+      // 1. Save binary file to disk
+      const savedPhoto = await savePhotoDataUrl(photoDataUrl, id, {
+        name: photoName,
+        caption: photoCaption,
+        width: photoWidth,
+        height: photoHeight,
+        sizeKb: photoSizeKb,
+      });
+
+      const photoItem = {
+        id: photoId,
+        url: `/api/photos/${photoId}`,
+        rawUrl: `/api/photos/${photoId}?raw=1`,
+        name: photoName,
+        caption: photoCaption,
+        width: photoWidth || savedPhoto.width,
+        height: photoHeight || savedPhoto.height,
+        sizeKb: photoSizeKb || savedPhoto.sizeKb,
+        source: 'user',
+        createdAt: new Date().toISOString(),
+      };
+
+      // 2. Add to route in local routes-cache.json
+      const local = getLocalRoutes();
+      const rIdx = local.findIndex((r: any) => r.id === id);
+      let updatedPhotos: any[] = [];
+      if (rIdx >= 0) {
+        const existing = Array.isArray(local[rIdx].photos) ? local[rIdx].photos : [];
+        const existingPhotoIdx = existing.findIndex((p: any) => p && (p.id === photoId || p === photoId));
+        if (existingPhotoIdx >= 0) {
+          existing[existingPhotoIdx] = photoItem;
+        } else {
+          existing.push(photoItem);
+        }
+        local[rIdx].photos = existing;
+        updatedPhotos = existing;
+        saveLocalRoutes(local);
+        console.log(`[POST /api/routes/:id/photos] Fotografie ${photoId} uložena na disk k výpravě ${id} (celkem fotek: ${updatedPhotos.length})`);
+      }
+
+      // 3. Sync to Firestore in background (tolerant of quota limits)
+      if (db) {
+        setDoc(doc(db, 'hike_photos', photoId), {
+          id: photoId,
+          hikeId: id,
+          dataUrl: photoDataUrl,
+          name: photoName,
+          caption: photoCaption,
+          width: photoItem.width,
+          height: photoItem.height,
+          sizeKb: photoItem.sizeKb,
+          createdAt: new Date().toISOString(),
+        }).catch((e: any) => console.warn('[Firestore] hike_photos setDoc varování:', e.message));
+
+        if (updatedPhotos.length > 0) {
+          const leanPhotosForFirestore = updatedPhotos.map((p) => ({
+            id: p.id,
+            url: p.url,
+            rawUrl: p.rawUrl,
+            name: p.name,
+            caption: p.caption,
+            width: p.width,
+            height: p.height,
+            sizeKb: p.sizeKb,
+          }));
+          setDoc(doc(db, 'hikes', id), { photos: leanPhotosForFirestore }, { merge: true })
+            .catch((e: any) => console.warn('[Firestore] hikes photos update varování:', e.message));
+        }
+      }
+
+      return res.json({
+        success: true,
+        photo: photoItem,
+        photos: updatedPhotos,
+        message: 'Fotografie úspěšně uložena na centrální server.',
+      });
+    } catch (err: any) {
+      console.error('[POST /api/routes/:id/photos] Chyba při ukládání:', err);
+      return res.status(500).json({ error: err.message || 'Chyba při ukládání fotografie na server' });
     }
   });
 
