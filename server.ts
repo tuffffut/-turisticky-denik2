@@ -1166,8 +1166,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
                 existing.description = data.description;
                 changed = true;
               }
-              if (Array.isArray(data.photos) && data.photos.length > 0) {
-                if (!existing.photos || existing.photos.length === 0 || JSON.stringify(data.photos) !== JSON.stringify(existing.photos)) {
+              if (Array.isArray(data.photos)) {
+                if (!existing.photos || JSON.stringify(data.photos) !== JSON.stringify(existing.photos)) {
                   existing.photos = data.photos;
                   changed = true;
                 }

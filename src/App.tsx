@@ -396,8 +396,8 @@ export const App: React.FC = () => {
                     merged.description = ch.description;
                     itemChanged = true;
                   }
-                  if (Array.isArray(ch.photos) && ch.photos.length > 0) {
-                    if (!existing.photos || existing.photos.length === 0 || JSON.stringify(ch.photos) !== JSON.stringify(existing.photos)) {
+                  if (Array.isArray(ch.photos)) {
+                    if (!existing.photos || JSON.stringify(ch.photos) !== JSON.stringify(existing.photos)) {
                       merged.photos = ch.photos;
                       itemChanged = true;
                     }

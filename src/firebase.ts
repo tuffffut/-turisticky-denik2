@@ -9,7 +9,6 @@ import {
   deleteDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { savePhotoBlob, getPhotoBlob } from './utils/dbStorage';
 
 // Firebase configuration from firebase-applet-config.json
 const firebaseConfig = {
@@ -25,9 +24,12 @@ const firebaseConfig = {
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
+// In-memory session cache for instant zero-latency photo display without local disk/IndexedDB dependencies
+const photoMemoryCache = new Map<string, string>();
+
 /**
- * Saves a photo document directly to Firestore hike_photos collection AND IndexedDB.
- * Supports automatic chunking for high-resolution images so Firestore limits are never hit.
+ * Saves a photo document directly to Firestore hike_photos collection.
+ * 100% online cloud storage without local disk or IndexedDB storage.
  */
 export async function savePhotoToFirestore(
   photoId: string,
@@ -44,20 +46,10 @@ export async function savePhotoToFirestore(
 ): Promise<void> {
   if (!photoId || !photoData.dataUrl) return;
 
-  // 1. Immediately cache in IndexedDB for 0ms offline/refresh persistence
-  try {
-    await savePhotoBlob(photoId, photoData.dataUrl, {
-      name: photoData.name,
-      caption: photoData.caption,
-      width: photoData.width,
-      height: photoData.height,
-      sizeKb: photoData.sizeKb,
-    });
-  } catch (idbErr) {
-    console.warn('[IndexedDB] Cache save varování:', idbErr);
-  }
+  // Cache in session memory
+  photoMemoryCache.set(photoId, photoData.dataUrl);
 
-  // 2. Persist to Firestore hike_photos
+  // Persist directly to Firestore hike_photos cloud collection
   try {
     const dataUrl = photoData.dataUrl;
     const CHUNK_SIZE = 700 * 1024;
@@ -101,28 +93,25 @@ export async function savePhotoToFirestore(
     console.error('[Firestore] Chyba při ukládání fotografie do cloudu:', err);
     let msg = err?.message || 'Chyba při zápisu fotografie do databáze';
     if (/quota/i.test(msg)) {
-      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded). Fotografie je však uložena v mezipaměti prohlížeče.';
+      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded).';
     }
     throw new Error(msg);
   }
 }
 
 /**
- * Fetches a photo dataUrl: First checks local IndexedDB (instant 0ms retrieval),
- * then fetches from Firestore hike_photos and caches locally.
+ * Fetches a photo dataUrl directly from Firestore hike_photos cloud storage.
+ * Uses in-memory session cache to avoid repeated cloud reads.
  */
 export async function fetchPhotoFromFirestore(photoId: string): Promise<string | null> {
   if (!photoId) return null;
 
-  // 1. Check local IndexedDB first (0ms, offline capable, survives all page refreshes)
-  try {
-    const cachedBlob = await getPhotoBlob(photoId);
-    if (cachedBlob) {
-      return cachedBlob;
-    }
-  } catch {}
+  // 1. Check in-memory session cache first
+  if (photoMemoryCache.has(photoId)) {
+    return photoMemoryCache.get(photoId)!;
+  }
 
-  // 2. Fetch from Firestore
+  // 2. Fetch directly from Firestore cloud
   try {
     const snap = await getDoc(doc(db, 'hike_photos', photoId));
     if (snap.exists()) {
@@ -143,14 +132,7 @@ export async function fetchPhotoFromFirestore(photoId: string): Promise<string |
       }
 
       if (fullDataUrl) {
-        // Cache in IndexedDB for subsequent zero-latency loads
-        savePhotoBlob(photoId, fullDataUrl, {
-          name: data.name,
-          caption: data.caption,
-          width: data.width,
-          height: data.height,
-          sizeKb: data.sizeKb,
-        }).catch(() => {});
+        photoMemoryCache.set(photoId, fullDataUrl);
         return fullDataUrl;
       }
     }
@@ -307,6 +289,7 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
  */
 export async function deletePhotoFromFirestore(photoId: string): Promise<boolean> {
   if (!photoId) return false;
+  photoMemoryCache.delete(photoId);
   try {
     await deleteDoc(doc(db, 'hike_photos', photoId));
     return true;

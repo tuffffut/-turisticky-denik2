@@ -369,16 +369,16 @@ def load_gear_list(spreadsheet):
             return []
 
         header = [c.strip().lower() for c in rows[0]]
-        idx_id, idx_type, idx_from, idx_to = 0, 1, 2, 3
-        for i, col in enumerate(header):
-            c = col.replace(" ", "").replace("_", "")
-            if ("id" in c or "kolo" in c) and idx_id == 0:
-                idx_id = i
-            elif ("typ" in c or "type" in c) and idx_type == 1:
+        # VŽDY bereme 1. sloupec (sloupec A, index 0) pro ID kola
+        idx_id = 0
+        idx_type, idx_from, idx_to = 1, 2, 3
+        for i in range(1, len(header)):
+            c = header[i].replace(" ", "").replace("_", "")
+            if ("typ" in c or "type" in c or "aktivit" in c):
                 idx_type = i
-            elif ("od" in c or "from" in c) and idx_from == 2:
+            elif ("od" in c or "from" in c or "start" in c):
                 idx_from = i
-            elif ("do" in c or "to" in c) and idx_to == 3:
+            elif ("do" in c or "to" in c or "konec" in c):
                 idx_to = i
 
         def parse_gear_date(val):

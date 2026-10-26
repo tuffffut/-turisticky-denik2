@@ -440,6 +440,14 @@ export const HikeModal: React.FC<HikeModalProps> = ({
             }
           }
 
+          if (photoId) {
+            setLoadedCloudDataUrls((prev) => {
+              const next = { ...prev };
+              delete next[photoId];
+              return next;
+            });
+          }
+
           setFormData((prev) => ({ ...prev, photos: updated }));
           setActivePhotoIndex((prev) => Math.max(0, Math.min(prev, updated.length - 1)));
           if (lightboxIndex >= updated.length) {
