@@ -24,12 +24,13 @@ import {
   Settings,
   Upload,
 } from 'lucide-react';
-import { HikeRoute, HikeStats, ActivityType } from './types';
+import { HikeRoute, HikeStats, ActivityType, HikePhotoItem } from './types';
 import { POPULAR_MOUNTAIN_RANGES } from './utils/mountainRanges';
 import { HikeMap } from './components/HikeMap';
 import { HikeModal } from './components/HikeModal';
 import { PinModal } from './components/PinModal';
 import { SettingsModal } from './components/SettingsModal';
+import { BatchPhotoUploadModal } from './components/BatchPhotoUploadModal';
 import {
   syncHikeToFirestore,
   fetchHikesFromFirestore,
@@ -219,7 +220,10 @@ export const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isNewHikeModal, setIsNewHikeModal] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isBatchPhotoModalOpen, setIsBatchPhotoModalOpen] = useState(false);
+  const [batchInitialFiles, setBatchInitialFiles] = useState<File[] | null>(null);
   const gpxNavInputRef = React.useRef<HTMLInputElement>(null);
+  const batchPhotoInputRef = React.useRef<HTMLInputElement>(null);
 
   // Global Roles: 'admin' (full write/edit/delete access) or 'reader' (view-only access)
   const [userRole, setUserRole] = useState<'admin' | 'reader' | null>(() => {
@@ -829,6 +833,31 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleBatchPhotoInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setBatchInitialFiles(Array.from(e.target.files));
+      setIsBatchPhotoModalOpen(true);
+    }
+    if (batchPhotoInputRef.current) batchPhotoInputRef.current.value = '';
+  };
+
+  const handleBatchSaved = (updatedRoutesMap: Map<string, (string | HikePhotoItem)[]>) => {
+    setRoutes((prev) =>
+      prev.map((r) => {
+        if (updatedRoutesMap.has(r.id)) {
+          return { ...r, photos: updatedRoutesMap.get(r.id)! };
+        }
+        return r;
+      })
+    );
+    setModalRoute((prev) => {
+      if (prev && updatedRoutesMap.has(prev.id)) {
+        return { ...prev, photos: updatedRoutesMap.get(prev.id)! };
+      }
+      return prev;
+    });
+  };
+
   const activeMountainRanges = useMemo(() => {
     const list = Array.from(
       new Set(
@@ -992,6 +1021,28 @@ export const App: React.FC = () => {
                   type="file"
                   accept=".gpx"
                   onChange={handleQuickGpxNavUpload}
+                  className="hidden"
+                />
+              </>
+            )}
+
+            {/* Batch Photos Upload button - Admin only */}
+            {canEdit && (
+              <>
+                <button
+                  onClick={() => batchPhotoInputRef.current?.click()}
+                  className="px-2.5 sm:px-3 py-1.5 bg-stone-800 hover:bg-stone-700 border border-stone-700 text-stone-200 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap shadow"
+                  title="Hromadně nahrát fotografie s automatickým spárováním k výpravám podle data a času"
+                >
+                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">Nahrát fotky</span>
+                </button>
+                <input
+                  ref={batchPhotoInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleBatchPhotoInput}
                   className="hidden"
                 />
               </>
@@ -1473,6 +1524,18 @@ export const App: React.FC = () => {
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
         onClearCache={handleClearCache}
+      />
+
+      {/* Batch Photo Upload & Auto-Match Modal */}
+      <BatchPhotoUploadModal
+        isOpen={isBatchPhotoModalOpen}
+        onClose={() => {
+          setIsBatchPhotoModalOpen(false);
+          setBatchInitialFiles(null);
+        }}
+        routes={routes}
+        onBatchSaved={handleBatchSaved}
+        initialFiles={batchInitialFiles}
       />
     </div>
   );
