@@ -169,17 +169,18 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
       }
     }
 
-    // Process photos: Back up full dataUrl into dedicated hike_photos document + IndexedDB,
-    // and keep ONLY lean metadata in hikes document (prevents 1MB document size limit error).
+    // Process photos: Store full photo dataUrl directly so all devices and static sites can render photos instantly
     const photoSavePromises: Promise<any>[] = [];
     if (Array.isArray(cleanData.photos)) {
       cleanData.photos = cleanData.photos.map((p: any) => {
         if (typeof p === 'object' && p !== null) {
           const photoId = p.id || 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+          const photoSrc = p.dataUrl || p.url || '';
           const item: any = {
             id: photoId,
-            url: p.url && !p.url.startsWith('data:') ? p.url : `/api/photos/${photoId}`,
-            rawUrl: p.rawUrl && !p.rawUrl.startsWith('data:') ? p.rawUrl : `/api/photos/${photoId}?raw=1`,
+            url: photoSrc,
+            rawUrl: p.rawUrl || photoSrc,
+            dataUrl: photoSrc,
             name: p.name || 'foto.jpg',
             caption: p.caption || '',
             width: p.width || null,
@@ -189,18 +190,18 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
             createdAt: p.createdAt || new Date().toISOString(),
           };
 
-          if (p.dataUrl && typeof p.dataUrl === 'string' && p.dataUrl.startsWith('data:')) {
+          if (photoSrc && photoSrc.startsWith('data:')) {
             photoSavePromises.push(
               savePhotoToFirestore(photoId, {
                 id: photoId,
                 hikeId,
-                dataUrl: p.dataUrl,
+                dataUrl: photoSrc,
                 name: p.name,
                 caption: p.caption,
                 width: p.width,
                 height: p.height,
                 sizeKb: p.sizeKb,
-              })
+              }).catch(() => {})
             );
           }
           return item;
@@ -210,7 +211,7 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
     }
 
     if (photoSavePromises.length > 0) {
-      await Promise.all(photoSavePromises);
+      await Promise.allSettled(photoSavePromises);
     }
 
     await setDoc(doc(db, 'hikes', hikeId), cleanData, { merge: true });
@@ -219,7 +220,7 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
     console.error('[Firestore] Chyba při ukládání do cloudu:', err);
     let msg = err?.message || 'Chyba při zápisu do cloudové databáze';
     if (/quota/i.test(msg)) {
-      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded). Data byla uložena v mezipaměti.';
+      msg = 'Byl překročen denní limit cloudové databáze (Firestore Quota Exceeded).';
     }
     throw new Error(msg);
   }
@@ -227,7 +228,7 @@ export async function syncHikeToFirestore(hikeId: string, hikeData: any): Promis
 
 /**
  * Updates the photos array of a hike directly in Firestore (synchronizes all devices).
- * Preserves lean document structure so document size never exceeds 1MB.
+ * Preserves inline photo data so photos load instantly without extra round trips.
  */
 export async function updateHikePhotosInFirestore(hikeId: string, photos: any[]): Promise<boolean> {
   if (!hikeId) return false;
@@ -236,10 +237,12 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
     const cleanPhotos = (photos || []).map((p: any) => {
       if (typeof p === 'object' && p !== null) {
         const photoId = p.id || 'photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        const photoSrc = p.dataUrl || p.url || '';
         const item: any = {
           id: photoId,
-          url: p.url && !p.url.startsWith('data:') ? p.url : `/api/photos/${photoId}`,
-          rawUrl: p.rawUrl && !p.rawUrl.startsWith('data:') ? p.rawUrl : `/api/photos/${photoId}?raw=1`,
+          url: photoSrc,
+          rawUrl: p.rawUrl || photoSrc,
+          dataUrl: photoSrc,
           name: p.name || 'foto.jpg',
           caption: p.caption || '',
           width: p.width || null,
@@ -249,18 +252,18 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
           createdAt: p.createdAt || new Date().toISOString(),
         };
 
-        if (p.dataUrl && typeof p.dataUrl === 'string' && p.dataUrl.startsWith('data:')) {
+        if (photoSrc && photoSrc.startsWith('data:')) {
           photoSavePromises.push(
             savePhotoToFirestore(photoId, {
               id: photoId,
               hikeId,
-              dataUrl: p.dataUrl,
+              dataUrl: photoSrc,
               name: p.name,
               caption: p.caption,
               width: p.width,
               height: p.height,
               sizeKb: p.sizeKb,
-            })
+            }).catch(() => {})
           );
         }
         return item;
@@ -269,7 +272,7 @@ export async function updateHikePhotosInFirestore(hikeId: string, photos: any[])
     });
 
     if (photoSavePromises.length > 0) {
-      await Promise.all(photoSavePromises);
+      await Promise.allSettled(photoSavePromises);
     }
 
     await setDoc(doc(db, 'hikes', hikeId), { photos: cleanPhotos }, { merge: true });

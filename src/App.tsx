@@ -394,22 +394,35 @@ export const App: React.FC = () => {
                   changed = true;
                 } else {
                   const existing = map.get(ch.id)!;
-                  let itemChanged = false;
-                  const merged = { ...existing };
-                  if (ch.description !== undefined && ch.description !== existing.description) {
-                    merged.description = ch.description;
-                    itemChanged = true;
-                  }
-                  if (Array.isArray(ch.photos)) {
-                    if (!existing.photos || JSON.stringify(ch.photos) !== JSON.stringify(existing.photos)) {
-                      merged.photos = ch.photos;
-                      itemChanged = true;
-                    }
-                  }
-                  if (itemChanged) {
-                    map.set(ch.id, merged);
-                    changed = true;
-                  }
+                  const merged: HikeRoute = {
+                    ...existing,
+                    ...ch,
+                    title: (ch.title && typeof ch.title === 'string' && ch.title.trim())
+                      ? ch.title.trim()
+                      : existing.title || chTitle,
+                    mountainRange: (ch.mountainRange && typeof ch.mountainRange === 'string')
+                      ? ch.mountainRange
+                      : existing.mountainRange || chRange,
+                    date: ch.date || existing.date,
+                    distanceKm: ch.distanceKm !== undefined ? Number(ch.distanceKm) : existing.distanceKm,
+                    elevationGainM: ch.elevationGainM !== undefined ? Number(ch.elevationGainM) : existing.elevationGainM,
+                    elevationLossM: ch.elevationLossM !== undefined ? Number(ch.elevationLossM) : existing.elevationLossM,
+                    duration: ch.duration !== undefined ? ch.duration : existing.duration,
+                    description: ch.description !== undefined ? ch.description : existing.description,
+                    trackpoints: (Array.isArray(ch.trackpoints) && ch.trackpoints.length > 0)
+                      ? ch.trackpoints
+                      : (Array.isArray(ch.trackPoints) && ch.trackPoints.length > 0)
+                      ? ch.trackPoints
+                      : existing.trackpoints || existing.trackPoints || [],
+                    trackPoints: (Array.isArray(ch.trackpoints) && ch.trackpoints.length > 0)
+                      ? ch.trackpoints
+                      : (Array.isArray(ch.trackPoints) && ch.trackPoints.length > 0)
+                      ? ch.trackPoints
+                      : existing.trackpoints || existing.trackPoints || [],
+                    photos: Array.isArray(ch.photos) ? ch.photos : (existing.photos || []),
+                  };
+                  map.set(ch.id, merged);
+                  changed = true;
                 }
               }
               if (!changed) return prev;
@@ -474,12 +487,17 @@ export const App: React.FC = () => {
     };
     window.addEventListener('popstate', handlePopState);
 
-    // Live multi-device sync: refresh when tab gains focus or screen turns on
+    // Live multi-device sync: refresh when tab gains focus or screen turns on (throttled to avoid quota exhaustion)
+    let lastAutoSync = Date.now();
     const handleFocus = () => {
-      fetchRoutes(true);
+      if (Date.now() - lastAutoSync > 3 * 60 * 1000) {
+        lastAutoSync = Date.now();
+        fetchRoutes(true);
+      }
     };
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && Date.now() - lastAutoSync > 3 * 60 * 1000) {
+        lastAutoSync = Date.now();
         fetchRoutes(true);
       }
     };

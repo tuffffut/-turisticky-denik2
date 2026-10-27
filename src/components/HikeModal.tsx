@@ -273,25 +273,11 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
       // Always save changes immediately to persist photos so they are never lost
       if (targetHikeId) {
-        setUploadStatus('Ukládám fotografii na centrální server...');
-        const leanPhotosList = newPhotosList.map((p) => {
-          if (typeof p === 'object' && p !== null) {
-            const { dataUrl: _discard, ...rest } = p;
-            return {
-              ...rest,
-              id: p.id,
-              url: p.url && !p.url.startsWith('data:') ? p.url : `/api/photos/${p.id}`,
-              rawUrl: p.rawUrl && !p.rawUrl.startsWith('data:') ? p.rawUrl : `/api/photos/${p.id}?raw=1`,
-            };
-          }
-          return p;
-        });
-
         await onSave({
           ...route,
           ...formData,
           id: targetHikeId,
-          photos: leanPhotosList,
+          photos: newPhotosList,
         });
         try {
           await updateHikePhotosInFirestore(targetHikeId, newPhotosList);
@@ -650,21 +636,11 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     }
     setIsSaving(true);
     try {
-      const leanPhotos = (formData.photos || route?.photos || []).map((p) => {
-        if (typeof p === 'object' && p !== null) {
-          const { dataUrl: _discard, ...rest } = p;
-          return {
-            ...rest,
-            url: p.url && !p.url.startsWith('data:') ? p.url : `/api/photos/${p.id}`,
-            rawUrl: p.rawUrl && !p.rawUrl.startsWith('data:') ? p.rawUrl : `/api/photos/${p.id}?raw=1`,
-          };
-        }
-        return p;
-      });
+      const currentPhotosToSave = formData.photos || route?.photos || [];
 
       await onSave({
         ...formData,
-        photos: leanPhotos,
+        photos: currentPhotosToSave,
         id: formData.id || route?.id || 'route_' + Date.now(),
       });
       setIsEditing(false);

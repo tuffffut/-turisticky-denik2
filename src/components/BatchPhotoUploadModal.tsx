@@ -182,7 +182,14 @@ export const BatchPhotoUploadModal: React.FC<BatchPhotoUploadModalProps> = ({
       for (const [routeId, newPhotos] of newItemsPerRoute.entries()) {
         const routeObj = routes.find((r) => r.id === routeId);
         const existingPhotos = routeObj?.photos || [];
-        const mergedPhotos = [...existingPhotos, ...newPhotos];
+        const seenPhotoIds = new Set<string>();
+        const mergedPhotos: (string | HikePhotoItem)[] = [];
+        for (const p of [...existingPhotos, ...newPhotos]) {
+          const pid = typeof p === 'object' && p ? p.id : String(p);
+          if (pid && seenPhotoIds.has(pid)) continue;
+          if (pid) seenPhotoIds.add(pid);
+          mergedPhotos.push(p);
+        }
 
         updatedRoutesMap.set(routeId, mergedPhotos);
 
@@ -196,26 +203,15 @@ export const BatchPhotoUploadModal: React.FC<BatchPhotoUploadModalProps> = ({
         // 2. Persist to server if available
         try {
           const endpoint = API_BASE_URL ? `${API_BASE_URL}/api/routes` : '/api/routes';
-          const leanPhotos = mergedPhotos.map((p) => {
-            if (typeof p === 'object' && p !== null) {
-              const { dataUrl: _discard, ...rest } = p;
-              return {
-                ...rest,
-                id: p.id,
-                url: p.url && !p.url.startsWith('data:') ? p.url : `/api/photos/${p.id}`,
-                rawUrl: p.rawUrl && !p.rawUrl.startsWith('data:') ? p.rawUrl : `/api/photos/${p.id}?raw=1`,
-              };
-            }
-            return p;
-          });
-
           await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               ...routeObj,
               id: routeId,
-              photos: leanPhotos,
+              photos: mergedPhotos,
+              fromUserModal: true,
+              source: 'user',
             }),
           });
         } catch (serverErr) {
@@ -326,7 +322,7 @@ export const BatchPhotoUploadModal: React.FC<BatchPhotoUploadModalProps> = ({
           {/* Feedback banner */}
           {feedback && (
             <div
-              className={`p-4 rounded-xl border flex items-start justify-between gap-3 ${
+              className={`p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
                 feedback.type === 'success'
                   ? 'bg-emerald-950/70 border-emerald-800 text-emerald-200'
                   : 'bg-red-950/70 border-red-800 text-red-200'
@@ -343,12 +339,25 @@ export const BatchPhotoUploadModal: React.FC<BatchPhotoUploadModalProps> = ({
                   <p className="text-xs mt-0.5 opacity-90">{feedback.message}</p>
                 </div>
               </div>
-              <button
-                onClick={() => setFeedback(null)}
-                className="text-stone-400 hover:text-white p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                {feedback.type === 'success' && (
+                  <button
+                    onClick={() => {
+                      setFeedback(null);
+                      onClose();
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow"
+                  >
+                    Hotovo & zavřít
+                  </button>
+                )}
+                <button
+                  onClick={() => setFeedback(null)}
+                  className="text-stone-400 hover:text-white p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           )}
 

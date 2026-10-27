@@ -951,9 +951,12 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         ? req.body.mountainRange.trim()
         : existingData?.mountainRange || '';
 
-      const finalRange = candidateRange && !isSuspectMountainRange(candidateRange, peakLat, peakLng)
+      const isUserAction = req.body.fromUserModal || req.body.source === 'user';
+      const finalRange = isUserAction && candidateRange
         ? candidateRange
-        : (candidateRange || detectedRange);
+        : (candidateRange && !isSuspectMountainRange(candidateRange, peakLat, peakLng)
+          ? candidateRange
+          : (candidateRange || detectedRange));
 
       const isMountaineering =
         (activityType && /climb|mountaineer|lezen|skal/i.test(String(activityType))) ||
@@ -981,7 +984,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         finalPhotos = existingData.photos;
       }
 
-      // Normalize photos: If any photo has inline base64 string or dataUrl, extract to /api/photos/:id
+      // Normalize photos: Preserve full dataUrl for 0ms offline/cloud rendering and also save to disk/cloud storage
       const normalizedPhotos: any[] = [];
       for (let i = 0; i < finalPhotos.length; i++) {
         const p = finalPhotos[i];
@@ -990,8 +993,9 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
             const saved = await savePhotoDataUrl(p, routeId, { name: `foto_${i + 1}.jpg` });
             normalizedPhotos.push({
               id: saved.id,
-              url: `/api/photos/${saved.id}`,
-              rawUrl: `/api/photos/${saved.id}?raw=1`,
+              dataUrl: p,
+              url: p,
+              rawUrl: p,
               name: `foto_${i + 1}.jpg`,
               caption: '',
               width: saved.width || null,
@@ -1022,8 +1026,9 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
             const photoId = pObj.id || saved.id;
             normalizedPhotos.push({
               id: photoId,
-              url: `/api/photos/${photoId}`,
-              rawUrl: `/api/photos/${photoId}?raw=1`,
+              dataUrl: b64,
+              url: b64,
+              rawUrl: b64,
               name: pObj.name || saved.name,
               caption: pObj.caption || '',
               width: pObj.width || saved.width,
@@ -1033,11 +1038,11 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
               createdAt: pObj.createdAt || new Date().toISOString(),
             });
           } else {
-            const { dataUrl: _dUrl, ...cleanItem } = pObj;
             normalizedPhotos.push({
-              ...cleanItem,
-              url: cleanItem.url && !cleanItem.url.startsWith('data:') ? cleanItem.url : `/api/photos/${cleanItem.id}`,
-              rawUrl: cleanItem.rawUrl && !cleanItem.rawUrl.startsWith('data:') ? cleanItem.rawUrl : `/api/photos/${cleanItem.id}?raw=1`,
+              ...pObj,
+              dataUrl: pObj.dataUrl || pObj.url,
+              url: pObj.dataUrl || pObj.url || `/api/photos/${pObj.id}`,
+              rawUrl: pObj.dataUrl || pObj.rawUrl || `/api/photos/${pObj.id}?raw=1`,
             });
           }
         }
@@ -1162,16 +1167,23 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
               changed = true;
             } else {
               const existing = map.get(d.id);
-              if (data.description !== undefined && data.description !== existing.description) {
-                existing.description = data.description;
-                changed = true;
-              }
-              if (Array.isArray(data.photos)) {
-                if (!existing.photos || JSON.stringify(data.photos) !== JSON.stringify(existing.photos)) {
-                  existing.photos = data.photos;
-                  changed = true;
-                }
-              }
+              const merged = {
+                ...existing,
+                ...data,
+                trackpoints: (Array.isArray(data.trackpoints) && data.trackpoints.length > 0)
+                  ? data.trackpoints
+                  : (Array.isArray(data.trackPoints) && data.trackPoints.length > 0)
+                  ? data.trackPoints
+                  : existing.trackpoints || existing.trackPoints || [],
+                trackPoints: (Array.isArray(data.trackpoints) && data.trackpoints.length > 0)
+                  ? data.trackpoints
+                  : (Array.isArray(data.trackPoints) && data.trackPoints.length > 0)
+                  ? data.trackPoints
+                  : existing.trackpoints || existing.trackPoints || [],
+                photos: Array.isArray(data.photos) ? data.photos : (existing.photos || []),
+              };
+              Object.assign(existing, merged);
+              changed = true;
             }
           });
           if (changed) {
@@ -1456,8 +1468,9 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
 
       const photoItem = {
         id: photoId,
-        url: `/api/photos/${photoId}`,
-        rawUrl: `/api/photos/${photoId}?raw=1`,
+        dataUrl: photoDataUrl,
+        url: photoDataUrl,
+        rawUrl: photoDataUrl,
         name: photoName,
         caption: photoCaption,
         width: photoWidth || savedPhoto.width,
@@ -1500,17 +1513,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }).catch((e: any) => console.warn('[Firestore] hike_photos setDoc varování:', e.message));
 
         if (updatedPhotos.length > 0) {
-          const leanPhotosForFirestore = updatedPhotos.map((p) => ({
-            id: p.id,
-            url: p.url,
-            rawUrl: p.rawUrl,
-            name: p.name,
-            caption: p.caption,
-            width: p.width,
-            height: p.height,
-            sizeKb: p.sizeKb,
-          }));
-          setDoc(doc(db, 'hikes', id), { photos: leanPhotosForFirestore }, { merge: true })
+          setDoc(doc(db, 'hikes', id), { photos: updatedPhotos }, { merge: true })
             .catch((e: any) => console.warn('[Firestore] hikes photos update varování:', e.message));
         }
       }

@@ -210,8 +210,8 @@ export async function uploadPhotoToStorage(
 
   return {
     id: photoId,
-    url: photoUrl,
-    rawUrl: photoUrl + '?raw=1',
+    url: optimized.dataUrl || photoUrl,
+    rawUrl: optimized.dataUrl || photoUrl + '?raw=1',
     dataUrl: optimized.dataUrl,
     name: file.name || 'foto.jpg',
     caption: caption || '',
