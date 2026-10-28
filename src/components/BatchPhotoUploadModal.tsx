@@ -15,7 +15,7 @@ import {
   FolderCheck,
 } from 'lucide-react';
 import { HikeRoute, HikePhotoItem } from '../types';
-import { PhotoInfo, analyzePhotoFile, matchPhotosToRoutes } from '../utils/photoDateMatcher';
+import { PhotoInfo, analyzePhotoFile, matchPhotosToRoutes, getRouteEffectiveStartTime } from '../utils/photoDateMatcher';
 import { uploadPhotoToStorage } from '../utils/photoOptimizer';
 import { updateHikePhotosInFirestore } from '../firebase';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -408,15 +408,24 @@ export const BatchPhotoUploadModal: React.FC<BatchPhotoUploadModalProps> = ({
                     {/* Route header */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-800/80 pb-2.5">
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2 py-0.5 rounded-md">
                             {route.mountainRange || 'Hory'}
                           </span>
-                          <span className="text-xs text-stone-400 flex items-center gap-1">
+                          <span className="text-xs text-stone-300 flex items-center gap-1 font-medium">
                             <Calendar className="w-3 h-3 text-stone-500" />
                             {new Date(route.date).toLocaleDateString('cs-CZ')}
-                            {route.startTime ? ` • ${route.startTime}` : ''}
                           </span>
+                          {(() => {
+                            const eff = route.startTime || getRouteEffectiveStartTime(route);
+                            return eff ? (
+                              <span className="text-[11px] font-bold text-emerald-300 bg-emerald-950/90 border border-emerald-700/80 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                                <Clock className="w-3 h-3 text-emerald-400" />
+                                <span>Od {eff}</span>
+                                {route.duration ? <span className="text-stone-400 font-normal">({route.duration})</span> : null}
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                         <h4 className="text-sm font-bold text-white mt-1">{route.title}</h4>
                       </div>
@@ -517,11 +526,14 @@ export const BatchPhotoUploadModal: React.FC<BatchPhotoUploadModalProps> = ({
                       className="bg-stone-950 border border-stone-800 rounded-lg p-1.5 text-xs text-stone-200 focus:outline-none focus:border-emerald-500"
                     >
                       <option value="">Přiřadit k výpravě...</option>
-                      {routes.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.date?.slice(0, 10)} - {r.title}
-                        </option>
-                      ))}
+                      {routes.map((r) => {
+                        const eff = r.startTime || getRouteEffectiveStartTime(r);
+                        return (
+                          <option key={r.id} value={r.id}>
+                            {r.date?.slice(0, 10)} {eff ? `(${eff}) ` : ''}- {r.title} ({r.distanceKm} km)
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 ))}

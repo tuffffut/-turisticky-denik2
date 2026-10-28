@@ -589,10 +589,45 @@ export const HikeModal: React.FC<HikeModalProps> = ({
       const finalLoss = Math.round(totalDescent) || formData.elevationLossM || route?.elevationLossM || 0;
       const finalHighest = maxEle !== -Infinity ? Math.round(maxEle) : (formData.highestPointM || route?.highestPointM || 0);
 
+      let detectedStartTime = formData.startTime || route?.startTime;
+      let detectedDate = formData.date || route?.date;
+      let detectedDuration = formData.duration || route?.duration;
+
+      if (points.length > 0 && points[0]?.time) {
+        try {
+          const d0 = new Date(points[0].time);
+          if (!isNaN(d0.getTime())) {
+            if (!detectedStartTime) {
+              detectedStartTime = d0.toLocaleTimeString('cs-CZ', {
+                timeZone: 'Europe/Prague',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+              });
+            }
+            if (!detectedDate) {
+              detectedDate = d0.toISOString().split('T')[0];
+            }
+            if (points[points.length - 1]?.time) {
+              const dEnd = new Date(points[points.length - 1].time);
+              if (!isNaN(dEnd.getTime()) && dEnd.getTime() > d0.getTime()) {
+                const diffMins = Math.round((dEnd.getTime() - d0.getTime()) / 60000);
+                const h = Math.floor(diffMins / 60);
+                const m = diffMins % 60;
+                detectedDuration = h > 0 ? `${h}h ${m < 10 ? '0' : ''}${m}m` : `${m}m`;
+              }
+            }
+          }
+        } catch {}
+      }
+
       const updatedFormData = {
         ...formData,
         title: formData.title || cleanTitle,
         mountainRange: detectedRange,
+        date: detectedDate,
+        startTime: detectedStartTime,
+        duration: detectedDuration,
         distanceKm: finalDistKm,
         elevationGainM: finalGain,
         elevationLossM: finalLoss,
@@ -848,14 +883,23 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                 <h2 className="text-base sm:text-lg font-bold text-white leading-tight truncate">
                   {isNew ? 'Nová horská výprava' : route?.title || 'Detail výpravy'}
                 </h2>
-                <div className="flex items-center gap-2 text-xs text-stone-400 mt-0.5 truncate">
-                  <span className="text-emerald-400 font-medium truncate">{route?.mountainRange}</span>
-                  {route?.date && (
-                    <span className="shrink-0">
-                      • {new Date(route.date).toLocaleDateString('cs-CZ')}
-                      {route.startTime ? ` • ${route.startTime}` : ''}
+                <div className="flex flex-wrap items-center gap-2 text-xs text-stone-400 mt-0.5">
+                  <span className="text-emerald-400 font-semibold truncate">{route?.mountainRange || formData.mountainRange}</span>
+                  {(route?.date || formData.date) && (
+                    <span className="shrink-0 flex items-center gap-1 text-stone-300">
+                      <Calendar className="w-3.5 h-3.5 text-stone-500" />
+                      {new Date(route?.date || formData.date).toLocaleDateString('cs-CZ')}
                     </span>
                   )}
+                  {(() => {
+                    const st = route?.startTime || formData.startTime;
+                    return st ? (
+                      <span className="shrink-0 inline-flex items-center gap-1 font-bold text-emerald-300 bg-emerald-950/90 border border-emerald-700/80 px-2 py-0.5 rounded-md text-[11px] shadow-sm">
+                        <Clock className="w-3 h-3 text-emerald-400" />
+                        <span>Od {st}</span>
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
               </div>
             </div>
@@ -913,7 +957,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
             {!isEditing ? (
               <>
                 {/* Metrics ribbon */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <div className="bg-stone-950/70 border border-stone-800/80 p-3.5 rounded-2xl">
                     <span className="text-xs text-stone-400 block mb-1">Vzdálenost</span>
                     <span className="text-xl font-bold text-white">{route?.distanceKm || 0} km</span>
@@ -931,6 +975,13 @@ export const HikeModal: React.FC<HikeModalProps> = ({
                     </span>
                   </div>
                   <div className="bg-stone-950/70 border border-stone-800/80 p-3.5 rounded-2xl">
+                    <span className="text-xs text-stone-400 block mb-1">Čas zahájení</span>
+                    <span className="text-xl font-bold text-emerald-300 flex items-center gap-1">
+                      <Clock className="w-4 h-4 text-emerald-400" />
+                      {route?.startTime || (formData.startTime ? formData.startTime : '–')}
+                    </span>
+                  </div>
+                  <div className="bg-stone-950/70 border border-stone-800/80 p-3.5 rounded-2xl col-span-2 sm:col-span-1">
                     <span className="text-xs text-stone-400 block mb-1">Doba trvání</span>
                     <span className="text-xl font-bold text-stone-300">
                       {route?.duration || '–'}

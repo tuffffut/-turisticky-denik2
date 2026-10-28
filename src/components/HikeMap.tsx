@@ -108,8 +108,9 @@ export const HikeMap: React.FC<HikeMapProps> = ({
           onSelectRoute(route.id);
         });
 
+        const timeBadge = route.startTime ? ` • od ${route.startTime}` : '';
         polyline.bindTooltip(
-          `<strong>${route.title}</strong><br/>${route.mountainRange} • ${route.distanceKm} km`,
+          `<strong>${route.title}</strong><br/>${route.mountainRange} • ${route.distanceKm} km${timeBadge}`,
           { sticky: true }
         );
 
@@ -124,7 +125,7 @@ export const HikeMap: React.FC<HikeMapProps> = ({
             iconAnchor: [6, 6],
           });
           L.marker([route.startPoint.lat, route.startPoint.lng], { icon: startIcon })
-            .bindTooltip(`Start: ${route.title}`)
+            .bindTooltip(`Start: ${route.title}${route.startTime ? ' (od ' + route.startTime + ')' : ''}`)
             .addTo(group);
         }
 

@@ -234,6 +234,22 @@ function parseServerGpx(xmlString: string) {
     }
   }
 
+  let activityStartTime: string | undefined = undefined;
+  if (firstTimestamp) {
+    try {
+      activityStartTime = firstTimestamp.toLocaleTimeString('cs-CZ', {
+        timeZone: 'Europe/Prague',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    } catch {
+      const hh = String(firstTimestamp.getHours()).padStart(2, '0');
+      const mm = String(firstTimestamp.getMinutes()).padStart(2, '0');
+      activityStartTime = `${hh}:${mm}`;
+    }
+  }
+
   return {
     name,
     trackPoints: points,
@@ -245,6 +261,7 @@ function parseServerGpx(xmlString: string) {
     durationMinutes: Math.round(finalTotalSecs / 60),
     movingDurationMinutes: finalMovingSecs ? Math.round(finalMovingSecs / 60) : undefined,
     date: activityDate,
+    startTime: activityStartTime,
     minEle: minEle === Number.POSITIVE_INFINITY ? undefined : Math.round(minEle),
     maxEle: maxEle === Number.NEGATIVE_INFINITY ? undefined : Math.round(maxEle),
     highestPoint: highestPoint || { lat: 50.736, lng: 15.74 },
@@ -1055,7 +1072,15 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         mountainRange: finalRange,
         activityType: determinedActivityType,
         date: date ? String(date).slice(0, 10) : (existingData?.date || parsedGpx?.date || new Date().toISOString().split('T')[0]),
-        startTime: req.body.startTime !== undefined ? req.body.startTime : existingData?.startTime,
+        startTime: (req.body.startTime !== undefined && req.body.startTime !== '')
+          ? req.body.startTime
+          : (existingData?.startTime || parsedGpx?.startTime || (inputTrackPoints?.[0]?.time ? (() => {
+              try {
+                const dt = new Date(inputTrackPoints[0].time);
+                return !isNaN(dt.getTime()) ? dt.toLocaleTimeString('cs-CZ', { timeZone: 'Europe/Prague', hour: '2-digit', minute: '2-digit', hour12: false }) : undefined;
+              } catch { return undefined; }
+            })() : undefined)),
+        updatedAt: new Date().toISOString(),
         distanceKm: Math.round(finalDistance * 10) / 10,
         elevationGainM: Math.round(finalGain),
         elevationLossM: Math.round(finalLoss),

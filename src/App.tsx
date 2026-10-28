@@ -42,6 +42,22 @@ import {
 } from './firebase';
 import { API_BASE_URL } from './utils/apiConfig';
 
+function extractLocalStartTime(timeStr?: string): string | undefined {
+  if (!timeStr) return undefined;
+  try {
+    const dt = new Date(timeStr);
+    if (!isNaN(dt.getTime())) {
+      return dt.toLocaleTimeString('cs-CZ', {
+        timeZone: 'Europe/Prague',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    }
+  } catch {}
+  return undefined;
+}
+
 function getActivityTimeScore(route: HikeRoute): number {
   if (!route.date) return 0;
   const baseDayStr = route.date.split('T')[0];
@@ -310,11 +326,17 @@ export const App: React.FC = () => {
               : (Array.isArray(ch.trackPoints) && ch.trackPoints.length > 0)
               ? ch.trackPoints
               : [];
+            const derivedStartTime = (ch.startTime && typeof ch.startTime === 'string' && ch.startTime.trim())
+              ? ch.startTime.trim()
+              : pts.length > 0 && pts[0]?.time
+              ? extractLocalStartTime(pts[0].time)
+              : undefined;
             loadedRoutesMap.set(ch.id, {
               ...ch,
               id: ch.id,
               title: chTitle,
               mountainRange: chRange,
+              startTime: derivedStartTime,
               description: ch.description || '',
               trackpoints: pts,
               trackPoints: pts,
@@ -360,6 +382,17 @@ export const App: React.FC = () => {
       if (Array.isArray(rawList)) {
         for (const r of rawList) {
           if (!r || typeof r !== 'object' || !r.id) continue;
+          const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
+            ? r.trackpoints
+            : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
+            ? r.trackPoints
+            : [];
+          const derivedStartTime = (r.startTime && typeof r.startTime === 'string' && r.startTime.trim())
+            ? r.startTime.trim()
+            : pts.length > 0 && pts[0]?.time
+            ? extractLocalStartTime(pts[0].time)
+            : undefined;
+
           if (!loadedRoutesMap.has(r.id)) {
             const title = (r.title && typeof r.title === 'string' && r.title.trim())
               ? r.title.trim()
@@ -370,27 +403,38 @@ export const App: React.FC = () => {
               ? r.mountainRange.trim()
               : 'Krkonoše';
             const desc = (r.description && typeof r.description === 'string') ? r.description : '';
-            const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
-              ? r.trackpoints
-              : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
-              ? r.trackPoints
-              : [];
             loadedRoutesMap.set(r.id, {
               ...r,
               id: r.id,
               title,
               mountainRange: range,
+              startTime: derivedStartTime,
               description: desc,
               trackpoints: pts,
               trackPoints: pts,
               photos: Array.isArray(r.photos) ? r.photos : [],
             } as HikeRoute);
           } else {
-            // If already in loadedRoutesMap from Firestore, merge trackpoints if Firestore didn't have full track
+            // If already in loadedRoutesMap from Firestore, merge trackpoints and newer server fields
             const existing = loadedRoutesMap.get(r.id)!;
-            if ((!existing.trackpoints || existing.trackpoints.length === 0) && (r.trackpoints || r.trackPoints)) {
-              existing.trackpoints = r.trackpoints || r.trackPoints;
-              existing.trackPoints = existing.trackpoints;
+            if ((!existing.trackpoints || existing.trackpoints.length === 0) && pts.length > 0) {
+              existing.trackpoints = pts;
+              existing.trackPoints = pts;
+            }
+            if (!existing.startTime && (r.startTime || derivedStartTime)) {
+              existing.startTime = r.startTime || derivedStartTime;
+            }
+            // If server copy has newer timestamp, synchronize the edited values
+            if (r.updatedAt && (!existing.updatedAt || r.updatedAt >= existing.updatedAt)) {
+              if (r.date) existing.date = r.date;
+              if (r.distanceKm !== undefined) existing.distanceKm = r.distanceKm;
+              if (r.elevationGainM !== undefined) existing.elevationGainM = r.elevationGainM;
+              if (r.elevationLossM !== undefined) existing.elevationLossM = r.elevationLossM;
+              if (r.highestPointM !== undefined) existing.highestPointM = r.highestPointM;
+              if (r.duration) existing.duration = r.duration;
+              if (r.mountainRange) existing.mountainRange = r.mountainRange;
+              if (r.title) existing.title = r.title;
+              if (r.startTime) existing.startTime = r.startTime;
             }
           }
         }
@@ -562,7 +606,11 @@ export const App: React.FC = () => {
       throw new Error('Chybí identifikátor výpravy.');
     }
 
-    let finalRoute = updatedRoute;
+    const nowIso = new Date().toISOString();
+    let finalRoute: Partial<HikeRoute> = {
+      ...updatedRoute,
+      updatedAt: nowIso,
+    };
 
     // 1. Authoritative Persistence: Save directly to central server storage first (permanent, no quota limits)
     try {
@@ -571,7 +619,7 @@ export const App: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...updatedRoute,
+          ...finalRoute,
           fromUserModal: true,
           source: 'user',
         }),
@@ -579,7 +627,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const savedResult = await res.json().catch(() => null);
         if (savedResult?.route) {
-          finalRoute = savedResult.route;
+          finalRoute = { ...finalRoute, ...savedResult.route };
         }
       }
     } catch (serverErr) {
@@ -587,7 +635,11 @@ export const App: React.FC = () => {
     }
 
     // 2. Sync to Cloud Firestore (guarantees persistence across devices and page reloads)
-    await syncHikeToFirestore(updatedRoute.id, finalRoute);
+    try {
+      await syncHikeToFirestore(updatedRoute.id, finalRoute);
+    } catch (cloudErr) {
+      console.warn('[handleSaveRoute] Firestore sync varování:', cloudErr);
+    }
 
     // 3. Update in-memory state immediately
     setRoutes((prev) =>
@@ -1348,13 +1400,20 @@ export const App: React.FC = () => {
                           <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/80 border border-emerald-800/50 px-2.5 py-0.5 rounded-full truncate">
                             {route.mountainRange || 'Hory'}
                           </span>
-                          {route.date && (
-                            <span className="text-xs text-stone-400 flex items-center gap-1 whitespace-nowrap">
-                              <Calendar className="w-3 h-3 text-stone-500" />
-                              {new Date(route.date).toLocaleDateString('cs-CZ')}
-                              {route.startTime ? ` • ${route.startTime}` : ''}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5 flex-wrap justify-end text-xs text-stone-400">
+                            {route.date && (
+                              <span className="flex items-center gap-1 whitespace-nowrap">
+                                <Calendar className="w-3 h-3 text-stone-500" />
+                                {new Date(route.date).toLocaleDateString('cs-CZ')}
+                              </span>
+                            )}
+                            {route.startTime && (
+                              <span className="inline-flex items-center gap-1 font-bold text-emerald-300 bg-emerald-950/80 border border-emerald-800/60 px-2 py-0.5 rounded-md text-[11px] whitespace-nowrap shadow-sm">
+                                <Clock className="w-2.5 h-2.5 text-emerald-400" />
+                                {route.startTime}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         {/* Title */}

@@ -97,6 +97,76 @@ export async function analyzePhotoFile(file: File): Promise<PhotoInfo> {
 }
 
 /**
+/**
+ * Resolves the effective start time of a route ("HH:MM").
+ * Checks route.startTime first, then extracts from trackpoints[0].time in Europe/Prague / local time.
+ */
+export function getRouteEffectiveStartTime(route: HikeRoute): string {
+  if (route.startTime && typeof route.startTime === 'string' && route.startTime.trim()) {
+    const s = route.startTime.trim();
+    if (s.includes(':')) {
+      const [h, m] = s.split(':');
+      return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+    }
+    return s;
+  }
+  const pts = route.trackpoints || route.trackPoints;
+  if (Array.isArray(pts) && pts.length > 0 && pts[0]?.time) {
+    try {
+      const dt = new Date(pts[0].time);
+      if (!isNaN(dt.getTime())) {
+        return dt.toLocaleTimeString('cs-CZ', {
+          timeZone: 'Europe/Prague',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
+      }
+    } catch {}
+  }
+  return '';
+}
+
+/**
+ * Calculates startMs, endMs, startTime, and endTime for an activity route.
+ */
+export function getRouteTimeInterval(r: HikeRoute): { startMs: number; endMs: number; startTime: string; endTime: string } {
+  const rDateOnly = (r.date || '').slice(0, 10);
+  const stStr = getRouteEffectiveStartTime(r) || '09:00';
+  const timeParts = stStr.split(':');
+  const hh = timeParts[0] || '09';
+  const mm = timeParts[1] || '00';
+  const startDt = new Date(`${rDateOnly}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:00`);
+  const startMs = !isNaN(startDt.getTime()) ? startDt.getTime() : new Date(`${rDateOnly}T09:00:00`).getTime();
+
+  let durationMs = 3 * 3600 * 1000;
+  const pts = r.trackpoints || r.trackPoints;
+  if (Array.isArray(pts) && pts.length > 1 && pts[0]?.time && pts[pts.length - 1]?.time) {
+    const t0 = new Date(pts[0].time).getTime();
+    const t1 = new Date(pts[pts.length - 1].time).getTime();
+    if (!isNaN(t0) && !isNaN(t1) && t1 > t0) {
+      durationMs = t1 - t0;
+    }
+  } else if (r.duration) {
+    const hMatch = r.duration.match(/(\d+)\s*h/);
+    const mMatch = r.duration.match(/(\d+)\s*m/);
+    if (hMatch || mMatch) {
+      const h = hMatch ? parseInt(hMatch[1], 10) : 0;
+      const m = mMatch ? parseInt(mMatch[1], 10) : 0;
+      durationMs = (h * 3600 + m * 60) * 1000;
+    }
+  }
+
+  const endMs = startMs + Math.max(20 * 60 * 1000, durationMs);
+  const endDt = new Date(endMs);
+  const endHh = String(endDt.getHours()).padStart(2, '0');
+  const endMm = String(endDt.getMinutes()).padStart(2, '0');
+  const endTime = `${endHh}:${endMm}`;
+
+  return { startMs, endMs, startTime: stStr, endTime };
+}
+
+/**
  * Automatically matches analyzed photos against existing routes.
  * Uses activity calendar date and start/duration time window.
  */
@@ -116,72 +186,75 @@ export function matchPhotosToRoutes(photos: PhotoInfo[], routes: HikeRoute[]): P
 
     if (sameDayRoutes.length === 1) {
       const target = sameDayRoutes[0];
+      const targetTime = getRouteEffectiveStartTime(target);
+      const timeNote = targetTime ? ` • od ${targetTime}` : '';
       return {
         ...photo,
         matchedRouteId: target.id,
-        matchReason: `Shoda podle data výpravy (${new Date(target.date).toLocaleDateString('cs-CZ')})`,
+        matchReason: `Shoda podle data výpravy (${new Date(target.date).toLocaleDateString('cs-CZ')}${timeNote})`,
       };
     }
 
     if (sameDayRoutes.length > 1) {
-      // Multiple activities on the same date: score by time proximity
+      // Multiple activities on the same date: score by exact time window & proximity
       if (photo.timestamp) {
         let bestRoute: HikeRoute = sameDayRoutes[0];
+        let bestInterval = getRouteTimeInterval(sameDayRoutes[0]);
         let bestDiff = Infinity;
-        let inWindow = false;
+        let bestInWindow = false;
 
         for (const r of sameDayRoutes) {
-          const startTime = r.startTime || '09:00';
-          const rDateOnly = (r.date || '').slice(0, 10);
-          const timeParts = startTime.split(':');
-          const hh = timeParts[0] || '09';
-          const mm = timeParts[1] || '00';
+          const interval = getRouteTimeInterval(r);
 
-          const rStartDt = new Date(`${rDateOnly}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:00`);
-          const rStartMs = !isNaN(rStartDt.getTime()) ? rStartDt.getTime() : new Date(`${rDateOnly}T09:00:00`).getTime();
+          // Buffer of 45 minutes before start and after end
+          const inWindow =
+            photo.timestamp >= interval.startMs - 45 * 60 * 1000 &&
+            photo.timestamp <= interval.endMs + 45 * 60 * 1000;
 
-          // Estimate duration
-          let durationMs = 3 * 3600 * 1000;
-          if (r.duration) {
-            const hMatch = r.duration.match(/(\d+)\s*h/);
-            const mMatch = r.duration.match(/(\d+)\s*m/);
-            if (hMatch || mMatch) {
-              const h = hMatch ? parseInt(hMatch[1]) : 0;
-              const m = mMatch ? parseInt(mMatch[1]) : 0;
-              durationMs = (h * 3600 + m * 60) * 1000;
-            }
+          // Distance to time window: 0 if inside, else absolute distance to closest window edge
+          let diff = 0;
+          if (photo.timestamp < interval.startMs) {
+            diff = interval.startMs - photo.timestamp;
+          } else if (photo.timestamp > interval.endMs) {
+            diff = photo.timestamp - interval.endMs;
+          } else {
+            // Inside window: secondary diff is distance to midpoint
+            const centerMs = (interval.startMs + interval.endMs) / 2;
+            diff = Math.abs(photo.timestamp - centerMs) / 1000;
           }
 
-          const rEndMs = rStartMs + durationMs;
-          // Check if photo is within activity time window (+/- 45 mins buffer)
-          const isWithin = photo.timestamp >= (rStartMs - 45 * 60 * 1000) && photo.timestamp <= (rEndMs + 45 * 60 * 1000);
-          const centerMs = (rStartMs + rEndMs) / 2;
-          const diff = Math.abs(photo.timestamp - centerMs);
-
-          if (isWithin && (!inWindow || diff < bestDiff)) {
-            inWindow = true;
+          if (inWindow && !bestInWindow) {
+            bestInWindow = true;
             bestDiff = diff;
             bestRoute = r;
-          } else if (!inWindow && diff < bestDiff) {
+            bestInterval = interval;
+          } else if (inWindow && bestInWindow && diff < bestDiff) {
             bestDiff = diff;
             bestRoute = r;
+            bestInterval = interval;
+          } else if (!bestInWindow && diff < bestDiff) {
+            bestDiff = diff;
+            bestRoute = r;
+            bestInterval = interval;
           }
         }
 
+        const photoTimeFormatted = photo.timeStr ? photo.timeStr.slice(0, 5) : '';
         return {
           ...photo,
           matchedRouteId: bestRoute.id,
-          matchReason: inWindow
-            ? `Přesná časová shoda (${photo.timeStr || ''} v rámci doby výpravy)`
-            : `Nejbližší čas výpravy (${photo.timeStr || ''})`,
+          matchReason: bestInWindow
+            ? `Přesná časová shoda (foto ${photoTimeFormatted} • výprava ${bestInterval.startTime} - ${bestInterval.endTime})`
+            : `Nejbližší čas výpravy (foto ${photoTimeFormatted} • výprava ${bestInterval.startTime} - ${bestInterval.endTime})`,
         };
       } else {
-        // No time, pick first route on that date
+        // No time metadata, pick first route on that date
         const target = sameDayRoutes[0];
+        const targetTime = getRouteEffectiveStartTime(target);
         return {
           ...photo,
           matchedRouteId: target.id,
-          matchReason: `Přiřazeno k první výpravě v daný den (${new Date(target.date).toLocaleDateString('cs-CZ')})`,
+          matchReason: `Přiřazeno k výpravě (${new Date(target.date).toLocaleDateString('cs-CZ')}${targetTime ? ` • ${targetTime}` : ''})`,
         };
       }
     }
@@ -197,10 +270,11 @@ export function matchPhotosToRoutes(photos: PhotoInfo[], routes: HikeRoute[]): P
 
       if (nearRoutes.length === 1) {
         const target = nearRoutes[0];
+        const targetTime = getRouteEffectiveStartTime(target);
         return {
           ...photo,
           matchedRouteId: target.id,
-          matchReason: `Doporučená výprava (časový posun ±1 den: ${new Date(target.date).toLocaleDateString('cs-CZ')})`,
+          matchReason: `Doporučená výprava (časový posun ±1 den: ${new Date(target.date).toLocaleDateString('cs-CZ')}${targetTime ? ` • ${targetTime}` : ''})`,
         };
       }
     }
