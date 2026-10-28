@@ -285,178 +285,138 @@ export const App: React.FC = () => {
     localStorage.removeItem('horsky_denik_auth_pin');
   };
 
-  // Fetch routes from central server/Firestore with static fallback for GitHub Pages
+  // Fetch routes: Cloud Firestore is the primary live source; merges with server or static routes-cache.json
   const fetchRoutes = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
       setServerError(null);
-      let res: Response;
-      let isFallback = false;
+
+      const loadedRoutesMap = new Map<string, HikeRoute>();
+
+      // 1. Fetch live from Cloud Firestore first (the central real-time database available on all devices & static hosts)
       try {
-        res = await fetch(`${API_BASE_URL}/api/routes?_t=${Date.now()}`, {
+        const cloudHikes = await fetchHikesFromFirestore();
+        if (Array.isArray(cloudHikes) && cloudHikes.length > 0) {
+          for (const ch of cloudHikes) {
+            if (!ch || typeof ch !== 'object' || !ch.id) continue;
+            const chTitle = (ch.title && typeof ch.title === 'string' && ch.title.trim())
+              ? ch.title.trim()
+              : (ch.name && typeof ch.name === 'string' && ch.name.trim())
+              ? ch.name.trim()
+              : 'Horská výprava';
+            const chRange = (ch.mountainRange && typeof ch.mountainRange === 'string') ? ch.mountainRange : 'Krkonoše';
+            const pts = (Array.isArray(ch.trackpoints) && ch.trackpoints.length > 0)
+              ? ch.trackpoints
+              : (Array.isArray(ch.trackPoints) && ch.trackPoints.length > 0)
+              ? ch.trackPoints
+              : [];
+            loadedRoutesMap.set(ch.id, {
+              ...ch,
+              id: ch.id,
+              title: chTitle,
+              mountainRange: chRange,
+              description: ch.description || '',
+              trackpoints: pts,
+              trackPoints: pts,
+              photos: Array.isArray(ch.photos) ? ch.photos : [],
+            } as HikeRoute);
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('[fetchRoutes] Firestore fetch varování:', cloudErr);
+      }
+
+      // 2. Also try fetching from API server or static routes-cache.json (to merge any local cache or static routes)
+      let rawList: any[] = [];
+      try {
+        const apiRes = await fetch(`${API_BASE_URL}/api/routes?_t=${Date.now()}`, {
           cache: 'no-store',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
           },
-        });
-      } catch {
-        res = await fetch(`${API_BASE_URL}/routes-cache.json`).catch(() => fetch('./routes-cache.json'));
-        isFallback = true;
-      }
+        }).catch(() => null);
 
-      let rawList: any[] = [];
-      if (!res.ok) {
-        if (!isFallback) {
-          const fallbackRes = await fetch(`${API_BASE_URL}/routes-cache.json`)
+        if (apiRes && apiRes.ok) {
+          const apiJson = await apiRes.json().catch(() => null);
+          rawList = Array.isArray(apiJson) ? apiJson : (apiJson?.routes || []);
+        } else {
+          // If /api/routes is 404 or unreachable (e.g. static GitHub Pages), fallback to static routes-cache.json
+          const basePath = import.meta.env.BASE_URL || './';
+          const cacheUrl = `${basePath}routes-cache.json`.replace('//', '/');
+          const cacheRes = await fetch(cacheUrl)
             .catch(() => fetch('./routes-cache.json'))
             .catch(() => null);
-          if (fallbackRes && fallbackRes.ok) {
-            const fallbackJson = await fallbackRes.json();
-            rawList = Array.isArray(fallbackJson) ? fallbackJson : fallbackJson.routes || [];
+          if (cacheRes && cacheRes.ok) {
+            const cacheJson = await cacheRes.json().catch(() => null);
+            rawList = Array.isArray(cacheJson) ? cacheJson : (cacheJson?.routes || []);
           }
         }
-        if (!rawList || rawList.length === 0) {
-          const errJson = await res.json().catch(() => ({}));
-          throw new Error(errJson.error || `Chyba serveru (${res.status}: ${res.statusText})`);
+      } catch (cacheErr) {
+        console.warn('[fetchRoutes] Cache fetch varování:', cacheErr);
+      }
+
+      // Merge rawList with loadedRoutesMap
+      if (Array.isArray(rawList)) {
+        for (const r of rawList) {
+          if (!r || typeof r !== 'object' || !r.id) continue;
+          if (!loadedRoutesMap.has(r.id)) {
+            const title = (r.title && typeof r.title === 'string' && r.title.trim())
+              ? r.title.trim()
+              : (r.name && typeof r.name === 'string' && r.name.trim())
+              ? r.name.trim()
+              : 'Horská výprava';
+            const range = (r.mountainRange && typeof r.mountainRange === 'string' && r.mountainRange.trim())
+              ? r.mountainRange.trim()
+              : 'Krkonoše';
+            const desc = (r.description && typeof r.description === 'string') ? r.description : '';
+            const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
+              ? r.trackpoints
+              : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
+              ? r.trackPoints
+              : [];
+            loadedRoutesMap.set(r.id, {
+              ...r,
+              id: r.id,
+              title,
+              mountainRange: range,
+              description: desc,
+              trackpoints: pts,
+              trackPoints: pts,
+              photos: Array.isArray(r.photos) ? r.photos : [],
+            } as HikeRoute);
+          } else {
+            // If already in loadedRoutesMap from Firestore, merge trackpoints if Firestore didn't have full track
+            const existing = loadedRoutesMap.get(r.id)!;
+            if ((!existing.trackpoints || existing.trackpoints.length === 0) && (r.trackpoints || r.trackPoints)) {
+              existing.trackpoints = r.trackpoints || r.trackPoints;
+              existing.trackPoints = existing.trackpoints;
+            }
+          }
         }
-      } else {
-        const data = await res.json();
-        rawList = Array.isArray(data) ? data : data.routes;
       }
 
-      if (!rawList || !Array.isArray(rawList)) {
-        throw new Error('Server vrátil neplatnou odpověď (chybí pole tras).');
+      const finalRoutes = Array.from(loadedRoutesMap.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+      if (finalRoutes.length === 0) {
+        throw new Error('Nepodařilo se načíst žádné výpravy z databáze Firestore ani ze serveru.');
       }
 
-      const loadedRoutes: HikeRoute[] = rawList
-        .filter((r: any) => r && typeof r === 'object')
-        .map((r: any) => {
-          const id = (r.id && String(r.id).trim()) || 'route_' + Math.random().toString(36).substring(2, 8);
-          const title = (r.title && typeof r.title === 'string' && r.title.trim())
-            ? r.title.trim()
-            : (r.name && typeof r.name === 'string' && r.name.trim())
-            ? r.name.trim()
-            : 'Horská výprava';
-          const range = (r.mountainRange && typeof r.mountainRange === 'string' && r.mountainRange.trim())
-            ? r.mountainRange.trim()
-            : 'Krkonoše';
-          const desc = (r.description && typeof r.description === 'string')
-            ? r.description
-            : '';
-          const pts = (Array.isArray(r.trackpoints) && r.trackpoints.length > 0)
-            ? r.trackpoints
-            : (Array.isArray(r.trackPoints) && r.trackPoints.length > 0)
-            ? r.trackPoints
-            : [];
-          return {
-            ...r,
-            id,
-            title,
-            mountainRange: range,
-            description: desc,
-            trackpoints: pts,
-            trackPoints: pts,
-            photos: Array.isArray(r.photos) ? r.photos : [],
-          };
-        });
-
-      setRoutes(loadedRoutes);
+      setRoutes(finalRoutes);
       setServerError(null);
 
       // Keep active modal route in sync
       setModalRoute((prev) => {
         if (!prev) return null;
-        const fresh = loadedRoutes.find((r: HikeRoute) => r.id === prev.id);
+        const fresh = finalRoutes.find((r: HikeRoute) => r.id === prev.id);
         return fresh || prev;
       });
-
-      // Synchronize live cloud updates from Firestore (new Garmin activities e.g. Kouty, updated photos & descriptions)
-      fetchHikesFromFirestore()
-        .then((cloudHikes) => {
-          if (cloudHikes && cloudHikes.length > 0) {
-            setRoutes((prev) => {
-              const map = new Map(prev.map((r) => [r.id, r]));
-              let changed = false;
-              for (const ch of cloudHikes) {
-                if (!ch || typeof ch !== 'object') continue;
-                const chTitle = (ch.title && typeof ch.title === 'string' && ch.title.trim())
-                  ? ch.title.trim()
-                  : 'Horská výprava';
-                const chRange = (ch.mountainRange && typeof ch.mountainRange === 'string') ? ch.mountainRange : 'Krkonoše';
-                if (!map.has(ch.id)) {
-                  map.set(ch.id, {
-                    ...ch,
-                    id: ch.id,
-                    title: chTitle,
-                    mountainRange: chRange,
-                    description: ch.description || '',
-                    trackpoints: ch.trackpoints || ch.trackPoints || [],
-                    trackPoints: ch.trackpoints || ch.trackPoints || [],
-                    photos: Array.isArray(ch.photos) ? ch.photos : [],
-                  } as HikeRoute);
-                  changed = true;
-                } else {
-                  const existing = map.get(ch.id)!;
-                  const merged: HikeRoute = {
-                    ...existing,
-                    ...ch,
-                    title: (ch.title && typeof ch.title === 'string' && ch.title.trim())
-                      ? ch.title.trim()
-                      : existing.title || chTitle,
-                    mountainRange: (ch.mountainRange && typeof ch.mountainRange === 'string')
-                      ? ch.mountainRange
-                      : existing.mountainRange || chRange,
-                    date: ch.date || existing.date,
-                    distanceKm: ch.distanceKm !== undefined ? Number(ch.distanceKm) : existing.distanceKm,
-                    elevationGainM: ch.elevationGainM !== undefined ? Number(ch.elevationGainM) : existing.elevationGainM,
-                    elevationLossM: ch.elevationLossM !== undefined ? Number(ch.elevationLossM) : existing.elevationLossM,
-                    duration: ch.duration !== undefined ? ch.duration : existing.duration,
-                    description: ch.description !== undefined ? ch.description : existing.description,
-                    trackpoints: (Array.isArray(ch.trackpoints) && ch.trackpoints.length > 0)
-                      ? ch.trackpoints
-                      : (Array.isArray(ch.trackPoints) && ch.trackPoints.length > 0)
-                      ? ch.trackPoints
-                      : existing.trackpoints || existing.trackPoints || [],
-                    trackPoints: (Array.isArray(ch.trackpoints) && ch.trackpoints.length > 0)
-                      ? ch.trackpoints
-                      : (Array.isArray(ch.trackPoints) && ch.trackPoints.length > 0)
-                      ? ch.trackPoints
-                      : existing.trackpoints || existing.trackPoints || [],
-                    photos: (() => {
-                      const chP = Array.isArray(ch.photos) ? ch.photos : [];
-                      const exP = Array.isArray(existing.photos) ? existing.photos : [];
-                      if (chP.length === 0 && exP.length > 0) return exP;
-                      const exMap = new Map(exP.map((p: any) => [typeof p === 'object' && p ? p.id : String(p), p]));
-                      return chP.map((p: any) => {
-                        const pid = typeof p === 'object' && p ? p.id : String(p);
-                        const existingMatch = exMap.get(pid);
-                        if (existingMatch && typeof existingMatch === 'object' && existingMatch.dataUrl && (!p.dataUrl || !p.dataUrl.startsWith('data:'))) {
-                          return { ...p, dataUrl: existingMatch.dataUrl };
-                        }
-                        return p;
-                      });
-                    })(),
-                  };
-                  map.set(ch.id, merged);
-                  changed = true;
-                }
-              }
-              if (!changed) return prev;
-              const nextList = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-              setModalRoute((cur) => {
-                if (!cur) return null;
-                return nextList.find((r) => r.id === cur.id) || cur;
-              });
-              return nextList;
-            });
-          }
-        })
-        .catch(() => {});
     } catch (err: any) {
-      console.error('Chyba při načítání tras ze serveru:', err);
-      setRoutes([]);
-      setServerError(err.message || 'Nepodařilo se navázat spojení se serverem. Žádná data se nenačítají lokálně.');
+      console.error('Chyba při načítání tras:', err);
+      // Only set blocking server error if we truly have 0 routes
+      if (routes.length === 0) {
+        setServerError(err.message || 'Nepodařilo se navázat spojení se serverem ani databází.');
+      }
     } finally {
       if (!silent) setLoading(false);
     }
