@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { HikePhotoItem } from '../types';
 import { API_BASE_URL } from '../utils/apiConfig';
-import { fetchPhotoFromFirestore } from '../firebase';
+import { fetchPhotoFromFirestore, photoMemoryCache } from '../firebase';
 
 interface PhotoLightboxProps {
   photos: (string | HikePhotoItem)[];
@@ -60,6 +60,8 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
     } else {
       if (currentItem.dataUrl) {
         setResolvedSrc(currentItem.dataUrl);
+      } else if (currentItem.id && photoMemoryCache.has(currentItem.id)) {
+        setResolvedSrc(photoMemoryCache.get(currentItem.id)!);
       } else if (currentItem.url && (currentItem.url.startsWith('data:') || currentItem.url.startsWith('http'))) {
         setResolvedSrc(currentItem.url);
       } else if (currentItem.id) {

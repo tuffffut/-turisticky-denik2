@@ -33,7 +33,7 @@ import { PhotoLightbox } from './PhotoLightbox';
 import { HikeMap } from './HikeMap';
 import { uploadPhotoToStorage } from '../utils/photoOptimizer';
 import { saveRouteTrackpoints, getRouteTrackpoints } from '../utils/dbStorage';
-import { updateHikePhotosInFirestore, deletePhotoFromFirestore, fetchPhotoFromFirestore } from '../firebase';
+import { updateHikePhotosInFirestore, deletePhotoFromFirestore, fetchPhotoFromFirestore, photoMemoryCache } from '../firebase';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 interface HikeModalProps {
@@ -122,14 +122,16 @@ export const HikeModal: React.FC<HikeModalProps> = ({
 
   const lastOpenedRouteIdRef = useRef<string | null>(null);
 
-  // Synchronize formData ONLY when modal opens or a different route is selected
+  // Synchronize formData when modal opens or route data updates
   useEffect(() => {
     if (!isOpen) {
       lastOpenedRouteIdRef.current = null;
       return;
     }
     const currentId = route?.id || (isNew ? '__new__' : null);
-    if (currentId && currentId !== lastOpenedRouteIdRef.current) {
+    if (!currentId) return;
+
+    if (currentId !== lastOpenedRouteIdRef.current) {
       lastOpenedRouteIdRef.current = currentId;
       if (route) {
         setFormData(route);
@@ -153,8 +155,15 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         setActivePhotoIndex(0);
         setIsEditing(isNew);
       }
+    } else if (route && !isEditing) {
+      // If modal is open and not being edited, synchronize updated photos and metrics from route
+      setFormData((prev) => ({
+        ...prev,
+        ...route,
+        photos: (route.photos && route.photos.length > 0) ? route.photos : prev.photos,
+      }));
     }
-  }, [isOpen, route?.id, isNew]);
+  }, [isOpen, route, isNew, isEditing]);
 
   // Load full GPX trackpoints from IndexedDB if not present in route document
   useEffect(() => {
@@ -674,6 +683,10 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         return photo;
       }
       if (photo.startsWith('/api/photos/')) {
+        const id = photo.replace('/api/photos/', '').split('?')[0];
+        if (id && photoMemoryCache.has(id)) {
+          return photoMemoryCache.get(id)!;
+        }
         return `${API_BASE_URL}${photo}?raw=1`;
       }
       return photo;
@@ -682,15 +695,19 @@ export const HikeModal: React.FC<HikeModalProps> = ({
     if (photo.dataUrl) {
       return photo.dataUrl;
     }
-    // 2. Check asynchronously loaded cloud dataUrl from Firestore
+    // 2. Check in-memory session cache for instant 0ms retrieval
+    if (photo.id && photoMemoryCache.has(photo.id)) {
+      return photoMemoryCache.get(photo.id)!;
+    }
+    // 3. Check asynchronously loaded cloud dataUrl from Firestore
     if (photo.id && loadedCloudDataUrls[photo.id]) {
       return loadedCloudDataUrls[photo.id];
     }
-    // 3. Direct http (external link) or data url
+    // 4. Direct http (external link) or data url
     if (photo.url && (photo.url.startsWith('data:') || (photo.url.startsWith('http') && !photo.url.includes('/api/photos/')))) {
       return photo.url;
     }
-    // 4. Trigger asynchronous Firestore fetch immediately if photo has an ID
+    // 5. Trigger asynchronous Firestore fetch immediately if photo has an ID
     if (photo.id && !loadedCloudDataUrls[photo.id]) {
       fetchPhotoFromFirestore(photo.id).then((dUrl) => {
         if (dUrl) {
@@ -698,7 +715,7 @@ export const HikeModal: React.FC<HikeModalProps> = ({
         }
       });
     }
-    // 5. Fallback to API URL or rawUrl
+    // 6. Fallback to API URL or rawUrl
     if (photo.url && photo.url.startsWith('/api/photos/')) {
       return `${API_BASE_URL}${photo.url}`;
     }

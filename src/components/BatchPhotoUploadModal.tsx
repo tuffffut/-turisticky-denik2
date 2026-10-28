@@ -193,14 +193,10 @@ export const BatchPhotoUploadModal: React.FC<BatchPhotoUploadModalProps> = ({
 
         updatedRoutesMap.set(routeId, mergedPhotos);
 
-        // 1. Persist directly to Firestore
-        try {
-          await updateHikePhotosInFirestore(routeId, mergedPhotos);
-        } catch (dbErr: any) {
-          console.warn(`[BatchUpload] Firestore varování pro ${routeId}:`, dbErr?.message);
-        }
+        // 1. Persist directly to Firestore (guarantees multi-device and static site synchronization)
+        await updateHikePhotosInFirestore(routeId, mergedPhotos);
 
-        // 2. Persist to server if available
+        // 2. Also persist to local server if available
         try {
           const endpoint = API_BASE_URL ? `${API_BASE_URL}/api/routes` : '/api/routes';
           await fetch(endpoint, {
@@ -215,7 +211,7 @@ export const BatchPhotoUploadModal: React.FC<BatchPhotoUploadModalProps> = ({
             }),
           });
         } catch (serverErr) {
-          console.warn(`[BatchUpload] Server varování pro ${routeId}:`, serverErr);
+          console.warn(`[BatchUpload] Místní server varování pro ${routeId}:`, serverErr);
         }
       }
 

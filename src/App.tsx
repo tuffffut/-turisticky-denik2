@@ -38,6 +38,7 @@ import {
   fetchPhotoFromFirestore,
   fetchSecuritySettings,
   saveSecuritySettings,
+  photoMemoryCache,
 } from './firebase';
 import { API_BASE_URL } from './utils/apiConfig';
 
@@ -114,20 +115,23 @@ const PhotoCardPreview: React.FC<PhotoCardPreviewProps> = ({ photo, title, photo
       : undefined;
   const directDataUrl = typeof photo === 'object' ? photo?.dataUrl : undefined;
 
+  const memoryUrl = photoId ? photoMemoryCache.get(photoId) : undefined;
+
   useEffect(() => {
-    if (!directDataUrl && photoId && !firestoreSrc) {
+    if (!directDataUrl && !memoryUrl && photoId && !firestoreSrc) {
       fetchPhotoFromFirestore(photoId).then((dUrl) => {
         if (dUrl) setFirestoreSrc(dUrl);
       });
     }
-  }, [photoId, directDataUrl, firestoreSrc]);
+  }, [photoId, directDataUrl, memoryUrl, firestoreSrc]);
 
   const src =
     typeof photo === 'string'
       ? photo.startsWith('data:') || photo.startsWith('http')
         ? photo
-        : firestoreSrc || (photo.startsWith('/api/photos/') ? `${API_BASE_URL}${photo}?raw=1` : photo)
+        : memoryUrl || firestoreSrc || (photo.startsWith('/api/photos/') ? `${API_BASE_URL}${photo}?raw=1` : photo)
       : directDataUrl ||
+        memoryUrl ||
         firestoreSrc ||
         (photo?.url && (photo.url.startsWith('data:') || photo.url.startsWith('http')) ? photo.url : '') ||
         photo?.rawUrl ||
@@ -419,7 +423,20 @@ export const App: React.FC = () => {
                       : (Array.isArray(ch.trackPoints) && ch.trackPoints.length > 0)
                       ? ch.trackPoints
                       : existing.trackpoints || existing.trackPoints || [],
-                    photos: Array.isArray(ch.photos) ? ch.photos : (existing.photos || []),
+                    photos: (() => {
+                      const chP = Array.isArray(ch.photos) ? ch.photos : [];
+                      const exP = Array.isArray(existing.photos) ? existing.photos : [];
+                      if (chP.length === 0 && exP.length > 0) return exP;
+                      const exMap = new Map(exP.map((p: any) => [typeof p === 'object' && p ? p.id : String(p), p]));
+                      return chP.map((p: any) => {
+                        const pid = typeof p === 'object' && p ? p.id : String(p);
+                        const existingMatch = exMap.get(pid);
+                        if (existingMatch && typeof existingMatch === 'object' && existingMatch.dataUrl && (!p.dataUrl || !p.dataUrl.startsWith('data:'))) {
+                          return { ...p, dataUrl: existingMatch.dataUrl };
+                        }
+                        return p;
+                      });
+                    })(),
                   };
                   map.set(ch.id, merged);
                   changed = true;
@@ -609,12 +626,8 @@ export const App: React.FC = () => {
       console.warn('[handleSaveRoute] Server save varování:', serverErr);
     }
 
-    // 2. Also sync to Cloud Firestore in background (safe against quota issues)
-    try {
-      await syncHikeToFirestore(updatedRoute.id, finalRoute);
-    } catch (dbErr: any) {
-      console.warn('[handleSaveRoute] Firestore varování (data jsou uložena na serveru):', dbErr?.message);
-    }
+    // 2. Sync to Cloud Firestore (guarantees persistence across devices and page reloads)
+    await syncHikeToFirestore(updatedRoute.id, finalRoute);
 
     // 3. Update in-memory state immediately
     setRoutes((prev) =>

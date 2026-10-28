@@ -1109,12 +1109,30 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       if (db) {
         const firestoreHike = { ...cleanHikeForDb };
         const rawPts = firestoreHike.trackpoints || firestoreHike.trackPoints;
-        if (Array.isArray(rawPts) && rawPts.length > 1000) {
-          const step = Math.ceil(rawPts.length / 1000);
+        if (Array.isArray(rawPts) && rawPts.length > 400) {
+          const step = Math.ceil(rawPts.length / 400);
           const sampled = rawPts.filter((_, idx) => idx % step === 0 || idx === rawPts.length - 1);
           firestoreHike.trackpoints = sampled;
           firestoreHike.trackPoints = sampled;
         }
+        delete firestoreHike.gpxRawXml;
+
+        if (Array.isArray(firestoreHike.photos)) {
+          firestoreHike.photos = firestoreHike.photos.map((p: any) => {
+            if (typeof p === 'object' && p !== null) {
+              const { dataUrl, ...rest } = p;
+              const photoUrl = (rest.url && !rest.url.startsWith('data:')) ? rest.url : `/api/photos/${rest.id}`;
+              const rawUrl = (rest.rawUrl && !rest.rawUrl.startsWith('data:')) ? rest.rawUrl : `${photoUrl}?raw=1`;
+              return {
+                ...rest,
+                url: photoUrl,
+                rawUrl,
+              };
+            }
+            return p;
+          });
+        }
+
         setDoc(doc(db, 'hikes', routeId), firestoreHike)
           .then(() => console.log(`[API /api/routes] Trasa ${routeId} synchronizována do Firestore.`))
           .catch((dbErr) => console.warn('[API /api/routes] Firestore varování při zápisu:', dbErr.message));
@@ -1454,8 +1472,7 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       const photoCaption = caption || photo?.caption || '';
       const photoWidth = width || photo?.width || null;
       const photoHeight = height || photo?.height || null;
-      const photoSizeKb = sizeKb || photo?.sizeKb || null;
-      const photoId = photo?.id || ('photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
+      const photoId = req.body?.id || photo?.id || ('photo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
 
       // 1. Save binary file to disk
       const savedPhoto = await savePhotoDataUrl(photoDataUrl, id, {
@@ -1469,8 +1486,8 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
       const photoItem = {
         id: photoId,
         dataUrl: photoDataUrl,
-        url: photoDataUrl,
-        rawUrl: photoDataUrl,
+        url: `/api/photos/${photoId}`,
+        rawUrl: `/api/photos/${photoId}?raw=1`,
         name: photoName,
         caption: photoCaption,
         width: photoWidth || savedPhoto.width,
@@ -1513,7 +1530,16 @@ Odpověz výhradně ve formátu JSON s těmito poli v češtině:
         }).catch((e: any) => console.warn('[Firestore] hike_photos setDoc varování:', e.message));
 
         if (updatedPhotos.length > 0) {
-          setDoc(doc(db, 'hikes', id), { photos: updatedPhotos }, { merge: true })
+          const leanPhotos = updatedPhotos.map((p: any) => {
+            if (typeof p === 'object' && p !== null) {
+              const { dataUrl, ...rest } = p;
+              const photoUrl = (rest.url && !rest.url.startsWith('data:')) ? rest.url : `/api/photos/${rest.id}`;
+              const rawUrl = (rest.rawUrl && !rest.rawUrl.startsWith('data:')) ? rest.rawUrl : `${photoUrl}?raw=1`;
+              return { ...rest, url: photoUrl, rawUrl };
+            }
+            return p;
+          });
+          setDoc(doc(db, 'hikes', id), { photos: leanPhotos }, { merge: true })
             .catch((e: any) => console.warn('[Firestore] hikes photos update varování:', e.message));
         }
       }
